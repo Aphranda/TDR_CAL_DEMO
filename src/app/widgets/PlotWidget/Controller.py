@@ -19,7 +19,11 @@ class PlotWidgetController(QObject):
         self.view.set_axis_position('left', 'bottom')
         
         # 设置坐标轴标签对齐方式（默认：居中对齐）
-        self.view.set_axis_label_alignment('center', 'center')
+        # 注意：这里使用更安全的方式设置对齐
+        self.view.plot_widget.setLabel('bottom', self.view.plot_widget.getAxis('bottom').labelText, 
+                                    **{'horizontalAlignment': 'center'})
+        self.view.plot_widget.setLabel('left', self.view.plot_widget.getAxis('left').labelText, 
+                                    **{'verticalAlignment': 'center'})
     
     def setup_connections(self):
         """设置信号连接"""
@@ -61,7 +65,15 @@ class PlotWidgetController(QObject):
         """
         self.view.set_axis_alignment()
         self.view.set_axis_position(left_pos, bottom_pos)
-        self.view.set_axis_label_alignment(horizontal, vertical)
+        
+        # 使用安全的方式设置标签对齐
+        if horizontal in ['left', 'center', 'right']:
+            self.view.plot_widget.setLabel('bottom', self.view.plot_widget.getAxis('bottom').labelText, 
+                                        **{'horizontalAlignment': horizontal})
+        
+        if vertical in ['top', 'center', 'bottom']:
+            self.view.plot_widget.setLabel('left', self.view.plot_widget.getAxis('left').labelText, 
+                                        **{'verticalAlignment': vertical})
     
     def set_axis_visibility(self, show_top=False, show_right=False, 
                           show_bottom=True, show_left=True):

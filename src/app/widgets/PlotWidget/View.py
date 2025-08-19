@@ -1,5 +1,5 @@
 # src/app/widgets/PlotWidget/View.py
-from PyQt5.QtWidgets import QWidget, QVBoxLayout
+from PyQt5.QtWidgets import QWidget, QVBoxLayout,QHBoxLayout
 from PyQt5.QtCore import Qt
 import pyqtgraph as pg
 
@@ -10,7 +10,7 @@ class PlotWidgetView(QWidget):
         self.setup_ui()
     
     def setup_ui(self):
-        layout = QVBoxLayout()
+        layout = QHBoxLayout()
         self.setLayout(layout)
         
         # 创建绘图部件
@@ -37,7 +37,7 @@ class PlotWidgetView(QWidget):
         top_axis = self.plot_widget.getAxis('top')
         right_axis = self.plot_widget.getAxis('right')
         
-        # 设置底部坐标轴对齐方式 - 居中对齐
+        # 设置底部坐标轴对齐方式
         if bottom_axis:
             bottom_axis.setStyle(
                 tickTextOffset=10,  # 刻度文本偏移
@@ -46,7 +46,7 @@ class PlotWidgetView(QWidget):
                 autoExpandTextSpace=True  # 自动扩展文本空间
             )
         
-        # 设置左侧坐标轴对齐方式 - 居中对齐
+        # 设置左侧坐标轴对齐方式
         if left_axis:
             left_axis.setStyle(
                 tickTextOffset=10,  # 刻度文本偏移
@@ -93,26 +93,30 @@ class PlotWidgetView(QWidget):
             horizontal: 水平对齐 ('left', 'center', 'right')
             vertical: 垂直对齐 ('top', 'center', 'bottom')
         """
-        bottom_axis = self.plot_widget.getAxis('bottom')
-        left_axis = self.plot_widget.getAxis('left')
+        # 在 PyQtGraph 中，坐标轴标签的对齐是通过 setLabel 方法的参数控制的
+        # 而不是直接操作 label 对象的对齐方式
         
-        if bottom_axis:
-            # 设置底部坐标轴标签对齐
-            if horizontal == 'left':
-                bottom_axis.label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-            elif horizontal == 'center':
-                bottom_axis.label.setAlignment(Qt.AlignCenter)
-            elif horizontal == 'right':
-                bottom_axis.label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        # 设置底部坐标轴标签对齐
+        if horizontal == 'left':
+            self.plot_widget.setLabel('bottom', self.plot_widget.getAxis('bottom').labelText, 
+                                    **{'horizontalAlignment': 'left'})
+        elif horizontal == 'center':
+            self.plot_widget.setLabel('bottom', self.plot_widget.getAxis('bottom').labelText, 
+                                    **{'horizontalAlignment': 'center'})
+        elif horizontal == 'right':
+            self.plot_widget.setLabel('bottom', self.plot_widget.getAxis('bottom').labelText, 
+                                    **{'horizontalAlignment': 'right'})
         
-        if left_axis:
-            # 设置左侧坐标轴标签对齐
-            if vertical == 'top':
-                left_axis.label.setAlignment(Qt.AlignTop | Qt.AlignHCenter)
-            elif vertical == 'center':
-                left_axis.label.setAlignment(Qt.AlignCenter)
-            elif vertical == 'bottom':
-                left_axis.label.setAlignment(Qt.AlignBottom | Qt.AlignHCenter)
+        # 设置左侧坐标轴标签对齐
+        if vertical == 'top':
+            self.plot_widget.setLabel('left', self.plot_widget.getAxis('left').labelText, 
+                                    **{'verticalAlignment': 'top'})
+        elif vertical == 'center':
+            self.plot_widget.setLabel('left', self.plot_widget.getAxis('left').labelText, 
+                                    **{'verticalAlignment': 'center'})
+        elif vertical == 'bottom':
+            self.plot_widget.setLabel('left', self.plot_widget.getAxis('left').labelText, 
+                                    **{'verticalAlignment': 'bottom'})
     
     def plot_data(self, x_data, y_data):
         """绘制数据"""
@@ -125,8 +129,6 @@ class PlotWidgetView(QWidget):
     
     def set_labels(self, x_label, y_label):
         """设置坐标轴标签"""
-        self.plot_widget.setLabel('bottom', x_label)
-        self.plot_widget.setLabel('left', y_label)
-        
-        # 设置标签对齐方式（可选）
-        self.set_axis_label_alignment('center', 'center')
+        # 使用正确的对齐参数设置标签
+        self.plot_widget.setLabel('bottom', x_label, **{'horizontalAlignment': 'center'})
+        self.plot_widget.setLabel('left', y_label, **{'verticalAlignment': 'center'})
