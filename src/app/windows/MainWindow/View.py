@@ -9,7 +9,7 @@ class MainWindowView(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("网络分析仪校准系统")
-        self.resize(1200, 800)
+        self.resize(1600, 800)
         
         self._setup_ui()
     
@@ -66,7 +66,7 @@ class MainWindowView(QMainWindow):
         splitter.addWidget(self.right_tab_widget)
         
         # 设置初始分割比例
-        splitter.setSizes([700, 500])
+        splitter.setSizes([1100, 500])
         
         # 状态栏
         self.status_bar = QStatusBar()
@@ -87,12 +87,12 @@ class MainWindowView(QMainWindow):
     def set_instrument_widget(self, widget):
         """设置仪表连接区域（在网分校准标签页中）"""
         widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
-        widget.setMinimumHeight(80)  # 设置最小高度
+        widget.setMinimumHeight(150)  # 设置最小高度
         self.calibration_splitter.addWidget(widget)
         
         # 设置分割比例
         if self.calibration_splitter.count() == 1:
-            self.calibration_splitter.setSizes([80])
+            self.calibration_splitter.setSizes([150])
     
     def set_calibration_widget(self, widget):
         """设置校准区域（在网分校准标签页中）"""
@@ -102,7 +102,7 @@ class MainWindowView(QMainWindow):
         
         # 设置分割比例
         if self.calibration_splitter.count() == 2:
-            self.calibration_splitter.setSizes([80, 200])
+            self.calibration_splitter.setSizes([150, 200])
     
     def set_log_widget(self, widget):
         """设置日志区域（在网分校准标签页中）"""
@@ -112,7 +112,7 @@ class MainWindowView(QMainWindow):
         
         # 设置分割比例
         if self.calibration_splitter.count() == 3:
-            self.calibration_splitter.setSizes([50, 200, 150])
+            self.calibration_splitter.setSizes([150, 200, 150])
     
     def set_vna_control_widget(self, widget):
         """设置网分控制区域"""

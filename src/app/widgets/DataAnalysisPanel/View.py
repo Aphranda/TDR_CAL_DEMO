@@ -2,8 +2,9 @@
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, 
                              QLabel, QPushButton, QComboBox, QListWidget,
                              QCheckBox, QLineEdit, QTextEdit, QSpinBox, 
-                             QProgressBar, QSplitter, QTabWidget, QDoubleSpinBox,QStackedWidget)
+                             QProgressBar, QSplitter, QTabWidget, QDoubleSpinBox, QStackedWidget)
 from PyQt5.QtCore import Qt
+from PyQt5.QtGui import QIntValidator
 
 class DataAnalysisView(QWidget):
     def __init__(self):
@@ -16,21 +17,25 @@ class DataAnalysisView(QWidget):
         # 左侧控制面板
         control_panel = QWidget()
         control_layout = QVBoxLayout()
+        control_layout.setSpacing(8)  # 减小整体间距
         
         # ADC控制部分
         adc_group = QGroupBox("ADC采样控制")
         adc_layout = QVBoxLayout()
+        adc_layout.setSpacing(6)  # 减小组内间距
         
         # 连接设置
         connect_layout = QHBoxLayout()
-        connect_layout.addWidget(QLabel("服务器IP:"))
+        connect_layout.addWidget(QLabel("IP地址:"))
         self.adc_ip_edit = QLineEdit("192.168.1.10")
+        self.adc_ip_edit.setPlaceholderText("输入ADC IP地址")
         connect_layout.addWidget(self.adc_ip_edit)
+
         connect_layout.addWidget(QLabel("端口:"))
-        self.adc_port_spin = QSpinBox()
-        self.adc_port_spin.setRange(1000, 65535)
-        self.adc_port_spin.setValue(15000)
-        connect_layout.addWidget(self.adc_port_spin)
+        self.adc_port_edit = QLineEdit("15000")
+        self.adc_port_edit.setValidator(QIntValidator(1000, 65535))
+        self.adc_port_edit.setMaximumWidth(80)
+        connect_layout.addWidget(self.adc_port_edit)
         adc_layout.addLayout(connect_layout)
         
         # 连接按钮
@@ -69,20 +74,10 @@ class DataAnalysisView(QWidget):
         adc_group.setLayout(adc_layout)
         control_layout.addWidget(adc_group)
         
-        # 数据分析类型选择
-        type_group = QGroupBox("分析类型")
-        type_layout = QVBoxLayout()
-        
-        self.analysis_combo = QComboBox()
-        self.analysis_combo.addItems(["S参数", "TDR", "ADC数据分析"])
-        type_layout.addWidget(self.analysis_combo)
-        
-        type_group.setLayout(type_layout)
-        control_layout.addWidget(type_group)
-        
         # 数据文件选择
         file_group = QGroupBox("数据文件")
         file_layout = QVBoxLayout()
+        file_layout.setSpacing(6)  # 减小组内间距
         
         file_control_layout = QHBoxLayout()
         self.load_button = QPushButton("加载文件")
@@ -92,28 +87,39 @@ class DataAnalysisView(QWidget):
         file_layout.addLayout(file_control_layout)
         
         self.file_list = QListWidget()
-        self.file_list.setMaximumHeight(100)
+        self.file_list.setMaximumHeight(500)
         file_layout.addWidget(self.file_list)
         
         file_group.setLayout(file_layout)
         control_layout.addWidget(file_group)
         
-        # 分析选项堆叠窗口
-        self.options_stack = QStackedWidget()
+        # 数据分析类型选择
+        type_group = QGroupBox("分析类型")
+        type_layout = QVBoxLayout()
+        type_layout.setSpacing(6)  # 减小组内间距
         
-        # S参数选项
+        self.analysis_combo = QComboBox()
+        self.analysis_combo.addItems(["S参数", "TDR", "ADC数据分析"])
+        type_layout.addWidget(self.analysis_combo)
+        
+        # 分析选项堆叠窗口 - 直接放在分析类型Group下面
+        self.options_stack = QStackedWidget()
+        type_layout.addWidget(self.options_stack)
+        
+        type_group.setLayout(type_layout)
+        control_layout.addWidget(type_group)
+
+        # S参数选项 - 不使用GroupBox包装
         s_param_widget = self.create_s_parameter_options()
         self.options_stack.addWidget(s_param_widget)
         
-        # TDR选项
+        # TDR选项 - 不使用GroupBox包装
         tdr_widget = self.create_tdr_options()
         self.options_stack.addWidget(tdr_widget)
         
-        # ADC数据分析选项
+        # ADC数据分析选项 - 不使用GroupBox包装
         adc_analysis_widget = self.create_adc_analysis_options()
         self.options_stack.addWidget(adc_analysis_widget)
-        
-        control_layout.addWidget(self.options_stack)
         
         # 分析按钮
         button_layout = QHBoxLayout()
@@ -147,7 +153,7 @@ class DataAnalysisView(QWidget):
         splitter = QSplitter(Qt.Vertical)
         splitter.addWidget(control_panel)
         splitter.addWidget(result_tabs)
-        splitter.setSizes([300, 700])  # 调整上下比例
+        splitter.setSizes([300, 700])
         
         main_layout.addWidget(splitter)
         self.setLayout(main_layout)
@@ -156,60 +162,87 @@ class DataAnalysisView(QWidget):
         self.options_stack.setCurrentIndex(0)
     
     def create_s_parameter_options(self):
-        """创建S参数选项"""
+        """创建S参数选项 - 不使用GroupBox包装"""
         widget = QWidget()
         layout = QVBoxLayout()
-        
-        layout.addWidget(QLabel("S参数分析选项"))
+        layout.setSpacing(6)  # 减小组间间距
         
         # 频率范围设置
         freq_layout = QHBoxLayout()
-        freq_layout.addWidget(QLabel("起始频率(GHz):"))
+        freq_layout.addWidget(QLabel("起始频率:"))
         self.s_start_freq = QDoubleSpinBox()
         self.s_start_freq.setRange(0.1, 50.0)
         self.s_start_freq.setValue(0.1)
+        self.s_start_freq.setSuffix(" GHz")
         freq_layout.addWidget(self.s_start_freq)
-        freq_layout.addWidget(QLabel("终止频率(GHz):"))
+        
+        freq_layout.addWidget(QLabel("终止频率:"))
         self.s_stop_freq = QDoubleSpinBox()
         self.s_stop_freq.setRange(0.1, 50.0)
         self.s_stop_freq.setValue(10.0)
+        self.s_stop_freq.setSuffix(" GHz")
         freq_layout.addWidget(self.s_stop_freq)
         layout.addLayout(freq_layout)
         
         # 点数设置
         points_layout = QHBoxLayout()
-        points_layout.addWidget(QLabel("点数:"))
+        points_layout.addWidget(QLabel("扫描点数:"))
         self.s_points = QSpinBox()
         self.s_points.setRange(101, 10001)
         self.s_points.setValue(201)
         points_layout.addWidget(self.s_points)
+        
+        points_layout.addStretch()
+        
+        # 添加IF带宽设置
+        points_layout.addWidget(QLabel("IF带宽:"))
+        self.s_if_bw = QDoubleSpinBox()
+        self.s_if_bw.setRange(1.0, 10000.0)
+        self.s_if_bw.setValue(1000.0)
+        self.s_if_bw.setSuffix(" Hz")
+        self.s_if_bw.setMaximumWidth(100)
+        points_layout.addWidget(self.s_if_bw)
+        
         layout.addLayout(points_layout)
+        
+        # 校准设置
+        cal_layout = QHBoxLayout()
+        self.s_use_calibration = QCheckBox("使用校准文件")
+        self.s_use_calibration.setChecked(True)
+        cal_layout.addWidget(self.s_use_calibration)
+        
+        self.s_cal_file_button = QPushButton("选择校准文件")
+        self.s_cal_file_button.setMaximumWidth(120)
+        cal_layout.addWidget(self.s_cal_file_button)
+        
+        layout.addLayout(cal_layout)
         
         widget.setLayout(layout)
         return widget
     
     def create_tdr_options(self):
-        """创建TDR选项"""
+        """创建TDR选项 - 不使用GroupBox包装"""
         widget = QWidget()
         layout = QVBoxLayout()
-        
-        layout.addWidget(QLabel("TDR分析选项"))
+        layout.setSpacing(6)  # 减小组间间距
         
         # 时间范围设置
         time_layout = QHBoxLayout()
-        time_layout.addWidget(QLabel("时间范围(ns):"))
+        time_layout.addWidget(QLabel("时间范围:"))
         self.tdr_time_range = QDoubleSpinBox()
         self.tdr_time_range.setRange(1.0, 1000.0)
         self.tdr_time_range.setValue(10.0)
+        self.tdr_time_range.setSuffix(" ns")
         time_layout.addWidget(self.tdr_time_range)
         layout.addLayout(time_layout)
         
-        # 阻抗参考设置
+        # 阻抗设置
         imp_layout = QHBoxLayout()
-        imp_layout.addWidget(QLabel("参考阻抗(Ω):"))
+        imp_layout.addWidget(QLabel("参考阻抗:"))
         self.tdr_ref_impedance = QDoubleSpinBox()
         self.tdr_ref_impedance.setRange(1.0, 1000.0)
         self.tdr_ref_impedance.setValue(50.0)
+        self.tdr_ref_impedance.setSuffix(" Ω")
         imp_layout.addWidget(self.tdr_ref_impedance)
         layout.addLayout(imp_layout)
         
@@ -217,55 +250,49 @@ class DataAnalysisView(QWidget):
         return widget
     
     def create_adc_analysis_options(self):
-        """创建ADC数据分析选项"""
+        """创建ADC数据分析选项 - 不使用GroupBox包装"""
         widget = QWidget()
         layout = QVBoxLayout()
+        layout.setSpacing(6)  # 减小组间间距
         
-        layout.addWidget(QLabel("ADC数据分析选项"))
-        
-        # 输入目录设置
-        dir_layout = QHBoxLayout()
-        dir_layout.addWidget(QLabel("数据目录:"))
-        self.adc_input_dir = QLineEdit()
-        self.adc_input_dir.setPlaceholderText("选择ADC数据目录")
-        dir_layout.addWidget(self.adc_input_dir)
-        self.browse_dir_button = QPushButton("浏览")
-        dir_layout.addWidget(self.browse_dir_button)
-        layout.addLayout(dir_layout)
-        
-        # 时钟频率设置
+        # 频率设置
         clock_layout = QHBoxLayout()
-        clock_layout.addWidget(QLabel("时钟频率(MHz):"))
+        clock_layout.addWidget(QLabel("时钟频率:"))
         self.adc_clock_freq = QDoubleSpinBox()
         self.adc_clock_freq.setRange(1.0, 1000.0)
         self.adc_clock_freq.setValue(39.54)
+        self.adc_clock_freq.setSuffix(" MHz")
         clock_layout.addWidget(self.adc_clock_freq)
         layout.addLayout(clock_layout)
         
-        # 触发频率设置
         trigger_layout = QHBoxLayout()
-        trigger_layout.addWidget(QLabel("触发频率(MHz):"))
+        trigger_layout.addWidget(QLabel("触发频率:"))
         self.adc_trigger_freq = QDoubleSpinBox()
         self.adc_trigger_freq.setRange(0.1, 100.0)
         self.adc_trigger_freq.setValue(10.0)
+        self.adc_trigger_freq.setSuffix(" MHz")
         trigger_layout.addWidget(self.adc_trigger_freq)
         layout.addLayout(trigger_layout)
         
         # ROI设置
         roi_layout = QHBoxLayout()
-        roi_layout.addWidget(QLabel("ROI范围(%):"))
+        roi_layout.addWidget(QLabel("ROI范围:"))
         self.adc_roi_start = QSpinBox()
         self.adc_roi_start.setRange(0, 100)
         self.adc_roi_start.setValue(20)
+        self.adc_roi_start.setSuffix(" %")
         roi_layout.addWidget(self.adc_roi_start)
+        
         roi_layout.addWidget(QLabel("-"))
+        
         self.adc_roi_end = QSpinBox()
         self.adc_roi_end.setRange(0, 100)
         self.adc_roi_end.setValue(30)
+        self.adc_roi_end.setSuffix(" %")
         roi_layout.addWidget(self.adc_roi_end)
         layout.addLayout(roi_layout)
         
-        # 其他选项
+        # 选项
         options_layout = QHBoxLayout()
         self.adc_recursive_check = QCheckBox("递归搜索子目录")
         self.adc_recursive_check.setChecked(True)
@@ -367,7 +394,6 @@ class DataAnalysisView(QWidget):
         # 显示配置信息
         self.config_text.append("分析配置:")
         self.config_text.append("=" * 50)
-        self.config_text.append(f"数据目录: {self.adc_input_dir.text()}")
         self.config_text.append(f"时钟频率: {self.adc_clock_freq.value()} MHz")
         self.config_text.append(f"触发频率: {self.adc_trigger_freq.value()} MHz")
         self.config_text.append(f"ROI范围: {self.adc_roi_start.value()}%-{self.adc_roi_end.value()}%")

@@ -5,6 +5,7 @@ from PyQt5.QtWidgets import QFileDialog, QMessageBox
 from PyQt5.QtCore import QObject, pyqtSignal, QThread, pyqtSlot
 from ...core.ADCSample import ADCSample
 from ...core.DataAnalyze import DataAnalyzer, AnalysisConfig
+from ...core.FileManager import FileManager
 import time
 
 class ADCWorker(QObject):
@@ -97,9 +98,6 @@ class DataAnalysisController(QObject):
         self.view.disconnect_button.clicked.connect(self.on_disconnect_adc)
         self.view.sample_button.clicked.connect(self.on_sample_adc)
         
-        # 目录浏览按钮
-        self.view.browse_dir_button.clicked.connect(self.on_browse_directory)
-        
         # 连接状态信号
         self.adcStatusChanged.connect(self.view.update_adc_connection_status)
         self.samplingProgress.connect(self.view.update_sampling_progress)
@@ -111,7 +109,12 @@ class DataAnalysisController(QObject):
         """连接ADC"""
         try:
             ip = self.view.adc_ip_edit.text()
-            port = self.view.adc_port_spin.value()
+            port_text = self.view.adc_port_edit.text()
+            try:
+                port = int(port_text)
+            except ValueError:
+                self.errorOccurred.emit("端口号必须是有效的数字")
+                return
             
             # 更新模型
             self.model.adc_ip = ip
@@ -177,17 +180,6 @@ class DataAnalysisController(QObject):
         for data in sample_data:
             self.model.add_adc_sample(data)
         self.dataLoaded.emit(f"接收到 {len(sample_data)} 组采样数据")
-    
-    def on_browse_directory(self):
-        """浏览目录"""
-        directory = QFileDialog.getExistingDirectory(
-            self.view,
-            "选择数据目录",
-            ""
-        )
-        if directory:
-            self.view.adc_input_dir.setText(directory)
-            self.model.adc_config.input_dir = directory
     
     def on_load_file(self):
         """加载数据文件"""
@@ -271,7 +263,6 @@ class DataAnalysisController(QObject):
         try:
             # 更新配置
             config = self.model.adc_config
-            config.input_dir = self.view.adc_input_dir.text()
             config.clock_freq = self.view.adc_clock_freq.value() * 1e6
             config.trigger_freq = self.view.adc_trigger_freq.value() * 1e6
             config.roi_start_tenths = self.view.adc_roi_start.value()

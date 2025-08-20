@@ -1,6 +1,5 @@
+# src/app/core/DataAnalyze.py
 import os
-import re
-import glob
 import numpy as np
 import matplotlib.pyplot as plt
 from tqdm import tqdm
@@ -10,11 +9,12 @@ from dataclasses import dataclass
 from typing import List, Tuple, Optional, Dict, Any
 import json
 
+from FileManager import FileManager
+
 # 设置matplotlib后端
 matplotlib.use("TkAgg")
 
 # 配置日志
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 # 搜索方法枚举
@@ -72,8 +72,9 @@ class AnalysisConfig:
 class DataAnalyzer:
     """数据分析器类"""
     
-    def __init__(self, config: AnalysisConfig):
+    def __init__(self, config: AnalysisConfig, file_manager=None):
         self.config = config
+        self.file_manager = file_manager or FileManager()
         self.validate_config()
         
     def validate_config(self):
@@ -84,45 +85,9 @@ class DataAnalyzer:
         if not os.path.exists(self.config.input_dir):
             raise FileNotFoundError(f"输入目录不存在: {self.config.input_dir}")
     
-    @staticmethod
-    def load_u32_text_first_col(path: str, skip_first: bool = True) -> np.ndarray:
-        """
-        从文本文件加载uint32数据
-        
-        Args:
-            path: 文件路径
-            skip_first: 是否跳过第一行
-            
-        Returns:
-            uint32数组
-        """
-        encodings = ["utf-8", "utf-8-sig", "gbk", "latin1", "utf-16", "utf-16le", "utf-16be"]
-        last_err = None
-        
-        for enc in encodings:
-            try:
-                vals = []
-                with open(path, "r", encoding=enc, errors="strict") as f:
-                    for line in f:
-                        s = line.strip()
-                        if not s:
-                            continue
-                        # 使用正则表达式匹配十六进制或十进制数字
-                        m = re.search(r'(0x[0-9a-fA-F]+|\d+)', s)
-                        if not m:
-                            continue
-                        vals.append(np.uint32(int(m.group(1), 0)))
-                
-                arr = np.asarray(vals, dtype=np.uint32)
-                if skip_first and arr.size >= 1:
-                    arr = arr[1:]
-                return arr
-                
-            except Exception as e:
-                last_err = e
-                continue
-        
-        raise last_err or Exception("无法读取文件")
+    def load_u32_data(self, path: str) -> np.ndarray:
+        """从文件加载uint32数据"""
+        return self.file_manager.load_u32_text_first_col(path, skip_first=self.config.skip_first_value)
     
     def process_single_file(self, u32_arr: np.ndarray) -> Optional[Tuple]:
         """
@@ -227,11 +192,7 @@ class DataAnalyzer:
             处理结果字典
         """
         # 查找文件
-        pattern = os.path.join(self.config.input_dir, "**", "*.csv") if self.config.recursive else os.path.join(self.config.input_dir, "*.csv")
-        files = sorted(glob.glob(pattern, recursive=self.config.recursive))
-        
-        if not files:
-            raise FileNotFoundError(f"未找到csv文件: {pattern}")
+        files = self.file_manager.find_csv_files(self.config.input_dir, self.config.recursive)
         
         logger.info(f"找到 {len(files)} 个文件")
         
@@ -245,7 +206,7 @@ class DataAnalyzer:
         # 处理每个文件
         for f in tqdm(files, desc="处理文件", unit="file"):
             try:
-                raw = self.load_u32_text_first_col(f, skip_first=self.config.skip_first_value)
+                raw = self.load_u32_data(f)
                 res = self.process_single_file(raw)
                 
                 if res is None:
@@ -355,11 +316,15 @@ class DataAnalyzer:
     def save_results(self, results: Dict[str, Any], averages: Dict[str, Any]):
         """保存结果到文件"""
         # 保存复数FFT结果
-        out_mat = np.column_stack([results['freq_d_ref'], np.real(averages['avg_Xd']), np.imag(averages['avg_Xd'])])
-        np.savetxt(self.config.output_csv, out_mat, delimiter=",", 
-                  header="freq_Hz,Re,Im", comments="", fmt="%.10e")
+        success = self.file_manager.save_complex_fft_results(
+            results['freq_d_ref'], 
+            np.real(averages['avg_Xd']), 
+            np.imag(averages['avg_Xd']), 
+            self.config.output_csv
+        )
         
-        logger.info(f"结果保存到: {os.path.abspath(self.config.output_csv)}")
+        if not success:
+            logger.error("复数FFT结果保存失败")
         
         # 保存处理统计信息
         stats = {
@@ -376,10 +341,7 @@ class DataAnalyzer:
         }
         
         stats_file = os.path.splitext(self.config.output_csv)[0] + '_stats.json'
-        with open(stats_file, 'w') as f:
-            json.dump(stats, f, indent=2)
-        
-        logger.info(f"统计信息保存到: {stats_file}")
+        self.file_manager.save_json_data(stats, stats_file)
     
     def run_analysis(self):
         """运行完整分析流程"""

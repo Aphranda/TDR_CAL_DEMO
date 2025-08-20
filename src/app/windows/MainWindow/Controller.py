@@ -136,7 +136,3 @@ class MainWindowController:
             data_analysis_controller.errorOccurred.connect(
                 lambda msg: self.log_controller.log(msg, "ERROR")
             )
-        
-        # 添加调试信息
-        print(f"数据分析控制器引用: {data_analysis_controller}")
-        print(f"数据分析控制器类型: {type(data_analysis_controller)}")

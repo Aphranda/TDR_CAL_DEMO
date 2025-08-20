@@ -1,24 +1,25 @@
-# Title  : ADC Sample with TcpClient
-# Author : YEaoqi
-# Email  : yeaoqi@foxmail.com
-# Time   : 2024-01-15
+# src/app/core/ADCSample.py
 import struct
-import csv
 import os
 import time
-from .TcpClient import TcpClient  # 使用相对导入
+import socket
+from TcpClient import TcpClient
+from FileManager import FileManager
+import logging
 
+logger = logging.getLogger(__name__)
 
 class ADCSample:
     """使用TcpClient优化的ADC采样类"""
     
-    def __init__(self):
+    def __init__(self, file_manager=None):
         self.tcp_client = TcpClient()
+        self.file_manager = file_manager or FileManager()
         self.connected = False
         self.server_ip = '192.168.1.10'
         self.server_port = 15000
         self.chunk_size = 32768
-        self.output_dir = 'CSV_Data0818_testonly'
+        self.output_dir = 'CSV_Data_test_results'
     
     def set_server_config(self, ip, port):
         """设置服务器配置"""
@@ -39,11 +40,6 @@ class ADCSample:
         """断开连接"""
         self.tcp_client.close()
         self.connected = False
-    
-    def ensure_dir_exists(self, directory):
-        """确保目录存在，如果不存在则创建"""
-        if not os.path.exists(directory):
-            os.makedirs(directory)
     
     def send_command(self, command, max_retries=3):
         """发送命令并获取响应"""
@@ -114,7 +110,7 @@ class ADCSample:
             if not success:
                 return None, f"采样指令发送失败: {response}"
             
-            print(f"测试 {test_num + 1}: sample 响应: {response.strip()}")
+            logger.info(f"测试 {test_num + 1}: sample 响应: {response.strip()}")
             
             if 'ok' not in response.lower():
                 return None, f"采样失败: {response}"
@@ -124,11 +120,10 @@ class ADCSample:
             if not success:
                 return None, f"数据接收失败: {data}"
             
-            print(f"测试 {test_num + 1}: 接收 {len(data)} 字节原始数据")
+            logger.info(f"测试 {test_num + 1}: 接收 {len(data)} 字节原始数据")
             
             # 检查数据长度是否为4的倍数
             if len(data) % 4 != 0:
-                print(f"警告: 数据长度 {len(data)} 不是4的倍数，进行截断处理")
                 # 截断到最近的4的倍数
                 data = data[:len(data) - (len(data) % 4)]
             
@@ -139,7 +134,7 @@ class ADCSample:
             
             try:
                 u32_values = struct.unpack('<' + 'I' * num_values, data)
-                print(f"测试 {test_num + 1}: 成功解析 {num_values} 个32位数据点")
+                logger.info(f"测试 {test_num + 1}: 成功解析 {num_values} 个32位数据点")
                 return u32_values, None
             except struct.error as e:
                 return None, f"数据解析错误: {str(e)}"
@@ -149,65 +144,50 @@ class ADCSample:
     
     def save_test_result(self, test_num, u32_values):
         """保存测试结果到文件"""
-        self.ensure_dir_exists(self.output_dir)
-        filename = os.path.join(self.output_dir, f'test_result_{test_num + 1:04d}.csv')
-        
-        try:
-            with open(filename, 'w', newline='', encoding='utf-8') as csvfile:
-                writer = csv.writer(csvfile)
-                writer.writerow(['32位原始数据(十进制)'])
-                
-                # 直接保存每个32位值的十进制表示
-                for val in u32_values:
-                    writer.writerow([str(val)])
-            
-            print(f"测试 {test_num + 1}: 数据已保存到 {filename}，共{len(u32_values)}个32位数据点")
-            return True, f"数据保存成功: {filename}"
-            
-        except Exception as e:
-            return False, f"数据保存失败: {str(e)}"
+        filename = f'test_result_{test_num + 1:04d}.csv'
+        return self.file_manager.save_adc_csv_data(u32_values, filename, self.output_dir)
     
     def perform_multiple_tests(self, test_count=10, delay_between_tests=0.1):
         """执行多次测试"""
         if not self.connected:
             return False, "未连接到服务器"
         
-        self.ensure_dir_exists(self.output_dir)
+        self.file_manager.ensure_dir_exists(self.output_dir)
         start_time = time.time()
         successful_tests = 0
         
         for i in range(test_count):
             try:
-                print(f"\n开始测试 {i + 1}/{test_count}")
+                logger.info(f"\n开始测试 {i + 1}/{test_count}")
                 
                 # 执行单次测试
                 u32_values, error = self.perform_single_test(i)
                 if error:
-                    print(f"测试 {i + 1} 失败: {error}")
+                    logger.error(f"测试 {i + 1} 失败: {error}")
                     continue
                 
                 # 保存结果
                 success, message = self.save_test_result(i, u32_values)
                 if success:
                     successful_tests += 1
-                    print(f"测试 {i + 1} 完成: {message}")
+                    logger.info(f"测试 {i + 1} 完成: {message}")
                 else:
-                    print(f"测试 {i + 1} 保存失败: {message}")
+                    logger.error(f"测试 {i + 1} 保存失败: {message}")
                 
                 # 每次测试后短暂暂停
                 time.sleep(delay_between_tests)
                 
             except Exception as e:
-                print(f"测试 {i + 1} 发生异常: {str(e)}")
+                logger.error(f"测试 {i + 1} 发生异常: {str(e)}")
                 continue
         
         # 计算并显示总耗时
         total_time = time.time() - start_time
-        print(f"\n所有测试完成! 共进行 {test_count} 次测试，成功 {successful_tests} 次")
-        print(f"总耗时: {total_time:.2f} 秒")
+        logger.info(f"\n所有测试完成! 共进行 {test_count} 次测试，成功 {successful_tests} 次")
+        logger.info(f"总耗时: {total_time:.2f} 秒")
         if successful_tests > 0:
-            print(f"平均每次成功测试耗时: {total_time / successful_tests:.2f} 秒")
-        print(f"结果文件保存在: {os.path.abspath(self.output_dir)}")
+            logger.info(f"平均每次成功测试耗时: {total_time / successful_tests:.2f} 秒")
+        logger.info(f"结果文件保存在: {os.path.abspath(self.output_dir)}")
         
         return successful_tests > 0, f"完成 {successful_tests}/{test_count} 次测试"
 
