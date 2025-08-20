@@ -4,6 +4,7 @@ from PyQt5.QtWidgets import QApplication
 from PyQt5.QtCore import QDir
 from app.core.TcpClient import TcpClient
 from app.utils.ProcessManager import ProcessManager
+from app.core.FileManager import FileManager
 from app.windows.MainWindow import create_main_window
 from app.utils.StyleManager import StyleManager
 
@@ -14,6 +15,7 @@ if __name__ == "__main__":
         sys.exit(1)
     
     communicator = TcpClient()
+    file_manager = FileManager()
     
     # 正常启动主程序
     app = QApplication(sys.argv)

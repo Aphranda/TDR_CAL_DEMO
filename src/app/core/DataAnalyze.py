@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from typing import List, Tuple, Optional, Dict, Any
 import json
 
-from FileManager import FileManager
+from .FileManager import FileManager
 
 # 设置matplotlib后端
 matplotlib.use("TkAgg")
@@ -25,7 +25,7 @@ class SearchMethod:
 @dataclass
 class AnalysisConfig:
     """数据分析配置类"""
-    input_dir: str = 'D:\\Work\\TDR_CAL_DEMO\\CSV_Data_test_results'
+    input_dir: str = 'data\\results\\test'
     recursive: bool = True
     clock_freq: float = 39.53858777e6
     trigger_freq: float = 10e6

@@ -29,17 +29,21 @@ class FileManager:
             "calibration/coefficients",
             "results/reports",
             "results/plots",
-            "results/exports"
+            "results/exports",
+            "results/test"  # 新增默认输出目录
         ]
         
         for directory in directories:
             path = self.base_data_path / directory
             path.mkdir(parents=True, exist_ok=True)
+        
+        logger.info(f"数据目录结构已创建在: {self.base_data_path.absolute()}")
     
     def ensure_dir_exists(self, directory):
         """确保目录存在，如果不存在则创建"""
         if not os.path.exists(directory):
             os.makedirs(directory)
+            logger.info(f"创建目录: {directory}")
         return directory
     
     def get_today_raw_data_path(self, channel: int = None) -> Path:
@@ -51,7 +55,7 @@ class FileManager:
         path.mkdir(parents=True, exist_ok=True)
         return path
     
-    def save_adc_csv_data(self, data, filename, output_dir):
+    def save_adc_csv_data(self, data, filename, output_dir, include_timestamp=True):
         """保存ADC数据到CSV文件"""
         self.ensure_dir_exists(output_dir)
         filepath = os.path.join(output_dir, filename)
@@ -59,10 +63,13 @@ class FileManager:
         try:
             with open(filepath, 'w', newline='', encoding='utf-8') as csvfile:
                 writer = csv.writer(csvfile)
-                writer.writerow(['32位原始数据(十进制)'])
+                writer.writerow(['Index', '32位原始数据(十进制)', '32位原始数据(十六进制)', '时间戳'])
                 
-                for val in data:
-                    writer.writerow([str(val)])
+                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f") if include_timestamp else ""
+                
+                for idx, val in enumerate(data):
+                    hex_val = f"0x{val:08X}"
+                    writer.writerow([idx, str(val), hex_val, timestamp])
             
             logger.info(f"数据已保存到 {filepath}，共{len(data)}个数据点")
             return True, f"数据保存成功: {filepath}"
@@ -177,21 +184,24 @@ class FileManager:
     def save_adc_raw_data_h5(self, data: np.ndarray, metadata: dict, 
                            channel: int = 1, prefix: str = "adc_sample") -> str:
         """保存ADC原始数据到HDF5文件"""
-        timestamp = datetime.now().strftime("%H%M%S")
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"{prefix}_{timestamp}_ch{channel}.h5"
         filepath = self.get_today_raw_data_path(channel) / filename
         
         with h5py.File(filepath, 'w') as f:
-            # 保存数据
-            f.create_dataset('adc_data', data=data)
+            # 保存原始数据
+            f.create_dataset('raw_data', data=data)
             
             # 保存元数据
             metadata_group = f.create_group('metadata')
+            metadata['acquisition_time'] = datetime.now().isoformat()
+            metadata['data_points'] = len(data)
+            metadata['data_type'] = 'uint32'
+            
             for key, value in metadata.items():
                 if isinstance(value, (str, int, float, bool)):
                     metadata_group.attrs[key] = value
                 elif isinstance(value, dict):
-                    # 嵌套字典保存为JSON字符串
                     metadata_group.attrs[key] = json.dumps(value)
         
         return str(filepath)

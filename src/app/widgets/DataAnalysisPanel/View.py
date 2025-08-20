@@ -2,7 +2,8 @@
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, 
                              QLabel, QPushButton, QComboBox, QListWidget,
                              QCheckBox, QLineEdit, QTextEdit, QSpinBox, 
-                             QProgressBar, QSplitter, QTabWidget, QDoubleSpinBox, QStackedWidget)
+                             QProgressBar, QSplitter, QTabWidget, QDoubleSpinBox, 
+                             QStackedWidget, QFileDialog)
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QIntValidator
 
@@ -74,11 +75,12 @@ class DataAnalysisView(QWidget):
         adc_group.setLayout(adc_layout)
         control_layout.addWidget(adc_group)
         
-        # 数据文件选择
+        # 数据文件选择 - 修改这个GroupBox
         file_group = QGroupBox("数据文件")
         file_layout = QVBoxLayout()
         file_layout.setSpacing(6)  # 减小组内间距
         
+        # 文件操作按钮
         file_control_layout = QHBoxLayout()
         self.load_button = QPushButton("加载文件")
         self.clear_button = QPushButton("清除列表")
@@ -86,9 +88,29 @@ class DataAnalysisView(QWidget):
         file_control_layout.addWidget(self.clear_button)
         file_layout.addLayout(file_control_layout)
         
+        # 文件列表
         self.file_list = QListWidget()
-        self.file_list.setMaximumHeight(500)
+        self.file_list.setMaximumHeight(100)
         file_layout.addWidget(self.file_list)
+        
+        # 新增：数据保存选项
+        save_layout = QHBoxLayout()
+        self.save_raw_check = QCheckBox("保存原始数据")
+        self.save_raw_check.setChecked(True)
+        save_layout.addWidget(self.save_raw_check)
+        file_layout.addLayout(save_layout)
+        
+        # 新增：输出目录设置
+        output_dir_layout = QHBoxLayout()
+        output_dir_layout.addWidget(QLabel("输出目录:"))
+        self.output_dir_edit = QLineEdit("CSV_Data_test_results")
+        self.output_dir_edit.setPlaceholderText("选择输出目录")
+        output_dir_layout.addWidget(self.output_dir_edit)
+        
+        self.browse_dir_button = QPushButton("浏览")
+        self.browse_dir_button.setMinimumWidth(80)
+        output_dir_layout.addWidget(self.browse_dir_button)
+        file_layout.addLayout(output_dir_layout)
         
         file_group.setLayout(file_layout)
         control_layout.addWidget(file_group)
@@ -102,22 +124,22 @@ class DataAnalysisView(QWidget):
         self.analysis_combo.addItems(["S参数", "TDR", "ADC数据分析"])
         type_layout.addWidget(self.analysis_combo)
         
-        # 分析选项堆叠窗口 - 直接放在分析类型Group下面
+        # 分析选项堆叠窗口
         self.options_stack = QStackedWidget()
         type_layout.addWidget(self.options_stack)
         
         type_group.setLayout(type_layout)
         control_layout.addWidget(type_group)
 
-        # S参数选项 - 不使用GroupBox包装
+        # S参数选项
         s_param_widget = self.create_s_parameter_options()
         self.options_stack.addWidget(s_param_widget)
         
-        # TDR选项 - 不使用GroupBox包装
+        # TDR选项
         tdr_widget = self.create_tdr_options()
         self.options_stack.addWidget(tdr_widget)
         
-        # ADC数据分析选项 - 不使用GroupBox包装
+        # ADC数据分析选项
         adc_analysis_widget = self.create_adc_analysis_options()
         self.options_stack.addWidget(adc_analysis_widget)
         
@@ -153,16 +175,29 @@ class DataAnalysisView(QWidget):
         splitter = QSplitter(Qt.Vertical)
         splitter.addWidget(control_panel)
         splitter.addWidget(result_tabs)
-        splitter.setSizes([300, 700])
+        splitter.setSizes([400, 600])  # 调整分割比例
         
         main_layout.addWidget(splitter)
         self.setLayout(main_layout)
         
         # 初始显示S参数选项
         self.options_stack.setCurrentIndex(0)
+        
+        # 连接浏览目录按钮
+        self.browse_dir_button.clicked.connect(self.on_browse_directory)
+    
+    def on_browse_directory(self):
+        """浏览选择输出目录"""
+        directory = QFileDialog.getExistingDirectory(
+            self, 
+            "选择输出目录",
+            self.output_dir_edit.text() or "."
+        )
+        if directory:
+            self.output_dir_edit.setText(directory)
     
     def create_s_parameter_options(self):
-        """创建S参数选项 - 不使用GroupBox包装"""
+        """创建S参数选项"""
         widget = QWidget()
         layout = QVBoxLayout()
         layout.setSpacing(6)  # 减小组间间距
@@ -221,7 +256,7 @@ class DataAnalysisView(QWidget):
         return widget
     
     def create_tdr_options(self):
-        """创建TDR选项 - 不使用GroupBox包装"""
+        """创建TDR选项"""
         widget = QWidget()
         layout = QVBoxLayout()
         layout.setSpacing(6)  # 减小组间间距
@@ -250,7 +285,7 @@ class DataAnalysisView(QWidget):
         return widget
     
     def create_adc_analysis_options(self):
-        """创建ADC数据分析选项 - 不使用GroupBox包装"""
+        """创建ADC数据分析选项"""
         widget = QWidget()
         layout = QVBoxLayout()
         layout.setSpacing(6)  # 减小组间间距

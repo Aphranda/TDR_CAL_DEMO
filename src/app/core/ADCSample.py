@@ -3,8 +3,8 @@ import struct
 import os
 import time
 import socket
-from TcpClient import TcpClient
-from FileManager import FileManager
+from .TcpClient import TcpClient
+from .FileManager import FileManager
 import logging
 
 logger = logging.getLogger(__name__)
@@ -19,7 +19,7 @@ class ADCSample:
         self.server_ip = '192.168.1.10'
         self.server_port = 15000
         self.chunk_size = 32768
-        self.output_dir = 'CSV_Data_test_results'
+        self.output_dir = 'data\\results\\test'
     
     def set_server_config(self, ip, port):
         """设置服务器配置"""
@@ -142,11 +142,6 @@ class ADCSample:
         except Exception as e:
             return None, f"测试过程中发生错误: {str(e)}"
     
-    def save_test_result(self, test_num, u32_values):
-        """保存测试结果到文件"""
-        filename = f'test_result_{test_num + 1:04d}.csv'
-        return self.file_manager.save_adc_csv_data(u32_values, filename, self.output_dir)
-    
     def perform_multiple_tests(self, test_count=10, delay_between_tests=0.1):
         """执行多次测试"""
         if not self.connected:
@@ -190,6 +185,41 @@ class ADCSample:
         logger.info(f"结果文件保存在: {os.path.abspath(self.output_dir)}")
         
         return successful_tests > 0, f"完成 {successful_tests}/{test_count} 次测试"
+
+    def save_test_result(self, test_num, u32_values, filename=None, output_dir=None):
+        """保存测试结果到文件"""
+        if filename is None:
+            filename = f'test_result_{test_num + 1:04d}.csv'
+        if output_dir is None:
+            output_dir = self.output_dir
+        
+        # 保存CSV文件
+        csv_success, csv_message = self.file_manager.save_adc_csv_data(u32_values, filename, output_dir)
+        
+        # 同时保存原始二进制数据
+        bin_filename = f'adc_raw_binary_{test_num + 1:04d}.bin'
+        bin_success, bin_message = self.save_binary_data(u32_values, bin_filename, output_dir)
+        
+        return csv_success, f"CSV: {csv_message}, BIN: {bin_message}"
+    
+    def save_binary_data(self, u32_values, filename, output_dir):
+        """保存原始二进制数据"""
+        self.file_manager.ensure_dir_exists(output_dir)
+        filepath = os.path.join(output_dir, filename)
+        
+        try:
+            # 将uint32数组转换为字节数据
+            binary_data = struct.pack('<' + 'I' * len(u32_values), *u32_values)
+            
+            with open(filepath, 'wb') as f:
+                f.write(binary_data)
+            
+            logger.info(f"二进制数据已保存到 {filepath}，共{len(binary_data)}字节")
+            return True, f"二进制数据保存成功: {filepath}"
+            
+        except Exception as e:
+            logger.error(f"二进制数据保存失败: {str(e)}")
+            return False, f"二进制数据保存失败: {str(e)}"
 
 
 # 保持向后兼容的独立函数

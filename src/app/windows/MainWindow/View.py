@@ -9,7 +9,7 @@ class MainWindowView(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("网络分析仪校准系统")
-        self.resize(1600, 800)
+        self.resize(1600, 1000)
         
         self._setup_ui()
     
