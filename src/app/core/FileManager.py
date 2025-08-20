@@ -133,7 +133,7 @@ class FileManager:
         
         Args:
             path: 文件路径
-            skip_first: 是否跳过第一行
+            skip_first: 是否跳过第一行（标题行）
             
         Returns:
             uint32数组
@@ -147,19 +147,43 @@ class FileManager:
             try:
                 vals = []
                 with open(path, "r", encoding=enc, errors="strict") as f:
+                    # 跳过标题行（如果存在）
+                    if skip_first:
+                        next(f, None)
+                    
                     for line in f:
                         s = line.strip()
                         if not s:
                             continue
-                        # 使用正则表达式匹配十六进制或十进制数字
-                        m = re.search(r'(0x[0-9a-fA-F]+|\d+)', s)
-                        if not m:
-                            continue
-                        vals.append(np.uint32(int(m.group(1), 0)))
+                        
+                        # 分割CSV行的列
+                        parts = s.split(',')
+                        if len(parts) >= 2:  # 确保至少有2列
+                            # 使用第二列的数据（索引1）
+                            second_col = parts[1].strip()
+                            
+                            # 尝试解析第二列的值
+                            try:
+                                # 尝试直接转换为整数
+                                val = int(second_col)
+                                vals.append(np.uint32(val))
+                            except ValueError:
+                                # 如果直接转换失败，尝试十六进制格式
+                                try:
+                                    if second_col.startswith('0x'):
+                                        val = int(second_col, 16)
+                                    else:
+                                        # 使用正则表达式匹配数字
+                                        m = re.search(r'(0x[0-9a-fA-F]+|\d+)', second_col)
+                                        if m:
+                                            val = int(m.group(1), 0)
+                                        else:
+                                            continue
+                                    vals.append(np.uint32(val))
+                                except (ValueError, TypeError):
+                                    continue
                 
                 arr = np.asarray(vals, dtype=np.uint32)
-                if skip_first and arr.size >= 1:
-                    arr = arr[1:]
                 return arr
                 
             except Exception as e:
@@ -167,6 +191,7 @@ class FileManager:
                 continue
         
         raise last_err or Exception("无法读取文件")
+
     
     def find_csv_files(self, input_dir, recursive=True):
         """查找CSV文件"""

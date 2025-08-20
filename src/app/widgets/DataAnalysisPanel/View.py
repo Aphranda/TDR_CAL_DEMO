@@ -61,7 +61,27 @@ class DataAnalysisView(QWidget):
         self.sample_interval_spin.setValue(0.1)
         sample_layout.addWidget(self.sample_interval_spin)
         adc_layout.addLayout(sample_layout)
+          
+        # 新增：文件名设置
+        filename_layout = QHBoxLayout()
+        filename_layout.addWidget(QLabel("文件名称:"))
+        self.filename_edit = QLineEdit("adc_data")
+        self.filename_edit.setPlaceholderText("输入保存的文件名（不含扩展名）")
+        filename_layout.addWidget(self.filename_edit)
+        adc_layout.addLayout(filename_layout)
+
+        # 新增：输出目录设置
+        output_dir_layout = QHBoxLayout()
+        output_dir_layout.addWidget(QLabel("输出目录:"))
+        self.output_dir_edit = QLineEdit("data\\results\\test")
+        self.output_dir_edit.setPlaceholderText("选择输出目录")
+        output_dir_layout.addWidget(self.output_dir_edit)
         
+        self.browse_dir_button = QPushButton("浏览")
+        self.browse_dir_button.setMinimumWidth(80)
+        output_dir_layout.addWidget(self.browse_dir_button)
+        adc_layout.addLayout(output_dir_layout)
+
         # 采样按钮
         self.sample_button = QPushButton("开始采样")
         self.sample_button.setEnabled(False)
@@ -71,7 +91,7 @@ class DataAnalysisView(QWidget):
         self.progress_bar = QProgressBar()
         self.progress_bar.setVisible(False)
         adc_layout.addWidget(self.progress_bar)
-        
+
         adc_group.setLayout(adc_layout)
         control_layout.addWidget(adc_group)
         
@@ -93,32 +113,7 @@ class DataAnalysisView(QWidget):
         self.file_list.setMaximumHeight(100)
         file_layout.addWidget(self.file_list)
         
-        # 新增：数据保存选项
-        save_layout = QHBoxLayout()
-        self.save_raw_check = QCheckBox("保存原始数据")
-        self.save_raw_check.setChecked(True)
-        save_layout.addWidget(self.save_raw_check)
-        file_layout.addLayout(save_layout)
-        
-        # 新增：文件名设置
-        filename_layout = QHBoxLayout()
-        filename_layout.addWidget(QLabel("文件名:"))
-        self.filename_edit = QLineEdit("adc_data")
-        self.filename_edit.setPlaceholderText("输入保存的文件名（不含扩展名）")
-        filename_layout.addWidget(self.filename_edit)
-        file_layout.addLayout(filename_layout)
 
-        # 新增：输出目录设置
-        output_dir_layout = QHBoxLayout()
-        output_dir_layout.addWidget(QLabel("输出目录:"))
-        self.output_dir_edit = QLineEdit("CSV_Data_test_results")
-        self.output_dir_edit.setPlaceholderText("选择输出目录")
-        output_dir_layout.addWidget(self.output_dir_edit)
-        
-        self.browse_dir_button = QPushButton("浏览")
-        self.browse_dir_button.setMinimumWidth(80)
-        output_dir_layout.addWidget(self.browse_dir_button)
-        file_layout.addLayout(output_dir_layout)
         
         file_group.setLayout(file_layout)
         control_layout.addWidget(file_group)

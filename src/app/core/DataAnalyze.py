@@ -79,11 +79,15 @@ class DataAnalyzer:
         
     def validate_config(self):
         """验证配置参数"""
-        if self.config.l_roi <= self.config.diff_points:
-            raise ValueError(f"截取长度 L_roi={self.config.l_roi} 必须大于 diff_points={self.config.diff_points}")
+        # 修改这里：使用正确的属性名
+        if self.config.roi_start_tenths <= self.config.diff_points:
+            raise ValueError("ROI起始位置必须大于差分点数")
         
-        if not os.path.exists(self.config.input_dir):
-            raise FileNotFoundError(f"输入目录不存在: {self.config.input_dir}")
+        if self.config.roi_start_tenths >= self.config.roi_end_tenths:
+            raise ValueError("ROI起始位置必须小于结束位置")
+        
+        if self.config.roi_end_tenths > 100:
+            raise ValueError("ROI结束位置不能超过100%")
     
     def load_u32_data(self, path: str) -> np.ndarray:
         """从文件加载uint32数据"""

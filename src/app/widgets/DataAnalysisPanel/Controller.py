@@ -167,8 +167,8 @@ class DataAnalysisController(QObject):
         # 获取采样参数
         count = self.view.sample_count_spin.value()
         interval = self.view.sample_interval_spin.value()
-        save_raw_data = self.view.save_raw_check.isChecked()
-        output_dir = self.view.output_dir_edit.text() or 'CSV_Data_test_results'
+        save_raw_data = True
+        output_dir = self.view.output_dir_edit.text() or 'data\\results\\test'
         filename_prefix = self.view.filename_edit.text() or 'adc_raw_data'  # 新增：获取文件名前缀
         
         # 更新模型

@@ -24,6 +24,34 @@ class ADCConfig:
     roi_end_tenths: int = 30
     output_csv: str = 'analysis_results.csv'
 
+    @property
+    def t_sample(self) -> float:
+        return 1.0 / self.clock_freq
+    
+    @property
+    def t_trig(self) -> float:
+        return 1.0 / self.trigger_freq
+    
+    @property
+    def fs_eff(self) -> float:
+        return self.n_points / self.t_trig
+    
+    @property
+    def ts_eff(self) -> float:
+        return 1.0 / self.fs_eff
+    
+    @property
+    def roi_start(self) -> int:
+        return int(self.n_points * self.roi_start_tenths / 100)
+    
+    @property
+    def roi_end(self) -> int:
+        return int(self.n_points * self.roi_end_tenths / 100)
+    
+    @property
+    def l_roi(self) -> int:
+        return self.roi_end - self.roi_start
+
 class DataAnalysisModel:
     def __init__(self):
         self.analysis_type = "S参数"

@@ -197,7 +197,7 @@ class ADCSample:
         csv_success, csv_message = self.file_manager.save_adc_csv_data(u32_values, filename, output_dir)
         
         # 同时保存原始二进制数据
-        bin_filename = f'{filename}_binary_{test_num + 1:04d}.bin'
+        bin_filename = f'{filename.replace(".csv","")}.bin'
         bin_success, bin_message = self.save_binary_data(u32_values, bin_filename, output_dir)
         
         return csv_success, f"CSV: {csv_message}, BIN: {bin_message}"
