@@ -2,6 +2,10 @@
 from PyQt5.QtWidgets import QWidget, QVBoxLayout,QHBoxLayout
 from PyQt5.QtCore import Qt
 import pyqtgraph as pg
+import platform
+import ctypes
+if platform.system()=='Windows' and int(platform.release()) >= 8:   
+    ctypes.windll.shcore.SetProcessDpiAwareness(True)
 
 class PlotWidgetView(QWidget):
     def __init__(self, title="Plot"):

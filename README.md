@@ -2,7 +2,6 @@
 ```
 TDR_CAL_DEMO
 ├─ 📁.vscode
-│  └─ 📄launch.json
 ├─ 📁config
 │  ├─ 📄app_settings.ini
 │  ├─ 📄instrument_config.json
@@ -22,6 +21,9 @@ TDR_CAL_DEMO
 ├─ 📁src
 │  ├─ 📁app
 │  │  ├─ 📁core
+│  │  │  ├─ 📁__pycache__
+│  │  │  ├─ 📄ADCSample.py
+│  │  │  ├─ 📄DataAnalyze.py
 │  │  │  ├─ 📄FileManager.py
 │  │  │  ├─ 📄TcpClient.py
 │  │  │  └─ 📄__init__.py
@@ -37,36 +39,45 @@ TDR_CAL_DEMO
 │  │  ├─ 📁models
 │  │  ├─ 📁threads
 │  │  ├─ 📁utils
-│  │  │  └─ 📄ProcessManager.py
+│  │  │  ├─ 📁__pycache__
+│  │  │  ├─ 📄ProcessManager.py
+│  │  │  └─ 📄StyleManager.py
 │  │  ├─ 📁widgets
 │  │  │  ├─ 📁CalibrationPanel
+│  │  │  │  ├─ 📁__pycache__
 │  │  │  │  ├─ 📄Controller.py
 │  │  │  │  ├─ 📄Model.py
 │  │  │  │  ├─ 📄View.py
-│  │  │  │  ├─ 📄widget.ui
+│  │  │  │  └─ 📄__init__.py
+│  │  │  ├─ 📁InstrumentPanel
+│  │  │  │  ├─ 📁__pycache__
+│  │  │  │  ├─ 📄Controller.py
+│  │  │  │  ├─ 📄Model.py
+│  │  │  │  ├─ 📄View.py
 │  │  │  │  └─ 📄__init__.py
 │  │  │  ├─ 📁LogWidget
 │  │  │  │  ├─ 📁__pycache__
-│  │  │  │  │  ├─ 📄Controller.cpython-312.pyc
-│  │  │  │  │  ├─ 📄Controller.cpython-313.pyc
-│  │  │  │  │  ├─ 📄LogWidget.cpython-312.pyc
-│  │  │  │  │  ├─ 📄LogWidget.cpython-313.pyc
-│  │  │  │  │  ├─ 📄View.cpython-312.pyc
-│  │  │  │  │  ├─ 📄View.cpython-313.pyc
-│  │  │  │  │  ├─ 📄__init__.cpython-312.pyc
-│  │  │  │  │  └─ 📄__init__.cpython-313.pyc
 │  │  │  │  ├─ 📄Controller.py
 │  │  │  │  ├─ 📄Model.py
 │  │  │  │  ├─ 📄View.py
 │  │  │  │  └─ 📄__init__.py
+│  │  │  ├─ 📁PlotWidget
+│  │  │  │  ├─ 📁__pycache__
+│  │  │  │  ├─ 📄Controller.py
+│  │  │  │  ├─ 📄Model.py
+│  │  │  │  ├─ 📄View.py
+│  │  │  │  └─ 📄__init__.py
+│  │  │  ├─ 📁__pycache__
 │  │  │  └─ 📄__init__.py
 │  │  ├─ 📁windows
-│  │  │  ├─ 📁MainWindow
-│  │  │  │  ├─ 📄Controller.py
-│  │  │  │  ├─ 📄Model.py
-│  │  │  │  ├─ 📄View.py
-│  │  │  │  └─ 📄__init__.py
-│  │  │  └─ 📄main_window.py
+│  │  │  ├─ 📁ChildWinow
+│  │  │  └─ 📁MainWindow
+│  │  │     ├─ 📁__pycache__
+│  │  │     ├─ 📄Controller.py
+│  │  │     ├─ 📄Model.py
+│  │  │     ├─ 📄View.py
+│  │  │     └─ 📄__init__.py
+│  │  ├─ 📁__pycache__
 │  │  └─ 📄__init__.py
 │  ├─ 📁config
 │  ├─ 📁docs
@@ -85,7 +96,6 @@ TDR_CAL_DEMO
 │  │  ├─ 📄test_calibration_panel.py
 │  │  └─ 📄__init__.py
 │  └─ 📄__init__.py
-├─ 📄.env
 ├─ 📄.gitignore
 ├─ 📄generation_report.txt
 ├─ 📄README.md
