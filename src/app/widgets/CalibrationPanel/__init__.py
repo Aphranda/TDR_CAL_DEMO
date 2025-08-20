@@ -7,4 +7,4 @@ def create_calibration_panel(parent=None):
     view = CalibrationView(parent)
     model = CalibrationModel()
     controller = CalibrationController(view, model)
-    return view
+    return view,controller

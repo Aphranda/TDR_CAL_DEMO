@@ -7,4 +7,4 @@ def create_plot_widget(title="Plot"):
     model = PlotWidgetModel(title)
     view = PlotWidgetView(title)
     controller = PlotWidgetController(model, view)
-    return view
+    return view,controller

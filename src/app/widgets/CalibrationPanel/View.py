@@ -156,7 +156,7 @@ class CalibrationView(QWidget):
         
         # 流程图区域 - 使用滚动区域以适应长流程
         flow_group = QGroupBox("校准流程")
-        flow_group.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        flow_group.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         flow_layout = QVBoxLayout()
         
         # 创建滚动区域
@@ -164,7 +164,7 @@ class CalibrationView(QWidget):
         scroll_area.setWidgetResizable(True)
         scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        scroll_area.setMaximumHeight(100)  # 限制高度
+        scroll_area.setMaximumHeight(120)  # 限制高度
         
         self.flow_chart = FlowChartWidget()
         scroll_area.setWidget(self.flow_chart)
@@ -187,10 +187,9 @@ class CalibrationView(QWidget):
         self.start_btn = QPushButton("开始校准")
         self.stop_btn = QPushButton("停止")
         self.stop_btn.setEnabled(False)
-        self.stop_btn.setMaximumWidth(60)
         button_layout.addWidget(self.start_btn)
         button_layout.addWidget(self.stop_btn)
-        button_layout.addStretch()
+        # button_layout.addStretch()
         main_layout.addLayout(button_layout)
         
         self.setLayout(main_layout)

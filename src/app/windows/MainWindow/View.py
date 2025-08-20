@@ -12,7 +12,6 @@ class MainWindowView(QMainWindow):
         self.resize(1200, 800)
         
         self._setup_ui()
-        self._apply_styles()
     
     def _setup_ui(self):
         # 创建中心部件
@@ -28,99 +27,57 @@ class MainWindowView(QMainWindow):
         # 创建分割器
         splitter = QSplitter(Qt.Horizontal)
         splitter.setHandleWidth(2)
-        splitter.setChildrenCollapsible(False)  # 防止子部件被折叠
+        splitter.setChildrenCollapsible(False)
         main_layout.addWidget(splitter)
         
-        # 左侧绘图区域 - 移除最大宽度限制，设置大小策略
+        # 左侧绘图区域
         self.plot_area = QTabWidget()
         self.plot_area.setMinimumWidth(400)
-        # 移除 setMaximumWidth(800) - 允许拉伸
         self.plot_area.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         splitter.addWidget(self.plot_area)
         
-        # 右侧控制区域
-        right_widget = QWidget()
-        right_layout = QVBoxLayout()
-        right_layout.setContentsMargins(0, 0, 0, 0)
-        right_layout.setSpacing(5)
-        right_widget.setLayout(right_layout)
-        right_widget.setMinimumWidth(350)  # 保留最小宽度
-        # 移除 setMaximumWidth(450) - 允许拉伸
-        right_widget.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
+        # 右侧控制区域 - TabWidget
+        self.right_tab_widget = QTabWidget()
+        self.right_tab_widget.setMinimumWidth(350)
+        self.right_tab_widget.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
         
-        # 仪表连接区域
-        instrument_frame = QFrame()
-        instrument_frame.setFrameStyle(QFrame.StyledPanel | QFrame.Raised)
-        instrument_layout = QVBoxLayout()
-        instrument_layout.setContentsMargins(5, 5, 5, 5)
-        instrument_frame.setLayout(instrument_layout)
-        self.instrument_widget = QWidget()
-        self.instrument_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
-        instrument_layout.addWidget(self.instrument_widget)
-        right_layout.addWidget(instrument_frame, 1)
+        # 创建三个标签页
+        # 网分校准标签页（包含仪表连接、校准、日志）
+        self.calibration_tab = QWidget()
+        self.calibration_tab_layout = QVBoxLayout()
+        self.calibration_tab_layout.setContentsMargins(5, 5, 5, 5)
+        self.calibration_tab.setLayout(self.calibration_tab_layout)
+        self.right_tab_widget.addTab(self.calibration_tab, "网分校准")
         
-        # 校准区域
-        calibration_frame = QFrame()
-        calibration_frame.setFrameStyle(QFrame.StyledPanel | QFrame.Raised)
-        calibration_layout = QVBoxLayout()
-        calibration_layout.setContentsMargins(5, 5, 5, 5)
-        calibration_frame.setLayout(calibration_layout)
-        self.calibration_widget = QWidget()
-        self.calibration_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        calibration_layout.addWidget(self.calibration_widget)
-        right_layout.addWidget(calibration_frame, 2)
+        # 网分控制标签页
+        self.vna_control_tab = QWidget()
+        self.vna_control_layout = QVBoxLayout()
+        self.vna_control_layout.setContentsMargins(5, 5, 5, 5)
+        self.vna_control_tab.setLayout(self.vna_control_layout)
+        self.right_tab_widget.addTab(self.vna_control_tab, "网分控制")
         
-        # 日志区域
-        log_frame = QFrame()
-        log_frame.setFrameStyle(QFrame.StyledPanel | QFrame.Raised)
-        log_layout = QVBoxLayout()
-        log_layout.setContentsMargins(5, 5, 5, 5)
-        log_frame.setLayout(log_layout)
-        self.log_widget = QWidget()
-        self.log_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        log_layout.addWidget(self.log_widget)
-        right_layout.addWidget(log_frame, 3)
+        # 数据分析标签页
+        self.data_analysis_tab = QWidget()
+        self.data_analysis_layout = QVBoxLayout()
+        self.data_analysis_layout.setContentsMargins(5, 5, 5, 5)
+        self.data_analysis_tab.setLayout(self.data_analysis_layout)
+        self.right_tab_widget.addTab(self.data_analysis_tab, "数据分析")
         
-        splitter.addWidget(right_widget)
+        splitter.addWidget(self.right_tab_widget)
         
         # 设置初始分割比例
-        splitter.setSizes([700, 500])  # 调整初始比例
+        splitter.setSizes([700, 500])
         
         # 状态栏
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
-    
-    def _apply_styles(self):
-        self.setStyleSheet("""
-            QMainWindow {
-                background-color: #f0f0f0;
-            }
-            QFrame {
-                background-color: white;
-                border-radius: 4px;
-                border: 1px solid #d0d0d0;
-            }
-            QTabWidget::pane {
-                border: 1px solid #c4c4c4;
-                margin-top: 5px;
-            }
-            QTabBar::tab {
-                padding: 6px;
-                min-width: 80px;
-                font-size: 11px;
-            }
-            QTabBar::tab:selected {
-                background: #d7d7d7;
-                border-bottom: 2px solid #0066cc;
-            }
-            QSplitter::handle {
-                background-color: #c0c0c0;
-                width: 2px;
-            }
-            QSplitter::handle:hover {
-                background-color: #a0a0a0;
-            }
-        """)
+        
+        # 在网分校准标签页中创建垂直分割器
+        self.calibration_splitter = QSplitter(Qt.Vertical)
+        self.calibration_splitter.setHandleWidth(2)
+        self.calibration_splitter.setChildrenCollapsible(False)
+        self.calibration_tab_layout.addWidget(self.calibration_splitter)
+
     
     def add_plot_tab(self, widget, title):
         """添加绘图标签页"""
@@ -128,52 +85,55 @@ class MainWindowView(QMainWindow):
         self.plot_area.addTab(widget, title)
     
     def set_instrument_widget(self, widget):
-        """设置仪表连接区域"""
-        layout = self.instrument_widget.layout()
-        if layout:
-            # 清除现有内容
-            while layout.count():
-                item = layout.takeAt(0)
-                if item.widget():
-                    item.widget().deleteLater()
-        else:
-            layout = QVBoxLayout()
-            layout.setContentsMargins(2, 2, 2, 2)
-            self.instrument_widget.setLayout(layout)
-        
+        """设置仪表连接区域（在网分校准标签页中）"""
         widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
-        layout.addWidget(widget)
+        widget.setMinimumHeight(80)  # 设置最小高度
+        self.calibration_splitter.addWidget(widget)
+        
+        # 设置分割比例
+        if self.calibration_splitter.count() == 1:
+            self.calibration_splitter.setSizes([80])
     
     def set_calibration_widget(self, widget):
-        """设置校准区域"""
-        layout = self.calibration_widget.layout()
-        if layout:
-            # 清除现有内容
-            while layout.count():
-                item = layout.takeAt(0)
-                if item.widget():
-                    item.widget().deleteLater()
-        else:
-            layout = QVBoxLayout()
-            layout.setContentsMargins(2, 2, 2, 2)
-            self.calibration_widget.setLayout(layout)
+        """设置校准区域（在网分校准标签页中）"""
+        widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        widget.setMinimumHeight(200)  # 设置最小高度
+        self.calibration_splitter.addWidget(widget)
+        
+        # 设置分割比例
+        if self.calibration_splitter.count() == 2:
+            self.calibration_splitter.setSizes([80, 200])
+    
+    def set_log_widget(self, widget):
+        """设置日志区域（在网分校准标签页中）"""
+        widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        widget.setMinimumHeight(150)  # 设置最小高度
+        self.calibration_splitter.addWidget(widget)
+        
+        # 设置分割比例
+        if self.calibration_splitter.count() == 3:
+            self.calibration_splitter.setSizes([50, 200, 150])
+    
+    def set_vna_control_widget(self, widget):
+        """设置网分控制区域"""
+        layout = self.vna_control_layout
+        # 清除现有内容
+        while layout.count():
+            item = layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
         
         widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         layout.addWidget(widget)
     
-    def set_log_widget(self, widget):
-        """设置日志区域"""
-        layout = self.log_widget.layout()
-        if layout:
-            # 清除现有内容
-            while layout.count():
-                item = layout.takeAt(0)
-                if item.widget():
-                    item.widget().deleteLater()
-        else:
-            layout = QVBoxLayout()
-            layout.setContentsMargins(2, 2, 2, 2)
-            self.log_widget.setLayout(layout)
+    def set_data_analysis_widget(self, widget):
+        """设置数据分析区域"""
+        layout = self.data_analysis_layout
+        # 清除现有内容
+        while layout.count():
+            item = layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
         
         widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         layout.addWidget(widget)
@@ -181,14 +141,3 @@ class MainWindowView(QMainWindow):
     def show_status_message(self, message, timeout=0):
         """显示状态栏消息"""
         self.status_bar.showMessage(message, timeout)
-    
-    def resizeEvent(self, event):
-        """重写resizeEvent以确保布局正确调整"""
-        super().resizeEvent(event)
-        # 确保分割器比例在窗口大小变化时保持相对稳定
-        if hasattr(self, 'plot_area') and hasattr(self, 'centralWidget'):
-            # 获取当前窗口大小
-            window_width = self.width()
-            # 动态调整分割比例（可选）
-            # 这里可以根据需要添加动态调整逻辑
-            pass

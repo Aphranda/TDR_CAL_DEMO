@@ -40,6 +40,7 @@ TDR_CAL_DEMO
 │  │  ├─ 📁threads
 │  │  ├─ 📁utils
 │  │  │  ├─ 📁__pycache__
+│  │  │  ├─ 📄ADC_Tester.py
 │  │  │  ├─ 📄ProcessManager.py
 │  │  │  └─ 📄StyleManager.py
 │  │  ├─ 📁widgets
@@ -49,6 +50,7 @@ TDR_CAL_DEMO
 │  │  │  │  ├─ 📄Model.py
 │  │  │  │  ├─ 📄View.py
 │  │  │  │  └─ 📄__init__.py
+│  │  │  ├─ 📁DataAnalyzePanel
 │  │  │  ├─ 📁InstrumentPanel
 │  │  │  │  ├─ 📁__pycache__
 │  │  │  │  ├─ 📄Controller.py

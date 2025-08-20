@@ -7,4 +7,4 @@ def create_instrument_panel():
     model = InstrumentPanelModel()
     view = InstrumentPanelView()
     controller = InstrumentPanelController(model, view)
-    return view
+    return view, controller  # 返回视图和控制器

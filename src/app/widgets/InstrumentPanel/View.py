@@ -26,7 +26,7 @@ class InstrumentPanelView(QWidget):
         row1_layout = QHBoxLayout()
         row1_layout.addWidget(QLabel("类型:"))
         self.instrumentCombo = QComboBox()
-        self.instrumentCombo.addItems(["VNA", "TDR", "Signal Generator"])
+        self.instrumentCombo.addItems(["VNA", "TDR"])
         self.instrumentCombo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         row1_layout.addWidget(self.instrumentCombo)
         
@@ -51,13 +51,13 @@ class InstrumentPanelView(QWidget):
         # 第二行：IP地址、端口设置和连接按钮
         row2_layout = QHBoxLayout()
         row2_layout.addWidget(QLabel("IP地址:"))
-        self.ipEdit = QLineEdit("192.168.1.100")
+        self.ipEdit = QLineEdit("192.168.1.10")
         self.ipEdit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         row2_layout.addWidget(self.ipEdit)
         
         row2_layout.addSpacing(10)
         row2_layout.addWidget(QLabel("端口:"))
-        self.portEdit = QLineEdit("5025")
+        self.portEdit = QLineEdit("15000")
         self.portEdit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.portEdit.setMaximumWidth(80)  # 端口输入框稍窄一些
         row2_layout.addWidget(self.portEdit)
