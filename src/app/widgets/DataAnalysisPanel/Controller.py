@@ -335,7 +335,6 @@ class DataAnalysisController(QObject):
             return self.main_window_controller.sub_controllers.get(plot_name)
         return None
 
-  
 
     def generate_plot_data(self, results, averages, config):
         """生成绘图数据，完全参考plot_results函数的实现"""
@@ -491,19 +490,216 @@ class DataAnalysisController(QObject):
             return
         
         try:
+            # 获取保存文件路径
             file_path, _ = QFileDialog.getSaveFileName(
                 self.view,
                 "导出分析结果",
                 "",
-                "CSV文件 (*.csv);;文本文件 (*.txt);;所有文件 (*)"
+                "CSV文件 (*.csv);;JSON文件 (*.json);;文本文件 (*.txt);;所有文件 (*)"
             )
             
             if file_path:
-                self.export_results(file_path, self.model.results)
+                # 获取文件扩展名
+                file_ext = os.path.splitext(file_path)[1].lower()
+                
+                if file_ext == '.csv':
+                    # 使用DataAnalyze的save_results函数保存CSV数据
+                    self.export_csv_results(file_path)
+                elif file_ext == '.json':
+                    # 保存JSON格式的结果
+                    self.export_json_results(file_path)
+                else:
+                    # 默认保存文本格式
+                    self.export_text_results(file_path)
+                
                 self.dataLoaded.emit(f"结果已导出到: {file_path}")
                 
         except Exception as e:
             self.errorOccurred.emit(f"导出失败: {str(e)}")
+
+    def export_csv_results(self, file_path):
+        """使用DataAnalyze的save_results函数导出CSV结果"""
+        try:
+            # 创建临时的分析配置
+            config = AnalysisConfig(output_csv=file_path)
+            
+            # 创建DataAnalyzer实例
+            analyzer = DataAnalyzer(config)
+            
+            # 获取当前的分析结果数据（这里需要根据实际情况调整）
+            # 假设我们有存储的results和averages数据
+            if hasattr(self, 'last_analysis_results') and hasattr(self, 'last_averages'):
+                results = self.last_analysis_results
+                averages = self.last_averages
+                
+                # 保存复数FFT结果
+                if 'freq_d_ref' in results and 'avg_Xd' in averages:
+                    success = analyzer.file_manager.save_complex_fft_results(
+                        results['freq_d_ref'], 
+                        np.real(averages['avg_Xd']), 
+                        np.imag(averages['avg_Xd']), 
+                        file_path
+                    )
+                    
+                    if success:
+                        self.dataLoaded.emit("复数FFT结果已成功导出为CSV")
+                    else:
+                        self.errorOccurred.emit("复数FFT结果导出失败")
+                
+                # 同时保存时域数据
+                self.export_additional_csv_data(file_path, results, averages)
+                
+            else:
+                # 如果没有分析数据，保存基本的文本结果
+                self.export_text_results(file_path)
+                
+        except Exception as e:
+            self.errorOccurred.emit(f"CSV导出失败: {str(e)}")
+
+    def export_additional_csv_data(self, file_path, results, averages):
+        """导出额外的CSV数据"""
+        try:
+            # 创建基础文件名（不带扩展名）
+            base_path = os.path.splitext(file_path)[0]
+            
+            # 保存时域数据
+            time_domain_file = f"{base_path}_time_domain.csv"
+            if 'y_avg' in averages:
+                t_roi_us = (np.arange(len(averages['y_avg'])) * self.model.adc_config.ts_eff * 1e6)
+                time_data = np.column_stack((t_roi_us, averages['y_avg']))
+                np.savetxt(time_domain_file, time_data, delimiter=',', 
+                        header='Time(us),Amplitude', comments='')
+                self.dataLoaded.emit(f"时域数据已保存到: {os.path.basename(time_domain_file)}")
+            
+            # 保存频域数据
+            freq_domain_file = f"{base_path}_frequency_domain.csv"
+            if 'freq_ref' in results and 'mag_avg_db' in averages:
+                mask = results['freq_ref'] <= (self.model.adc_config.show_up_to_GHz * 1e9)
+                freq_data = np.column_stack((results['freq_ref'][mask] / 1e9, 
+                                        averages['mag_avg_db'][mask]))
+                np.savetxt(freq_domain_file, freq_data, delimiter=',', 
+                        header='Frequency(GHz),Magnitude(dB)', comments='')
+                self.dataLoaded.emit(f"频域数据已保存到: {os.path.basename(freq_domain_file)}")
+            
+            # 保存差分时域数据
+            diff_time_file = f"{base_path}_diff_time_domain.csv"
+            if 'y_d_avg' in averages:
+                t_diff_us = (np.arange(len(averages['y_d_avg'])) * self.model.adc_config.ts_eff * 1e6)
+                diff_time_data = np.column_stack((t_diff_us, averages['y_d_avg']))
+                np.savetxt(diff_time_file, diff_time_data, delimiter=',', 
+                        header='Time(us),Differential_Amplitude', comments='')
+                self.dataLoaded.emit(f"差分时域数据已保存到: {os.path.basename(diff_time_file)}")
+            
+            # 保存差分频域数据
+            diff_freq_file = f"{base_path}_diff_frequency_domain.csv"
+            if 'freq_d_ref' in results and 'mag_d_avg_db' in averages:
+                maskd = results['freq_d_ref'] <= (self.model.adc_config.show_up_to_GHz * 1e9)
+                diff_freq_data = np.column_stack((results['freq_d_ref'][maskd] / 1e9, 
+                                                averages['mag_d_avg_db'][maskd]))
+                np.savetxt(diff_freq_file, diff_freq_data, delimiter=',', 
+                        header='Frequency(GHz),Differential_Magnitude(dB)', comments='')
+                self.dataLoaded.emit(f"差分频域数据已保存到: {os.path.basename(diff_freq_file)}")
+                
+        except Exception as e:
+            self.errorOccurred.emit(f"附加数据导出失败: {str(e)}")
+
+    def export_json_results(self, file_path):
+        """导出JSON格式的结果"""
+        try:
+            # 创建完整的结果字典
+            export_data = {
+                "analysis_results": self.model.results,
+                "config": self.model.get_adc_config_dict(),
+                "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "files_processed": len(self.model.data_files)
+            }
+            
+            # 如果有分析数据，添加更多详细信息
+            if hasattr(self, 'last_analysis_results') and hasattr(self, 'last_averages'):
+                export_data.update({
+                    "successful_files": self.last_analysis_results.get('success_count', 0),
+                    "total_files": self.last_analysis_results.get('total_files', 0)
+                })
+            
+            # 使用FileManager保存JSON
+            file_manager = FileManager()
+            success = file_manager.save_json_data(export_data, file_path)
+            
+            if success:
+                self.dataLoaded.emit("结果已成功导出为JSON格式")
+            else:
+                self.errorOccurred.emit("JSON导出失败")
+                
+        except Exception as e:
+            self.errorOccurred.emit(f"JSON导出失败: {str(e)}")
+
+    def export_text_results(self, file_path):
+        """导出文本格式的结果"""
+        try:
+            with open(file_path, 'w', encoding='utf-8') as f:
+                f.write("数据分析结果\n")
+                f.write("=" * 50 + "\n\n")
+                
+                f.write("分析配置:\n")
+                f.write("-" * 30 + "\n")
+                config_dict = self.model.get_adc_config_dict()
+                for key, value in config_dict.items():
+                    f.write(f"{key}: {value}\n")
+                
+                f.write("\n分析结果:\n")
+                f.write("-" * 30 + "\n")
+                for key, value in self.model.results.items():
+                    f.write(f"{key}: {value}\n")
+                
+                f.write(f"\n处理文件数: {len(self.model.data_files)}\n")
+                f.write(f"导出时间: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+            
+            self.dataLoaded.emit("结果已成功导出为文本格式")
+            
+        except Exception as e:
+            self.errorOccurred.emit(f"文本导出失败: {str(e)}")
+
+    # 在analyze_adc_data方法中保存分析结果供导出使用
+    def analyze_adc_data(self):
+        """执行ADC数据分析"""
+        try:
+            # 更新配置
+            config = self.model.adc_config
+            config.clock_freq = self.view.adc_clock_freq.value()
+            config.trigger_freq = self.view.adc_trigger_freq.value()
+            config.roi_start_tenths = self.view.adc_roi_start.value()
+            config.roi_end_tenths = self.view.adc_roi_end.value()
+            config.recursive = self.view.adc_recursive_check.isChecked()
+            config.use_signed18 = self.view.adc_signed_check.isChecked()
+            
+            self.analysisStarted.emit("ADC数据分析")
+            
+            # 创建分析器并运行
+            analyzer = DataAnalyzer(config)
+            results = analyzer.batch_process_files(self.model.data_files)
+            averages = analyzer.calculate_averages(results)
+        
+            # 保存分析结果供导出使用
+            self.last_analysis_results = results
+            self.last_averages = averages
+        
+            # 格式化结果
+            analysis_results = {
+                "processed_files": f"{results['success_count']}/{results['total_files']}",
+                "clock_frequency": f"{config.clock_freq/1e6:.2f} MHz",
+                "trigger_frequency": f"{config.trigger_freq/1e6:.2f} MHz",
+                "roi_range": f"{config.roi_start_tenths}%-{config.roi_end_tenths}%",
+                "sampling_rate": f"{analyzer.config.fs_eff/1e6:.2f} MS/s"
+            }
+            
+            # 生成绘图数据
+            self.generate_plot_data(results, averages, analyzer.config)
+            self.model.results = analysis_results
+            self.analysisCompleted.emit(analysis_results)
+            
+        except Exception as e:
+            self.errorOccurred.emit(f"ADC数据分析失败: {str(e)}")
+
     
     def load_data_file(self, file_path):
         """加载数据文件的具体实现"""
