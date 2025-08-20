@@ -6,9 +6,9 @@ from PyQt5.QtCore import QObject, pyqtSignal, QThread, pyqtSlot
 from ...core.ADCSample import ADCSample
 from ...core.DataAnalyze import DataAnalyzer, AnalysisConfig
 from ...core.FileManager import FileManager
+from ...widgets.PlotWidget import create_plot_widget
 import time
 
-import time
 class ADCWorker(QObject):
     """ADC采样工作线程"""
     progress = pyqtSignal(int, int, str)
@@ -72,6 +72,7 @@ class ADCWorker(QObject):
             
         except Exception as e:
             self.finished.emit(False, f"采样过程中发生错误: {str(e)}")
+    
     def stop(self):
         """停止采样"""
         self.running = False
@@ -85,6 +86,7 @@ class DataAnalysisController(QObject):
     adcStatusChanged = pyqtSignal(bool, str)  # ADC连接状态变化信号
     samplingProgress = pyqtSignal(int, int, str)  # 采样进度信号
     dataSaved = pyqtSignal(str, str)  # 新增：数据保存信号
+    plotDataReady = pyqtSignal(str, np.ndarray, np.ndarray)  # 新增：绘图数据准备信号 (类型, x_data, y_data)
     
     def __init__(self, view, model):
         super().__init__()
@@ -93,8 +95,9 @@ class DataAnalysisController(QObject):
         self.adc_sample = ADCSample()
         self.adc_worker = None
         self.adc_thread = None
+        self.data_analyzer = None
         self.setup_connections()
-    
+
     def setup_connections(self):
         """设置信号槽连接"""
         # 文件操作按钮
@@ -122,9 +125,9 @@ class DataAnalysisController(QObject):
         self.dataLoaded.connect(self.view.append_result_text)
         self.analysisCompleted.connect(self.view.display_analysis_results)
         self.errorOccurred.connect(self.view.append_result_text)
-
-        # 数据保存信号连接
         self.dataSaved.connect(self.view.append_result_text)
+
+
     
     def on_connect_adc(self):
         """连接ADC"""
@@ -241,12 +244,12 @@ class DataAnalysisController(QObject):
         self.model.analysis_type = analysis_type
         
         # 根据分析类型更新界面
-        if analysis_type == "S参数":
+        if analysis_type == "ADC数据分析":
+            self.view.show_adc_analysis_options()
+        elif analysis_type == "S参数":
             self.view.show_s_parameter_options()
         elif analysis_type == "TDR":
             self.view.show_tdr_options()
-        elif analysis_type == "ADC数据分析":
-            self.view.show_adc_analysis_options()
     
     def on_file_selected(self, row):
         """文件选择变化"""
@@ -291,8 +294,8 @@ class DataAnalysisController(QObject):
         try:
             # 更新配置
             config = self.model.adc_config
-            config.clock_freq = self.view.adc_clock_freq.value() * 1e6
-            config.trigger_freq = self.view.adc_trigger_freq.value() * 1e6
+            config.clock_freq = self.view.adc_clock_freq.value()
+            config.trigger_freq = self.view.adc_trigger_freq.value()
             config.roi_start_tenths = self.view.adc_roi_start.value()
             config.roi_end_tenths = self.view.adc_roi_end.value()
             config.recursive = self.view.adc_recursive_check.isChecked()
@@ -302,9 +305,9 @@ class DataAnalysisController(QObject):
             
             # 创建分析器并运行
             analyzer = DataAnalyzer(config)
-            results = analyzer.batch_process_files()
+            results = analyzer.batch_process_files(self.model.data_files)
             averages = analyzer.calculate_averages(results)
-            
+        
             # 格式化结果
             analysis_results = {
                 "processed_files": f"{results['success_count']}/{results['total_files']}",
@@ -314,11 +317,172 @@ class DataAnalysisController(QObject):
                 "sampling_rate": f"{analyzer.config.fs_eff/1e6:.2f} MS/s"
             }
             
+            # 生成绘图数据
+            self.generate_plot_data(results, averages, analyzer.config)
             self.model.results = analysis_results
             self.analysisCompleted.emit(analysis_results)
             
         except Exception as e:
             self.errorOccurred.emit(f"ADC数据分析失败: {str(e)}")
+
+    def set_main_window_controller(self, main_window_controller):
+        """设置主窗口控制器引用"""
+        self.main_window_controller = main_window_controller
+
+    def get_plot_controller(self, plot_name):
+        """获取绘图控制器"""
+        if hasattr(self, 'main_window_controller') and self.main_window_controller:
+            return self.main_window_controller.sub_controllers.get(plot_name)
+        return None
+
+  
+
+    def generate_plot_data(self, results, averages, config):
+        """生成绘图数据，完全参考plot_results函数的实现"""
+        try:
+            # 清除所有现有的标记线
+            self.clear_all_markers()
+            
+            # 时域数据 - 转换为电压值
+            t_roi_us = (np.arange(config.l_roi) * config.ts_eff) * 1e6
+            
+            # 将ADC数据转换为电压值 (±3V范围，带符号19位)
+            # 19位带符号数据的范围是 -2^18 到 2^18-1 (-262144 到 262143)
+            # 电压转换公式: voltage = (adc_value / 2^18) * 3.0
+            adc_max_value = 2**19  # 262144
+            y_avg_voltage = (averages['y_avg'] / adc_max_value) * 3.0
+            
+            # 边缘位置计算
+            edge_in_roi = (config.n_points // 4 - config.roi_start)
+            
+            # 获取时域绘图控制器
+            time_controller = self.get_plot_controller('plot_time')
+            if time_controller:
+                # 清除现有绘图
+                time_controller.view.clear_plot()
+                
+                # 绘制时域信号 (使用电压值)
+                time_controller.plot_time_domain(t_roi_us, y_avg_voltage, "时间", "电压", "μs", "V")
+                
+                # 添加边缘位置标记
+                if 0 <= edge_in_roi < config.l_roi:
+                    self.add_vertical_line(time_controller, t_roi_us[edge_in_roi], 'red', 'Edge Position')
+            else:
+                self.errorOccurred.emit("时域绘图控制器未找到")
+            
+            # 频域数据
+            mask = results['freq_ref'] <= (config.show_up_to_GHz * 1e9)
+            freq_ghz = results['freq_ref'][mask] / 1e9
+            mag_db = averages['mag_avg_db'][mask]
+            
+            # 获取频域绘图控制器
+            freq_controller = self.get_plot_controller('plot_freq')
+            if freq_controller:
+                # 清除现有绘图
+                freq_controller.view.clear_plot()
+                
+                freq_controller.plot_frequency_domain(freq_ghz, mag_db, "频率", "幅度", "GHz", "dB")
+            else:
+                self.errorOccurred.emit("频域绘图控制器未找到")
+            
+            # 差分时域数据 - 同样转换为电压值
+            t_diff_us = t_roi_us[config.diff_points:]
+            y_d_avg_voltage = (averages['y_d_avg'] / adc_max_value) * 3.0
+            
+            # 获取或创建差分时域绘图控制器
+            diff_time_controller = self.get_plot_controller('plot_diff_time')
+            if not diff_time_controller:
+                self.create_additional_plot_tabs()
+                diff_time_controller = self.get_plot_controller('plot_diff_time')
+            
+            if diff_time_controller:
+                # 清除现有绘图
+                diff_time_controller.view.clear_plot()
+                
+                diff_time_controller.plot_diff_time_domain(t_diff_us, y_d_avg_voltage, "时间", "差分电压", "μs", "V")
+                
+                # 添加边缘位置标记
+                if (0 <= edge_in_roi < config.l_roi and 
+                    0 <= edge_in_roi - config.diff_points < len(y_d_avg_voltage)):
+                    edge_pos = t_roi_us[max(edge_in_roi - config.diff_points, 0)]
+                    self.add_vertical_line(diff_time_controller, edge_pos, 'red', 'Edge Position')
+            
+            # 差分频域数据
+            maskd = results['freq_d_ref'] <= (config.show_up_to_GHz * 1e9)
+            freq_d_ghz = results['freq_d_ref'][maskd] / 1e9
+            mag_d_db = averages['mag_d_avg_db'][maskd]
+            
+            # 获取或创建差分频域绘图控制器
+            diff_freq_controller = self.get_plot_controller('plot_diff_freq')
+            if not diff_freq_controller:
+                self.create_additional_plot_tabs()
+                diff_freq_controller = self.get_plot_controller('plot_diff_freq')
+            
+            if diff_freq_controller:
+                # 清除现有绘图
+                diff_freq_controller.view.clear_plot()
+                
+                diff_freq_controller.plot_diff_frequency_domain(freq_d_ghz, mag_d_db, "频率", "差分幅度", "GHz", "dB")
+                
+        except Exception as e:
+            self.errorOccurred.emit(f"生成绘图数据失败: {str(e)}")
+
+
+    def clear_all_markers(self):
+        """清除所有绘图标记"""
+        try:
+            # 清除所有绘图控制器的标记
+            for plot_name in ['plot_time', 'plot_freq', 'plot_diff_time', 'plot_diff_freq']:
+                controller = self.get_plot_controller(plot_name)
+                if controller and hasattr(controller, 'clear_markers'):
+                    controller.clear_markers()
+                    
+        except Exception as e:
+            self.errorOccurred.emit(f"清除标记失败: {str(e)}")
+
+
+
+    def add_vertical_line(self, plot_controller, x_position, color='red', label=''):
+        """添加垂直标记线"""
+        try:
+            if hasattr(plot_controller, 'add_vertical_line'):
+                plot_controller.add_vertical_line(x_position, color, 'dashed', label)
+            else:
+                # 备用方案：直接操作plot_widget
+                plot_widget = plot_controller.view.plot_widget
+                line = pg.InfiniteLine(pos=x_position, angle=90, 
+                                    pen=pg.mkPen(color, width=1, style=pg.QtCore.Qt.DashLine))
+                plot_widget.addItem(line)
+                
+                if label:
+                    text = pg.TextItem(text=label, color=color, anchor=(0.5, 1))
+                    y_range = plot_widget.getViewBox().viewRange()[1]
+                    text.setPos(x_position, y_range[1] * 0.9)
+                    plot_widget.addItem(text)
+                    
+        except Exception as e:
+            self.errorOccurred.emit(f"添加标记线失败: {str(e)}")
+
+
+
+    def create_additional_plot_tabs(self):
+        """创建额外的绘图标签页"""
+        if not hasattr(self, 'main_window_controller') or not self.main_window_controller:
+            return
+        
+        main_window_view = self.main_window_controller.view
+        
+        # 创建差分时域绘图
+        diff_time_view, diff_time_controller = create_plot_widget("差分时域信号")
+        main_window_view.add_plot_tab(diff_time_view, "差分时域")
+        self.main_window_controller.sub_controllers['plot_diff_time'] = diff_time_controller
+        
+        # 创建差分频域绘图
+        diff_freq_view, diff_freq_controller = create_plot_widget("差分频域信号")
+        main_window_view.add_plot_tab(diff_freq_view, "差分频域")
+        self.main_window_controller.sub_controllers['plot_diff_freq'] = diff_freq_controller
+
+    
     
     def on_export(self):
         """导出分析结果"""

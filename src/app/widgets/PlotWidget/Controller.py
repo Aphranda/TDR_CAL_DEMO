@@ -1,6 +1,7 @@
 # src/app/widgets/PlotWidget/Controller.py
 from PyQt5.QtCore import QObject
 import numpy as np
+import pyqtgraph as pg
 
 class PlotWidgetController(QObject):
     def __init__(self, model, view):
@@ -51,6 +52,87 @@ class PlotWidgetController(QObject):
         if phase_data is not None:
             # 如果有相位数据，可以添加到第二个Y轴
             pass
+
+    def plot_time_domain(self, time_data, amplitude_data, x_label="时间", y_label="幅度", units_x="s", units_y="V"):
+        """绘制时域数据"""
+        self.update_plot(time_data, amplitude_data)
+        self.view.set_labels(x_label, y_label, units_x, units_y)
+        self.view.plot_widget.setTitle("时域信号", color='b', size='12pt')
+
+    def plot_frequency_domain(self, freq_data, magnitude_data, x_label="频率", y_label="幅度", units_x="Hz", units_y="dB"):
+        """绘制频域数据"""
+        self.update_plot(freq_data, magnitude_data)
+        self.view.set_labels(x_label, y_label, units_x, units_y)
+        self.view.plot_widget.setTitle("频域信号", color='b', size='12pt')
+
+    def plot_diff_time_domain(self, time_data, diff_data, x_label="时间", y_label="差分幅度", units_x="s", units_y="V"):
+        """绘制差分时域数据"""
+        self.update_plot(time_data, diff_data)
+        self.view.set_labels(x_label, y_label, units_x, units_y)
+        self.view.plot_widget.setTitle("差分时域信号", color='b', size='12pt')
+
+    def plot_diff_frequency_domain(self, freq_data, diff_mag_data, x_label="频率", y_label="差分幅度", units_x="Hz", units_y="dB"):
+        """绘制差分频域数据"""
+        self.update_plot(freq_data, diff_mag_data)
+        self.view.set_labels(x_label, y_label, units_x, units_y)
+        self.view.plot_widget.setTitle("差分频域信号", color='b', size='12pt')
+
+    def add_vertical_line(self, x_position, color='red', style='dashed', label=''):
+        """添加垂直标记线"""
+        try:
+            # 创建无限线
+            pen = pg.mkPen(color, width=1, style=pg.QtCore.Qt.DashLine if style == 'dashed' else pg.QtCore.Qt.SolidLine)
+            line = pg.InfiniteLine(pos=x_position, angle=90, pen=pen, movable=False)
+            self.view.plot_widget.addItem(line)
+            
+            if label:
+                # 添加文本标签
+                text = pg.TextItem(text=label, color=color, anchor=(0.5, 1))
+                y_range = self.view.plot_widget.getViewBox().viewRange()[1]
+                text.setPos(x_position, y_range[1] * 0.9)  # 放在y轴90%的位置
+                self.view.plot_widget.addItem(text)
+                
+            return line
+            
+        except Exception as e:
+            print(f"添加标记线失败: {e}")
+            return None
+
+    def add_horizontal_line(self, y_position, color='red', style='dashed', label=''):
+        """添加水平标记线"""
+        try:
+            # 创建无限线
+            pen = pg.mkPen(color, width=1, style=pg.QtCore.Qt.DashLine if style == 'dashed' else pg.QtCore.Qt.SolidLine)
+            line = pg.InfiniteLine(pos=y_position, angle=0, pen=pen, movable=False)
+            self.view.plot_widget.addItem(line)
+            
+            if label:
+                # 添加文本标签
+                text = pg.TextItem(text=label, color=color, anchor=(1, 0.5))
+                x_range = self.view.plot_widget.getViewBox().viewRange()[0]
+                text.setPos(x_range[1] * 0.9, y_position)  # 放在x轴90%的位置
+                self.view.plot_widget.addItem(text)
+                
+            return line
+            
+        except Exception as e:
+            print(f"添加标记线失败: {e}")
+            return None
+
+    def clear_markers(self):
+        """清除所有标记线"""
+        try:
+            # 获取所有无限线并移除
+            for item in self.view.plot_widget.allChildItems():
+                if isinstance(item, pg.InfiniteLine):
+                    self.view.plot_widget.removeItem(item)
+                elif isinstance(item, pg.TextItem):
+                    self.view.plot_widget.removeItem(item)
+                    
+        except Exception as e:
+            print(f"清除标记线失败: {e}")
+
+
     
     def set_custom_alignment(self, horizontal='center', vertical='center', 
                            left_pos='left', bottom_pos='bottom'):

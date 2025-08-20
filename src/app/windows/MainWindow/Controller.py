@@ -49,6 +49,9 @@ class MainWindowController:
         self.view.set_data_analysis_widget(data_analysis_panel)
         self.model.data_analysis_panel = data_analysis_panel
         self.sub_controllers['data_analysis'] = data_analysis_controller  # 保存控制器引用
+
+        # 设置主窗口控制器引用
+        data_analysis_controller.set_main_window_controller(self)
         
         # 添加初始绘图区域
         plot_widget, plot_controller = create_plot_widget("时域响应")

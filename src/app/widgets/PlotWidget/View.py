@@ -19,6 +19,7 @@ class PlotWidgetView(QWidget):
         
         # 创建绘图部件
         self.plot_widget = pg.PlotWidget()
+        self.plot_widget.setMouseEnabled(x=True, y=False)
         self.plot_widget.setBackground('w')
         self.plot_widget.setTitle(self.title, color='b', size='12pt')
         self.plot_widget.showGrid(x=True, y=True)
@@ -131,8 +132,15 @@ class PlotWidgetView(QWidget):
         self.plot_widget.clear()
         self.plot_curve = self.plot_widget.plot(pen=pg.mkPen('b', width=2))
     
-    def set_labels(self, x_label, y_label):
-        """设置坐标轴标签"""
-        # 使用正确的对齐参数设置标签
-        self.plot_widget.setLabel('bottom', x_label, **{'horizontalAlignment': 'center'})
-        self.plot_widget.setLabel('left', y_label, **{'verticalAlignment': 'center'})
+    def set_labels(self, x_label, y_label, units_x="", units_y=""):
+        """设置坐标轴标签和单位"""
+        if units_x:
+            self.plot_widget.setLabel('bottom', x_label, units=units_x, **{'horizontalAlignment': 'center'})
+        else:
+            self.plot_widget.setLabel('bottom', x_label, **{'horizontalAlignment': 'center'})
+        
+        if units_y:
+            self.plot_widget.setLabel('left', y_label, units=units_y, **{'verticalAlignment': 'center'})
+        else:
+            self.plot_widget.setLabel('left', y_label, **{'verticalAlignment': 'center'})
+

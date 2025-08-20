@@ -35,11 +35,11 @@ class AnalysisConfig:
     show_up_to_GHz: float = 50.0
     skip_first_value: bool = True
     edge_search_start: int = 1
-    diff_points: int = 10
+    diff_points: int = 9
     search_method: int = SearchMethod.RISING
     roi_start_tenths: int = 20
     roi_end_tenths: int = 30
-    output_csv: str = 'Cable_S23.csv'
+    output_csv: str = 'data\\raw\\calibration\\S_data.csv'
     
     @property
     def t_sample(self) -> float:
@@ -188,27 +188,27 @@ class DataAnalyzer:
             logger.error(f"处理文件时出错: {e}")
             return None
     
-    def batch_process_files(self) -> Dict[str, Any]:
+    def batch_process_files(self, file_list: List[str]) -> Dict[str, Any]:
         """
-        批量处理文件
+        批量处理文件列表
         
+        Args:
+            file_list: 要处理的文件路径列表
+            
         Returns:
             处理结果字典
         """
-        # 查找文件
-        files = self.file_manager.find_csv_files(self.config.input_dir, self.config.recursive)
-        
-        logger.info(f"找到 {len(files)} 个文件")
+        logger.info(f"开始处理 {len(file_list)} 个文件")
         
         # 初始化结果存储
         results = {
             'ys': [], 'mags': [], 'ys_d': [], 'mags_d': [],
             'freq_ref': None, 'freq_d_ref': None, 'sum_Xd': None,
-            'success_count': 0, 'total_files': len(files)
+            'success_count': 0, 'total_files': len(file_list)
         }
         
         # 处理每个文件
-        for f in tqdm(files, desc="处理文件", unit="file"):
+        for f in tqdm(file_list, desc="处理文件", unit="file"):
             try:
                 raw = self.load_u32_data(f)
                 res = self.process_single_file(raw)
@@ -240,7 +240,7 @@ class DataAnalyzer:
         if results['success_count'] == 0:
             raise RuntimeError("没有文件成功处理")
         
-        logger.info(f"成功处理 {results['success_count']}/{len(files)} 个文件")
+        logger.info(f"成功处理 {results['success_count']}/{len(file_list)} 个文件")
         return results
     
     def calculate_averages(self, results: Dict[str, Any]) -> Dict[str, Any]:
@@ -351,8 +351,9 @@ class DataAnalyzer:
         """运行完整分析流程"""
         logger.info("开始数据分析...")
         
+        files = self.file_manager.find_csv_files(self.config.input_dir, self.config.recursive)
         # 批量处理文件
-        results = self.batch_process_files()
+        results = self.batch_process_files(files)
         
         # 计算平均值
         averages = self.calculate_averages(results)

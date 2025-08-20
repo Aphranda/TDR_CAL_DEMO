@@ -3,15 +3,20 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGroupBox,
                              QLabel, QPushButton, QComboBox, QListWidget,
                              QCheckBox, QLineEdit, QTextEdit, QSpinBox, 
                              QProgressBar, QSplitter, QTabWidget, QDoubleSpinBox, 
-                             QStackedWidget, QFileDialog)
+                             QStackedWidget, QFileDialog, QGridLayout)
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QIntValidator
+from ...widgets.PlotWidget import create_plot_widget
+import numpy as np
 
 class DataAnalysisView(QWidget):
     def __init__(self):
         super().__init__()
+        self.plot_widgets = {}  # 存储绘图部件
+        self.plot_controllers = {}  # 新增：存储绘图控制器
+        self.main_window_view = None  # 添加main_window_view属性，初始为None
         self.setup_ui()
-    
+
     def setup_ui(self):
         main_layout = QHBoxLayout()
         
@@ -173,6 +178,8 @@ class DataAnalysisView(QWidget):
         self.config_text = QTextEdit()
         self.config_text.setReadOnly(True)
         result_tabs.addTab(self.config_text, "配置信息")
+
+
         
         # 使用垂直分割器
         splitter = QSplitter(Qt.Vertical)
@@ -188,7 +195,7 @@ class DataAnalysisView(QWidget):
         
         # 连接浏览目录按钮
         self.browse_dir_button.clicked.connect(self.on_browse_directory)
-    
+
     def on_browse_directory(self):
         """浏览选择输出目录"""
         directory = QFileDialog.getExistingDirectory(
@@ -293,22 +300,22 @@ class DataAnalysisView(QWidget):
         layout = QVBoxLayout()
         layout.setSpacing(6)  # 减小组间间距
         
-        # 频率设置
+        # 频率设置 - 修改单位标签
         clock_layout = QHBoxLayout()
         clock_layout.addWidget(QLabel("时钟频率:"))
         self.adc_clock_freq = QDoubleSpinBox()
-        self.adc_clock_freq.setRange(1.0, 1000.0)
-        self.adc_clock_freq.setValue(39.54)
-        self.adc_clock_freq.setSuffix(" MHz")
+        self.adc_clock_freq.setRange(1.0, 1000.0*1e6)
+        self.adc_clock_freq.setValue(39538587.77)
+        self.adc_clock_freq.setSuffix(" Hz")  # 保持MHz显示，但实际处理时按Hz处理
         clock_layout.addWidget(self.adc_clock_freq)
         layout.addLayout(clock_layout)
         
         trigger_layout = QHBoxLayout()
         trigger_layout.addWidget(QLabel("触发频率:"))
         self.adc_trigger_freq = QDoubleSpinBox()
-        self.adc_trigger_freq.setRange(0.1, 100.0)
-        self.adc_trigger_freq.setValue(10.0)
-        self.adc_trigger_freq.setSuffix(" MHz")
+        self.adc_trigger_freq.setRange(0.1, 100.0*1e6)
+        self.adc_trigger_freq.setValue(10000000.0)
+        self.adc_trigger_freq.setSuffix(" Hz")  # 保持MHz显示，但实际处理时按Hz处理
         trigger_layout.addWidget(self.adc_trigger_freq)
         layout.addLayout(trigger_layout)
         

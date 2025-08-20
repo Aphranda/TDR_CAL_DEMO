@@ -83,6 +83,10 @@ class MainWindowView(QMainWindow):
         """添加绘图标签页"""
         widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.plot_area.addTab(widget, title)
+
+    def clear_plot_tabs(self):
+        """清除所有绘图标签页"""
+        self.plot_area.clear()
     
     def set_instrument_widget(self, widget):
         """设置仪表连接区域（在网分校准标签页中）"""
