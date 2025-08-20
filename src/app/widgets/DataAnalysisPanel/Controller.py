@@ -1,6 +1,7 @@
 # src/app/widgets/DataAnalysisPanel/Controller.py
 import os
 import numpy as np
+import pyqtgraph as pg
 from PyQt5.QtWidgets import QFileDialog, QMessageBox
 from PyQt5.QtCore import QObject, pyqtSignal, QThread, pyqtSlot
 from ...core.ADCSample import ADCSample
@@ -122,12 +123,30 @@ class DataAnalysisController(QObject):
         # 连接状态信号
         self.adcStatusChanged.connect(self.view.update_adc_connection_status)
         self.samplingProgress.connect(self.view.update_sampling_progress)
-        self.dataLoaded.connect(self.view.append_result_text)
-        self.analysisCompleted.connect(self.view.display_analysis_results)
-        self.errorOccurred.connect(self.view.append_result_text)
-        self.dataSaved.connect(self.view.append_result_text)
+        
+        # 删除以下连接，因为View中的对应方法已被删除
+        # self.dataLoaded.connect(self.view.append_result_text)
+        # self.analysisCompleted.connect(self.view.display_analysis_results)
+        
+        self.errorOccurred.connect(lambda msg: self.log_message(msg, "ERROR"))
+        self.dataSaved.connect(lambda path, msg: self.log_message(f"{msg}: {path}", "INFO"))
+        
+        # 将其他信号连接到日志记录
+        self.dataLoaded.connect(lambda msg: self.log_message(msg, "INFO"))
+        self.analysisCompleted.connect(self.log_analysis_results)
 
-
+    def log_message(self, message, level="INFO"):
+        """记录消息到日志区域"""
+        if hasattr(self, 'main_window_controller') and self.main_window_controller:
+            self.main_window_controller.log_controller.log(message, level)
+    
+    def log_analysis_results(self, results):
+        """记录分析结果到日志区域"""
+        if hasattr(self, 'main_window_controller') and self.main_window_controller:
+            self.main_window_controller.log_controller.log("分析结果:", "INFO")
+            self.main_window_controller.log_controller.log("=" * 50, "INFO")
+            for key, value in results.items():
+                self.main_window_controller.log_controller.log(f"{key}: {value}", "INFO")
     
     def on_connect_adc(self):
         """连接ADC"""
@@ -148,9 +167,12 @@ class DataAnalysisController(QObject):
             success, message = self.adc_sample.connect()
             self.model.set_adc_connection_status(success)
             self.adcStatusChanged.emit(success, message)
+            self.log_message(f"ADC连接状态: {message}", "INFO" if success else "WARNING")
         except Exception as e:
-            self.errorOccurred.emit(f"连接ADC失败: {str(e)}")
+            error_msg = f"连接ADC失败: {str(e)}"
+            self.errorOccurred.emit(error_msg)
             self.adcStatusChanged.emit(False, str(e))
+            self.log_message(error_msg, "ERROR")
     
     def on_disconnect_adc(self):
         """断开ADC连接"""
@@ -158,13 +180,18 @@ class DataAnalysisController(QObject):
             self.adc_sample.disconnect()
             self.model.set_adc_connection_status(False)
             self.adcStatusChanged.emit(False, "手动断开连接")
+            self.log_message("ADC已手动断开连接", "INFO")
         except Exception as e:
-            self.errorOccurred.emit(f"断开连接失败: {str(e)}")
+            error_msg = f"断开连接失败: {str(e)}"
+            self.errorOccurred.emit(error_msg)
+            self.log_message(error_msg, "ERROR")
     
     def on_sample_adc(self):
         """开始ADC采样"""
         if not self.model.adc_connected:
-            self.errorOccurred.emit("请先连接ADC")
+            error_msg = "请先连接ADC"
+            self.errorOccurred.emit(error_msg)
+            self.log_message(error_msg, "WARNING")
             return
         
         # 获取采样参数
@@ -198,19 +225,24 @@ class DataAnalysisController(QObject):
         
         # 启动线程
         self.adc_thread.start()
+        self.log_message(f"开始ADC采样，次数: {count}, 间隔: {interval}s", "INFO")
     
     def on_sampling_finished(self, success, message):
         """采样完成"""
         if success:
             self.dataLoaded.emit(message)
+            self.log_message(message, "INFO")
         else:
             self.errorOccurred.emit(message)
+            self.log_message(message, "ERROR")
     
     def on_sample_data_received(self, sample_data):
         """接收到采样数据"""
         for data in sample_data:
             self.model.add_adc_sample(data)
-        self.dataLoaded.emit(f"接收到 {len(sample_data)} 组采样数据")
+        msg = f"接收到 {len(sample_data)} 组采样数据"
+        self.dataLoaded.emit(msg)
+        self.log_message(msg, "INFO")
     
     def on_load_file(self):
         """加载数据文件"""
@@ -228,16 +260,22 @@ class DataAnalysisController(QObject):
                         self.model.data_files.append(file_path)
                         self.view.file_list.addItem(os.path.basename(file_path))
                 
-                self.dataLoaded.emit(f"成功加载 {len(file_paths)} 个文件")
+                msg = f"成功加载 {len(file_paths)} 个文件"
+                self.dataLoaded.emit(msg)
+                self.log_message(msg, "INFO")
         except Exception as e:
-            self.errorOccurred.emit(f"加载文件失败: {str(e)}")
+            error_msg = f"加载文件失败: {str(e)}"
+            self.errorOccurred.emit(error_msg)
+            self.log_message(error_msg, "ERROR")
     
     def on_clear_files(self):
         """清除文件列表"""
         self.model.data_files.clear()
         self.model.current_data = None
         self.view.file_list.clear()
-        self.dataLoaded.emit("已清除文件列表")
+        msg = "已清除文件列表"
+        self.dataLoaded.emit(msg)
+        self.log_message(msg, "INFO")
     
     def on_analysis_type_changed(self, analysis_type):
         """分析类型变化"""
@@ -250,6 +288,8 @@ class DataAnalysisController(QObject):
             self.view.show_s_parameter_options()
         elif analysis_type == "TDR":
             self.view.show_tdr_options()
+        
+        self.log_message(f"分析类型已更改为: {analysis_type}", "INFO")
     
     def on_file_selected(self, row):
         """文件选择变化"""
@@ -257,10 +297,14 @@ class DataAnalysisController(QObject):
             file_path = self.model.data_files[row]
             try:
                 self.model.current_data = self.load_data_file(file_path)
-                self.dataLoaded.emit(f"已加载文件: {os.path.basename(file_path)}")
+                msg = f"已加载文件: {os.path.basename(file_path)}"
+                self.dataLoaded.emit(msg)
+                self.log_message(msg, "INFO")
             except Exception as e:
-                self.errorOccurred.emit(f"加载数据失败: {str(e)}")
+                error_msg = f"加载数据失败: {str(e)}"
+                self.errorOccurred.emit(error_msg)
                 self.model.current_data = None
+                self.log_message(error_msg, "ERROR")
     
     def on_analyze(self):
         """执行分析"""
@@ -269,11 +313,14 @@ class DataAnalysisController(QObject):
             return
         
         if not self.model.current_data:
-            self.errorOccurred.emit("请先选择数据文件")
+            error_msg = "请先选择数据文件"
+            self.errorOccurred.emit(error_msg)
+            self.log_message(error_msg, "WARNING")
             return
         
         try:
             self.analysisStarted.emit(self.model.analysis_type)
+            self.log_message(f"开始{self.model.analysis_type}分析", "INFO")
             
             # 根据分析类型执行不同的分析
             if self.model.analysis_type == "S参数":
@@ -287,7 +334,9 @@ class DataAnalysisController(QObject):
             self.analysisCompleted.emit(results)
             
         except Exception as e:
-            self.errorOccurred.emit(f"分析失败: {str(e)}")
+            error_msg = f"分析失败: {str(e)}"
+            self.errorOccurred.emit(error_msg)
+            self.log_message(error_msg, "ERROR")
     
     def analyze_adc_data(self):
         """执行ADC数据分析"""
@@ -302,11 +351,16 @@ class DataAnalysisController(QObject):
             config.use_signed18 = self.view.adc_signed_check.isChecked()
             
             self.analysisStarted.emit("ADC数据分析")
+            self.log_message("开始ADC数据分析", "INFO")
             
             # 创建分析器并运行
             analyzer = DataAnalyzer(config)
             results = analyzer.batch_process_files(self.model.data_files)
             averages = analyzer.calculate_averages(results)
+        
+            # 保存分析结果供导出使用
+            self.last_analysis_results = results
+            self.last_averages = averages
         
             # 格式化结果
             analysis_results = {
@@ -323,8 +377,10 @@ class DataAnalysisController(QObject):
             self.analysisCompleted.emit(analysis_results)
             
         except Exception as e:
-            self.errorOccurred.emit(f"ADC数据分析失败: {str(e)}")
-
+            error_msg = f"ADC数据分析失败: {str(e)}"
+            self.errorOccurred.emit(error_msg)
+            self.log_message(error_msg, "ERROR")
+    
     def set_main_window_controller(self, main_window_controller):
         """设置主窗口控制器引用"""
         self.main_window_controller = main_window_controller
@@ -334,7 +390,6 @@ class DataAnalysisController(QObject):
         if hasattr(self, 'main_window_controller') and self.main_window_controller:
             return self.main_window_controller.sub_controllers.get(plot_name)
         return None
-
 
     def generate_plot_data(self, results, averages, config):
         """生成绘图数据，完全参考plot_results函数的实现"""
@@ -425,7 +480,7 @@ class DataAnalysisController(QObject):
                 
         except Exception as e:
             self.errorOccurred.emit(f"生成绘图数据失败: {str(e)}")
-
+            self.log_message(f"生成绘图数据失败: {str(e)}", "ERROR")
 
     def clear_all_markers(self):
         """清除所有绘图标记"""
@@ -438,8 +493,7 @@ class DataAnalysisController(QObject):
                     
         except Exception as e:
             self.errorOccurred.emit(f"清除标记失败: {str(e)}")
-
-
+            self.log_message(f"清除标记失败: {str(e)}", "ERROR")
 
     def add_vertical_line(self, plot_controller, x_position, color='red', label=''):
         """添加垂直标记线"""
@@ -461,8 +515,7 @@ class DataAnalysisController(QObject):
                     
         except Exception as e:
             self.errorOccurred.emit(f"添加标记线失败: {str(e)}")
-
-
+            self.log_message(f"添加标记线失败: {str(e)}", "ERROR")
 
     def create_additional_plot_tabs(self):
         """创建额外的绘图标签页"""
@@ -480,13 +533,12 @@ class DataAnalysisController(QObject):
         diff_freq_view, diff_freq_controller = create_plot_widget("差分频域信号")
         main_window_view.add_plot_tab(diff_freq_view, "差分频域")
         self.main_window_controller.sub_controllers['plot_diff_freq'] = diff_freq_controller
-
-    
     
     def on_export(self):
         """导出分析结果"""
         if not self.model.results:
             self.errorOccurred.emit("没有可导出的分析结果")
+            self.log_message("没有可导出的分析结果", "WARNING")
             return
         
         try:
@@ -513,9 +565,11 @@ class DataAnalysisController(QObject):
                     self.export_text_results(file_path)
                 
                 self.dataLoaded.emit(f"结果已导出到: {file_path}")
+                self.log_message(f"结果已导出到: {file_path}", "INFO")
                 
         except Exception as e:
             self.errorOccurred.emit(f"导出失败: {str(e)}")
+            self.log_message(f"导出失败: {str(e)}", "ERROR")
 
     def export_csv_results(self, file_path):
         """使用DataAnalyze的save_results函数导出CSV结果"""
@@ -543,8 +597,10 @@ class DataAnalysisController(QObject):
                     
                     if success:
                         self.dataLoaded.emit("复数FFT结果已成功导出为CSV")
+                        self.log_message("复数FFT结果已成功导出为CSV", "INFO")
                     else:
                         self.errorOccurred.emit("复数FFT结果导出失败")
+                        self.log_message("复数FFT结果导出失败", "ERROR")
                 
                 # 同时保存时域数据
                 self.export_additional_csv_data(file_path, results, averages)
@@ -555,6 +611,7 @@ class DataAnalysisController(QObject):
                 
         except Exception as e:
             self.errorOccurred.emit(f"CSV导出失败: {str(e)}")
+            self.log_message(f"CSV导出失败: {str(e)}", "ERROR")
 
     def export_additional_csv_data(self, file_path, results, averages):
         """导出额外的CSV数据"""
@@ -570,6 +627,7 @@ class DataAnalysisController(QObject):
                 np.savetxt(time_domain_file, time_data, delimiter=',', 
                         header='Time(us),Amplitude', comments='')
                 self.dataLoaded.emit(f"时域数据已保存到: {os.path.basename(time_domain_file)}")
+                self.log_message(f"时域数据已保存到: {os.path.basename(time_domain_file)}", "INFO")
             
             # 保存频域数据
             freq_domain_file = f"{base_path}_frequency_domain.csv"
@@ -580,6 +638,7 @@ class DataAnalysisController(QObject):
                 np.savetxt(freq_domain_file, freq_data, delimiter=',', 
                         header='Frequency(GHz),Magnitude(dB)', comments='')
                 self.dataLoaded.emit(f"频域数据已保存到: {os.path.basename(freq_domain_file)}")
+                self.log_message(f"频域数据已保存到: {os.path.basename(freq_domain_file)}", "INFO")
             
             # 保存差分时域数据
             diff_time_file = f"{base_path}_diff_time_domain.csv"
@@ -589,6 +648,7 @@ class DataAnalysisController(QObject):
                 np.savetxt(diff_time_file, diff_time_data, delimiter=',', 
                         header='Time(us),Differential_Amplitude', comments='')
                 self.dataLoaded.emit(f"差分时域数据已保存到: {os.path.basename(diff_time_file)}")
+                self.log_message(f"差分时域数据已保存到: {os.path.basename(diff_time_file)}", "INFO")
             
             # 保存差分频域数据
             diff_freq_file = f"{base_path}_diff_frequency_domain.csv"
@@ -599,9 +659,11 @@ class DataAnalysisController(QObject):
                 np.savetxt(diff_freq_file, diff_freq_data, delimiter=',', 
                         header='Frequency(GHz),Differential_Magnitude(dB)', comments='')
                 self.dataLoaded.emit(f"差分频域数据已保存到: {os.path.basename(diff_freq_file)}")
+                self.log_message(f"差分频域数据已保存到: {os.path.basename(diff_freq_file)}", "INFO")
                 
         except Exception as e:
             self.errorOccurred.emit(f"附加数据导出失败: {str(e)}")
+            self.log_message(f"附加数据导出失败: {str(e)}", "ERROR")
 
     def export_json_results(self, file_path):
         """导出JSON格式的结果"""
@@ -627,11 +689,14 @@ class DataAnalysisController(QObject):
             
             if success:
                 self.dataLoaded.emit("结果已成功导出为JSON格式")
+                self.log_message("结果已成功导出为JSON格式", "INFO")
             else:
                 self.errorOccurred.emit("JSON导出失败")
+                self.log_message("JSON导出失败", "ERROR")
                 
         except Exception as e:
             self.errorOccurred.emit(f"JSON导出失败: {str(e)}")
+            self.log_message(f"JSON导出失败: {str(e)}", "ERROR")
 
     def export_text_results(self, file_path):
         """导出文本格式的结果"""
@@ -655,52 +720,12 @@ class DataAnalysisController(QObject):
                 f.write(f"导出时间: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
             
             self.dataLoaded.emit("结果已成功导出为文本格式")
+            self.log_message("结果已成功导出为文本格式", "INFO")
             
         except Exception as e:
             self.errorOccurred.emit(f"文本导出失败: {str(e)}")
+            self.log_message(f"文本导出失败: {str(e)}", "ERROR")
 
-    # 在analyze_adc_data方法中保存分析结果供导出使用
-    def analyze_adc_data(self):
-        """执行ADC数据分析"""
-        try:
-            # 更新配置
-            config = self.model.adc_config
-            config.clock_freq = self.view.adc_clock_freq.value()
-            config.trigger_freq = self.view.adc_trigger_freq.value()
-            config.roi_start_tenths = self.view.adc_roi_start.value()
-            config.roi_end_tenths = self.view.adc_roi_end.value()
-            config.recursive = self.view.adc_recursive_check.isChecked()
-            config.use_signed18 = self.view.adc_signed_check.isChecked()
-            
-            self.analysisStarted.emit("ADC数据分析")
-            
-            # 创建分析器并运行
-            analyzer = DataAnalyzer(config)
-            results = analyzer.batch_process_files(self.model.data_files)
-            averages = analyzer.calculate_averages(results)
-        
-            # 保存分析结果供导出使用
-            self.last_analysis_results = results
-            self.last_averages = averages
-        
-            # 格式化结果
-            analysis_results = {
-                "processed_files": f"{results['success_count']}/{results['total_files']}",
-                "clock_frequency": f"{config.clock_freq/1e6:.2f} MHz",
-                "trigger_frequency": f"{config.trigger_freq/1e6:.2f} MHz",
-                "roi_range": f"{config.roi_start_tenths}%-{config.roi_end_tenths}%",
-                "sampling_rate": f"{analyzer.config.fs_eff/1e6:.2f} MS/s"
-            }
-            
-            # 生成绘图数据
-            self.generate_plot_data(results, averages, analyzer.config)
-            self.model.results = analysis_results
-            self.analysisCompleted.emit(analysis_results)
-            
-        except Exception as e:
-            self.errorOccurred.emit(f"ADC数据分析失败: {str(e)}")
-
-    
     def load_data_file(self, file_path):
         """加载数据文件的具体实现"""
         # 这里应该根据文件格式实现具体的数据加载逻辑

@@ -18,7 +18,7 @@ class DataAnalysisView(QWidget):
         self.setup_ui()
 
     def setup_ui(self):
-        main_layout = QHBoxLayout()
+        main_layout = QVBoxLayout()  # 修改：使用垂直布局
         
         # 左侧控制面板
         control_panel = QWidget()
@@ -118,8 +118,6 @@ class DataAnalysisView(QWidget):
         self.file_list.setMaximumHeight(100)
         file_layout.addWidget(self.file_list)
         
-
-        
         file_group.setLayout(file_layout)
         control_layout.addWidget(file_group)
         
@@ -161,33 +159,8 @@ class DataAnalysisView(QWidget):
         
         control_panel.setLayout(control_layout)
         
-        # 右侧结果显示区域
-        result_tabs = QTabWidget()
-        
-        # 文本结果标签
-        self.result_text = QTextEdit()
-        self.result_text.setReadOnly(True)
-        result_tabs.addTab(self.result_text, "分析结果")
-        
-        # 统计信息标签
-        self.stats_text = QTextEdit()
-        self.stats_text.setReadOnly(True)
-        result_tabs.addTab(self.stats_text, "统计信息")
-        
-        # 配置信息标签
-        self.config_text = QTextEdit()
-        self.config_text.setReadOnly(True)
-        result_tabs.addTab(self.config_text, "配置信息")
-
-
-        
-        # 使用垂直分割器
-        splitter = QSplitter(Qt.Vertical)
-        splitter.addWidget(control_panel)
-        splitter.addWidget(result_tabs)
-        splitter.setSizes([400, 600])  # 调整分割比例
-        
-        main_layout.addWidget(splitter)
+        # 删除右侧结果显示区域，只保留控制面板
+        main_layout.addWidget(control_panel)
         self.setLayout(main_layout)
         
         # 初始显示S参数选项
@@ -376,7 +349,8 @@ class DataAnalysisView(QWidget):
             self.connect_button.setText("连接ADC")
             status_text = f"ADC断开连接: {message}"
         
-        self.append_result_text(status_text)
+        # 不再直接显示文本，而是通过信号发送到日志区域
+        # self.append_result_text(status_text)
     
     def update_sampling_progress(self, current: int, total: int, message: str = ""):
         """更新采样进度"""
@@ -385,62 +359,8 @@ class DataAnalysisView(QWidget):
         self.progress_bar.setValue(current)
         
         if message:
-            self.append_result_text(f"采样进度: {current}/{total} - {message}")
+            # 不再直接显示文本，而是通过信号发送到日志区域
+            # self.append_result_text(f"采样进度: {current}/{total} - {message}")
+            pass
     
-    def append_result_text(self, text: str):
-        """添加结果文本"""
-        self.result_text.append(text)
-    
-    def append_stats_text(self, text: str):
-        """添加统计文本"""
-        self.stats_text.append(text)
-    
-    def append_config_text(self, text: str):
-        """添加配置文本"""
-        self.config_text.append(text)
-    
-    def clear_all_text(self):
-        """清除所有文本"""
-        self.result_text.clear()
-        self.stats_text.clear()
-        self.config_text.clear()
-    
-    def display_analysis_results(self, results: dict):
-        """显示分析结果"""
-        self.clear_all_text()
-        
-        # 显示结果
-        self.result_text.append("分析结果:")
-        self.result_text.append("=" * 50)
-        for key, value in results.items():
-            self.result_text.append(f"{key}: {value}")
-    
-    def display_adc_analysis_results(self, results: dict, stats: dict):
-        """显示ADC分析结果"""
-        self.clear_all_text()
-        
-        # 显示结果
-        self.result_text.append("ADC数据分析结果:")
-        self.result_text.append("=" * 50)
-        for key, value in results.items():
-            self.result_text.append(f"{key}: {value}")
-        
-        # 显示统计信息
-        self.stats_text.append("统计信息:")
-        self.stats_text.append("=" * 50)
-        for key, value in stats.items():
-            if isinstance(value, dict):
-                self.stats_text.append(f"{key}:")
-                for k, v in value.items():
-                    self.stats_text.append(f"  {k}: {v}")
-            else:
-                self.stats_text.append(f"{key}: {value}")
-        
-        # 显示配置信息
-        self.config_text.append("分析配置:")
-        self.config_text.append("=" * 50)
-        self.config_text.append(f"时钟频率: {self.adc_clock_freq.value()} MHz")
-        self.config_text.append(f"触发频率: {self.adc_trigger_freq.value()} MHz")
-        self.config_text.append(f"ROI范围: {self.adc_roi_start.value()}%-{self.adc_roi_end.value()}%")
-        self.config_text.append(f"递归搜索: {'是' if self.adc_recursive_check.isChecked() else '否'}")
-        self.config_text.append(f"有符号18位: {'是' if self.adc_signed_check.isChecked() else '否'}")
+
