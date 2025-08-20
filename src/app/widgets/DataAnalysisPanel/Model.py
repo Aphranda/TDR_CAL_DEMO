@@ -38,6 +38,8 @@ class DataAnalysisModel:
         self.adc_port = 15000
         self.sample_count = 10
         self.sample_interval = 0.1
+        self.output_dir = "data\\results\\test"  # 新增：输出目录
+        self.filename_prefix = "adc_data"  # 新增：文件名前缀
         
     def set_adc_connection_status(self, connected: bool):
         """设置ADC连接状态"""

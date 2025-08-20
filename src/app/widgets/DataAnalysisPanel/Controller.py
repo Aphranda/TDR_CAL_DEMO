@@ -8,6 +8,7 @@ from ...core.DataAnalyze import DataAnalyzer, AnalysisConfig
 from ...core.FileManager import FileManager
 import time
 
+import time
 class ADCWorker(QObject):
     """ADC采样工作线程"""
     progress = pyqtSignal(int, int, str)
@@ -15,13 +16,14 @@ class ADCWorker(QObject):
     sampleData = pyqtSignal(list)
     dataSaved = pyqtSignal(str, str)  # 新增：数据保存信号 (文件路径, 消息)
     
-    def __init__(self, adc_sample, count, interval, save_raw_data=True, output_dir=None):
+    def __init__(self, adc_sample, count, interval, save_raw_data=True, output_dir=None, filename_prefix=None):
         super().__init__()
         self.adc_sample = adc_sample
         self.count = count
         self.interval = interval
         self.save_raw_data = save_raw_data
-        self.output_dir = output_dir or 'CSV_Data_test_results'
+        self.output_dir = output_dir or 'data\\results\\test'
+        self.filename_prefix = filename_prefix or 'adc_raw_data'  # 新增：文件名前缀
         self.running = False
     
     @pyqtSlot()
@@ -51,9 +53,9 @@ class ADCWorker(QObject):
                 successful_samples += 1
                 all_samples.append(u32_values)
                 
-                # 保存原始数据
+                # 保存原始数据 - 使用文件名前缀作为第一个字段
                 if self.save_raw_data:
-                    filename = f'adc_raw_data_{i + 1:04d}.csv'
+                    filename = f'{self.filename_prefix}_{i + 1:04d}.csv'  # 修改：使用文件名前缀
                     success, message = self.adc_sample.save_test_result(i, u32_values, filename, self.output_dir)
                     if success:
                         self.dataSaved.emit(os.path.join(self.output_dir, filename), f"数据已保存: {filename}")
@@ -70,7 +72,6 @@ class ADCWorker(QObject):
             
         except Exception as e:
             self.finished.emit(False, f"采样过程中发生错误: {str(e)}")
-
     def stop(self):
         """停止采样"""
         self.running = False
@@ -166,18 +167,20 @@ class DataAnalysisController(QObject):
         # 获取采样参数
         count = self.view.sample_count_spin.value()
         interval = self.view.sample_interval_spin.value()
-        save_raw_data = self.view.save_raw_check.isChecked()  # 新增：获取保存选项
-        output_dir = self.view.output_dir_edit.text() or 'CSV_Data_test_results'  # 新增：获取输出目录
+        save_raw_data = self.view.save_raw_check.isChecked()
+        output_dir = self.view.output_dir_edit.text() or 'CSV_Data_test_results'
+        filename_prefix = self.view.filename_edit.text() or 'adc_raw_data'  # 新增：获取文件名前缀
         
         # 更新模型
         self.model.sample_count = count
         self.model.sample_interval = interval
-        self.model.save_raw_data = save_raw_data  # 新增：保存选项
-        self.model.output_dir = output_dir  # 新增：输出目录
+        self.model.save_raw_data = save_raw_data
+        self.model.output_dir = output_dir
+        self.model.filename_prefix = filename_prefix  # 新增：文件名前缀
         
-        # 创建工作线程
+        # 创建工作线程 - 传入文件名前缀
         self.adc_thread = QThread()
-        self.adc_worker = ADCWorker(self.adc_sample, count, interval, save_raw_data, output_dir)
+        self.adc_worker = ADCWorker(self.adc_sample, count, interval, save_raw_data, output_dir, filename_prefix)
         self.adc_worker.moveToThread(self.adc_thread)
         
         # 连接信号
@@ -188,7 +191,7 @@ class DataAnalysisController(QObject):
         self.adc_worker.finished.connect(self.adc_worker.deleteLater)
         self.adc_thread.finished.connect(self.adc_thread.deleteLater)
         self.adc_worker.sampleData.connect(self.on_sample_data_received)
-        self.adc_worker.dataSaved.connect(self.dataSaved)  # 新增：数据保存信号连接
+        self.adc_worker.dataSaved.connect(self.dataSaved)
         
         # 启动线程
         self.adc_thread.start()

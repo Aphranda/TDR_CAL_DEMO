@@ -100,6 +100,14 @@ class DataAnalysisView(QWidget):
         save_layout.addWidget(self.save_raw_check)
         file_layout.addLayout(save_layout)
         
+        # 新增：文件名设置
+        filename_layout = QHBoxLayout()
+        filename_layout.addWidget(QLabel("文件名:"))
+        self.filename_edit = QLineEdit("adc_data")
+        self.filename_edit.setPlaceholderText("输入保存的文件名（不含扩展名）")
+        filename_layout.addWidget(self.filename_edit)
+        file_layout.addLayout(filename_layout)
+
         # 新增：输出目录设置
         output_dir_layout = QHBoxLayout()
         output_dir_layout.addWidget(QLabel("输出目录:"))
