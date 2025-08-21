@@ -98,7 +98,7 @@ class DataAnalysisView(QWidget):
         control_layout.addWidget(adc_group)
         
         # 数据文件选择 - 修改这个GroupBox
-        file_group = QGroupBox("数据文件")
+        file_group = QGroupBox("数据分析")
         file_layout = QVBoxLayout()
         file_layout.setSpacing(6)  # 减小组内间距
         

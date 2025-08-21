@@ -654,27 +654,42 @@ class DataAnalysisController(QObject):
             self.errorOccurred.emit(f"清除标记失败: {str(e)}")
             self.log_message(f"清除标记失败: {str(e)}", "ERROR")
 
-    def add_vertical_line(self, plot_controller, x_position, color='red', label=''):
+
+    def add_vertical_line(self, plot_controller, x_position, color='red', style='dashed', label=''):
         """添加垂直标记线"""
         try:
-            if hasattr(plot_controller, 'add_vertical_line'):
-                plot_controller.add_vertical_line(x_position, color, 'dashed', label)
-            else:
-                # 备用方案：直接操作plot_widget
-                plot_widget = plot_controller.view.plot_widget
-                line = pg.InfiniteLine(pos=x_position, angle=90, 
-                                    pen=pg.mkPen(color, width=1, style=pg.QtCore.Qt.DashLine))
-                plot_widget.addItem(line)
+            # 创建无限线
+            plot_widget = plot_controller.view.plot_widget
+            line = pg.InfiniteLine(pos=x_position, angle=90, 
+                                pen=pg.mkPen(color, width=1, style=pg.QtCore.Qt.DashLine))
+            plot_widget.addItem(line)
+            
+            if label:
+                # 获取当前Y轴数据范围
+                y_range = self.view.plot_widget.getViewBox().viewRange()[1]
                 
-                if label:
-                    text = pg.TextItem(text=label, color=color, anchor=(0.5, 1))
-                    y_range = plot_widget.getViewBox().viewRange()[1]
-                    text.setPos(x_position, y_range[1] * 0.9)
-                    plot_widget.addItem(text)
-                    
+                # 计算最大数据值并添加余量
+                if hasattr(self.model, 'y_data') and self.model.y_data:
+                    # 如果有数据，使用最大值的1.2倍作为高度
+                    max_y = max(self.model.y_data)
+                    y_position = max_y * 1.0
+                else:
+                    # 如果没有数据，使用Y轴范围的90%位置
+                    y_position = y_range[1] * 0.9
+                
+                # 确保位置在可见范围内
+                y_position = min(y_position, y_range[1] * 0.95)
+                
+                # 添加文本标签
+                text = pg.TextItem(text=label, color=color, anchor=(0.5, 1))
+                text.setPos(x_position, y_position)
+                plot_widget.addItem(text)
+            return line
+            
         except Exception as e:
-            self.errorOccurred.emit(f"添加标记线失败: {str(e)}")
-            self.log_message(f"添加标记线失败: {str(e)}", "ERROR")
+            print(f"添加标记线失败: {e}")
+            return None
+
 
     def create_additional_plot_tabs(self):
         """创建额外的绘图标签页"""
