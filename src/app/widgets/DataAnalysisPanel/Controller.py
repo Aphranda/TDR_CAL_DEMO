@@ -9,6 +9,7 @@ from ...core.DataAnalyze import DataAnalyzer, AnalysisConfig
 from ...core.FileManager import FileManager
 from ...widgets.PlotWidget import create_plot_widget
 import time
+from typing import Optional, Tuple, Dict, Any
 
 class ADCWorker(QObject):
     """ADC采样工作线程"""
@@ -77,6 +78,119 @@ class ADCWorker(QObject):
     def stop(self):
         """停止采样"""
         self.running = False
+
+        
+class ADCProcessWorker(QObject):
+    """ADC数据处理工作线程 - 使用DataAnalyzer进行分析"""
+    progress = pyqtSignal(int, int, str)
+    finished = pyqtSignal(dict, dict)  # 传递结果和平均值
+    error = pyqtSignal(str)
+    log_message = pyqtSignal(str, str)  # 新增：日志消息信号
+    
+    def __init__(self, file_list, config):
+        super().__init__()
+        self.file_list = file_list
+        self.config = config
+        self.analyzer = DataAnalyzer(config)  # 创建分析器实例
+        self.running = False
+    
+    @pyqtSlot()
+    def run(self):
+        """执行ADC数据处理 - 使用分析器进行单次数据分析"""
+        self.running = True
+        
+        try:
+            # 初始化结果存储
+            results = {
+                'ys': [], 'mags': [], 'ys_d': [], 'mags_d': [],
+                'freq_ref': None, 'freq_d_ref': None, 'sum_Xd': None,
+                'success_count': 0, 'total_files': len(self.file_list)
+            }
+            
+            self.log_message.emit(f"开始处理 {len(self.file_list)} 个文件", "INFO")
+            
+            # 处理每个文件
+            for i, file_path in enumerate(self.file_list):
+                if not self.running:
+                    break
+                
+                self.progress.emit(i + 1, len(self.file_list), f"处理文件: {os.path.basename(file_path)}")
+                
+                try:
+                    # 先加载数据，然后使用分析器处理
+                    raw_data = self.load_u32_data(file_path)
+                    
+                    # 使用分析器处理单个文件的数据
+                    res = self.analyzer.process_single_file(raw_data)
+                    
+                    if res is None:
+                        self.log_message.emit(f"文件 {os.path.basename(file_path)} 处理失败，跳过", "WARNING")
+                        continue
+                        
+                    y_roi, freq, mag_linear, y_diff, freq_d, mag_linear_d, Xd_norm = res
+                    
+                    # 初始化参考频率
+                    if results['freq_ref'] is None:
+                        results['freq_ref'] = freq
+                    if results['freq_d_ref'] is None:
+                        results['freq_d_ref'] = freq_d
+                        results['sum_Xd'] = np.zeros_like(Xd_norm, dtype=np.complex128)
+                    
+                    # 存储结果
+                    results['ys'].append(y_roi.astype(np.float64))
+                    results['mags'].append(mag_linear.astype(np.float64))
+                    results['ys_d'].append(y_diff.astype(np.float64))
+                    results['mags_d'].append(mag_linear_d.astype(np.float64))
+                    results['sum_Xd'] += Xd_norm
+                    results['success_count'] += 1
+                    
+                except Exception as e:
+                    self.log_message.emit(f"处理文件 {os.path.basename(file_path)} 失败: {str(e)}", "WARNING")
+                    continue
+            
+            if results['success_count'] == 0:
+                raise RuntimeError("没有文件成功处理")
+            
+            # 计算平均值
+            self.progress.emit(len(self.file_list), len(self.file_list), "计算平均值...")
+            self.log_message.emit("计算平均值...", "INFO")
+            averages = self.calculate_averages(results)
+            
+            self.finished.emit(results, averages)
+            
+        except Exception as e:
+            error_msg = f"ADC数据处理失败: {str(e)}"
+            self.log_message.emit(error_msg, "ERROR")
+            self.error.emit(error_msg)
+    
+    def stop(self):
+        """停止处理"""
+        self.running = False
+    
+    def load_u32_data(self, path: str) -> np.ndarray:
+        """从文件加载uint32数据"""
+        file_manager = FileManager()
+        return file_manager.load_u32_text_first_col(path, skip_first=self.config.skip_first_value)
+    
+    def calculate_averages(self, results: Dict[str, Any]) -> Dict[str, Any]:
+        """计算平均值"""
+        averages = {}
+        
+        # ROI平均值
+        averages['y_avg'] = np.mean(np.vstack(results['ys']), axis=0)
+        averages['mag_avg_linear'] = np.mean(np.vstack(results['mags']), axis=0)
+        averages['mag_avg_db'] = 20 * np.log10(averages['mag_avg_linear'])
+        
+        # 差分平均值
+        averages['y_d_avg'] = np.mean(np.vstack(results['ys_d']), axis=0)
+        averages['mag_d_avg_linear'] = np.mean(np.vstack(results['mags_d']), axis=0)
+        averages['mag_d_avg_db'] = 20 * np.log10(averages['mag_d_avg_linear'])
+        
+        # 复数FFT平均值
+        averages['avg_Xd'] = results['sum_Xd'] / results['success_count']
+        
+        return averages
+
 
 class DataAnalysisController(QObject):
     # 定义信号
@@ -340,6 +454,12 @@ class DataAnalysisController(QObject):
     
     def analyze_adc_data(self):
         """执行ADC数据分析"""
+        if not self.model.data_files:
+            error_msg = "请先加载数据文件"
+            self.errorOccurred.emit(error_msg)
+            self.log_message(error_msg, "WARNING")
+            return
+        
         try:
             # 更新配置
             config = self.model.adc_config
@@ -353,33 +473,72 @@ class DataAnalysisController(QObject):
             self.analysisStarted.emit("ADC数据分析")
             self.log_message("开始ADC数据分析", "INFO")
             
-            # 创建分析器并运行
-            analyzer = DataAnalyzer(config)
-            results = analyzer.batch_process_files(self.model.data_files)
-            averages = analyzer.calculate_averages(results)
-        
-            # 保存分析结果供导出使用
-            self.last_analysis_results = results
-            self.last_averages = averages
-        
-            # 格式化结果
-            analysis_results = {
-                "processed_files": f"{results['success_count']}/{results['total_files']}",
-                "clock_frequency": f"{config.clock_freq/1e6:.2f} MHz",
-                "trigger_frequency": f"{config.trigger_freq/1e6:.2f} MHz",
-                "roi_range": f"{config.roi_start_tenths}%-{config.roi_end_tenths}%",
-                "sampling_rate": f"{analyzer.config.fs_eff/1e6:.2f} MS/s"
-            }
+            # 显示进度条
+            self.view.progress_bar.setVisible(True)
+            self.view.progress_bar.setMaximum(len(self.model.data_files))
+            self.view.progress_bar.setValue(0)
             
-            # 生成绘图数据
-            self.generate_plot_data(results, averages, analyzer.config)
-            self.model.results = analysis_results
-            self.analysisCompleted.emit(analysis_results)
+            # 创建工作线程
+            self.adc_process_thread = QThread()
+            self.adc_process_worker = ADCProcessWorker(self.model.data_files, config)
+            self.adc_process_worker.moveToThread(self.adc_process_thread)
+            
+            # 连接信号
+            self.adc_process_thread.started.connect(self.adc_process_worker.run)
+            self.adc_process_worker.progress.connect(self.on_adc_process_progress)
+            self.adc_process_worker.finished.connect(self.on_adc_process_finished)
+            self.adc_process_worker.finished.connect(self.adc_process_thread.quit)
+            self.adc_process_worker.finished.connect(self.adc_process_worker.deleteLater)
+            self.adc_process_thread.finished.connect(self.adc_process_thread.deleteLater)
+            self.adc_process_worker.error.connect(self.on_adc_process_error)
+            self.adc_process_worker.log_message.connect(self.log_message)  # 新增：连接日志信号
+            
+            # 启动线程
+            self.adc_process_thread.start()
             
         except Exception as e:
             error_msg = f"ADC数据分析失败: {str(e)}"
             self.errorOccurred.emit(error_msg)
             self.log_message(error_msg, "ERROR")
+
+
+
+    def on_adc_process_progress(self, current, total, message):
+        """ADC处理进度更新"""
+        self.view.progress_bar.setValue(current)
+        self.log_message(f"处理进度: {current}/{total} - {message}", "INFO")
+
+    def on_adc_process_finished(self, results, averages):
+        """ADC处理完成"""
+        # 隐藏进度条
+        self.view.progress_bar.setVisible(False)
+        
+        # 保存分析结果供导出使用
+        self.last_analysis_results = results
+        self.last_averages = averages
+        
+        # 格式化结果
+        config = self.model.adc_config
+        analysis_results = {
+            "processed_files": f"{results['success_count']}/{results['total_files']}",
+            "clock_frequency": f"{config.clock_freq/1e6:.2f} MHz",
+            "trigger_frequency": f"{config.trigger_freq/1e6:.2f} MHz",
+            "roi_range": f"{config.roi_start_tenths}%-{config.roi_end_tenths}%",
+            "sampling_rate": f"{config.fs_eff/1e6:.2f} MS/s"
+        }
+        
+        # 生成绘图数据
+        self.generate_plot_data(results, averages, config)
+        self.model.results = analysis_results
+        self.analysisCompleted.emit(analysis_results)
+        
+        self.log_message(f"分析完成! 成功处理 {results['success_count']}/{results['total_files']} 个文件", "INFO")
+
+    def on_adc_process_error(self, error_message):
+        """ADC处理错误"""
+        self.view.progress_bar.setVisible(False)
+        self.errorOccurred.emit(error_message)
+        self.log_message(error_message, "ERROR")
     
     def set_main_window_controller(self, main_window_controller):
         """设置主窗口控制器引用"""
