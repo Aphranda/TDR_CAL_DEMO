@@ -92,10 +92,7 @@ class DataAnalysisView(QWidget):
         self.sample_button.setEnabled(False)
         adc_layout.addWidget(self.sample_button)
         
-        # 进度条
-        self.progress_bar = QProgressBar()
-        self.progress_bar.setVisible(False)
-        adc_layout.addWidget(self.progress_bar)
+        # 移除了进度条，现在放在最外层
 
         adc_group.setLayout(adc_layout)
         control_layout.addWidget(adc_group)
@@ -161,6 +158,12 @@ class DataAnalysisView(QWidget):
         
         # 删除右侧结果显示区域，只保留控制面板
         main_layout.addWidget(control_panel)
+        
+        # 添加公用进度条到最外层底部
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setVisible(False)
+        main_layout.addWidget(self.progress_bar)
+        
         self.setLayout(main_layout)
         
         # 初始显示S参数选项
@@ -362,5 +365,3 @@ class DataAnalysisView(QWidget):
             # 不再直接显示文本，而是通过信号发送到日志区域
             # self.append_result_text(f"采样进度: {current}/{total} - {message}")
             pass
-    
-
