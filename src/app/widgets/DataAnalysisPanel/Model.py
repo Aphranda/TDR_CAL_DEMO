@@ -54,7 +54,7 @@ class ADCConfig:
 
 class DataAnalysisModel:
     def __init__(self):
-        self.analysis_type = "S参数"
+        self.analysis_type = "ADC数据分析"
         self.data_files = []
         self.current_data = None
         self.results = {}

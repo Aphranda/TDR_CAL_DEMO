@@ -181,3 +181,7 @@ class PlotWidgetController(QObject):
             bottom_axis.setVisible(show_bottom)
         if left_axis:
             left_axis.setVisible(show_left)
+
+    def export_plot(self, file_path):
+        """导出绘图到文件"""
+        return self.view.export_plot(file_path)

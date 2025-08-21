@@ -144,3 +144,14 @@ class PlotWidgetView(QWidget):
         else:
             self.plot_widget.setLabel('left', y_label, **{'verticalAlignment': 'center'})
 
+    def export_plot(self, file_path):
+        """导出绘图到文件"""
+        try:
+            # 使用pyqtgraph的导出功能
+            exporter = pg.exporters.ImageExporter(self.plot_widget.scene())
+            exporter.export(file_path)
+            return True
+        except Exception as e:
+            print(f"导出图片失败: {e}")
+            return False
+

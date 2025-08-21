@@ -11,6 +11,12 @@ from ...widgets.PlotWidget import create_plot_widget
 import time
 from typing import Optional, Tuple, Dict, Any
 
+# 搜索方法枚举
+class SearchMethod:
+    RISING = 1
+    MAX = 2
+
+
 class ADCWorker(QObject):
     """ADC采样工作线程"""
     progress = pyqtSignal(int, int, str)
@@ -470,6 +476,9 @@ class DataAnalysisController(QObject):
             config.recursive = self.view.adc_recursive_check.isChecked()
             config.use_signed18 = self.view.adc_signed_check.isChecked()
             
+            # 新增：获取SearchMethod的值
+            config.search_method = self.view.search_method_combo.currentData()
+            
             self.analysisStarted.emit("ADC数据分析")
             self.log_message("开始ADC数据分析", "INFO")
             
@@ -708,8 +717,39 @@ class DataAnalysisController(QObject):
         main_window_view.add_plot_tab(diff_freq_view, "差分频域")
         self.main_window_controller.sub_controllers['plot_diff_freq'] = diff_freq_controller
     
+    def export_plots(self, base_path):
+        """导出所有绘图到以base_path为基础的文件名"""
+        plot_types = ['plot_time', 'plot_freq', 'plot_diff_time', 'plot_diff_freq']
+        suffixes = {
+            'plot_time': '_time_domain',
+            'plot_freq': '_frequency_domain', 
+            'plot_diff_time': '_diff_time_domain',
+            'plot_diff_freq': '_diff_frequency_domain'
+        }
+        
+        for plot_type in plot_types:
+            controller = self.get_plot_controller(plot_type)
+            if controller:
+                file_path = f"{base_path}{suffixes[plot_type]}.png"
+                success = self.export_single_plot(controller, file_path)
+                if success:
+                    self.log_message(f"导出{plot_type}图片成功: {file_path}", "INFO")
+                else:
+                    self.log_message(f"导出{plot_type}图片失败", "WARNING")
+    
+    def export_single_plot(self, plot_controller, file_path):
+        """导出单个绘图到文件"""
+        try:
+            # 使用pyqtgraph的导出功能
+            exporter = pg.exporters.ImageExporter(plot_controller.view.plot_widget.scene())
+            exporter.export(file_path)
+            return True
+        except Exception as e:
+            self.log_message(f"导出图片失败: {e}", "ERROR")
+            return False
+    
     def on_export(self):
-        """导出分析结果"""
+        """导出分析结果 - 修改后的版本，同时导出图片"""
         if not self.model.results:
             self.errorOccurred.emit("没有可导出的分析结果")
             self.log_message("没有可导出的分析结果", "WARNING")
@@ -725,8 +765,9 @@ class DataAnalysisController(QObject):
             )
             
             if file_path:
-                # 获取文件扩展名
+                # 获取文件扩展名和基础路径
                 file_ext = os.path.splitext(file_path)[1].lower()
+                base_path = os.path.splitext(file_path)[0]
                 
                 if file_ext == '.csv':
                     # 使用DataAnalyze的save_results函数保存CSV数据
@@ -738,8 +779,11 @@ class DataAnalysisController(QObject):
                     # 默认保存文本格式
                     self.export_text_results(file_path)
                 
-                self.dataLoaded.emit(f"结果已导出到: {file_path}")
-                self.log_message(f"结果已导出到: {file_path}", "INFO")
+                # 导出图片
+                self.export_plots(base_path)
+                
+                self.dataLoaded.emit(f"结果和图片已导出到: {base_path}*")
+                self.log_message(f"结果和图片已导出到: {base_path}*", "INFO")
                 
         except Exception as e:
             self.errorOccurred.emit(f"导出失败: {str(e)}")

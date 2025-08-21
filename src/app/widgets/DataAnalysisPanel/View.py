@@ -115,24 +115,26 @@ class DataAnalysisView(QWidget):
         self.file_list.setMaximumHeight(100)
         file_layout.addWidget(self.file_list)
         
+        # 分析类型选择（原分析类型GroupBox中的内容）
+        file_layout.addWidget(QLabel("分析类型:"))
+        self.analysis_combo = QComboBox()
+        self.analysis_combo.addItems(["ADC数据分析","S参数", "TDR"])
+        file_layout.addWidget(self.analysis_combo)
+        
+        # 分析选项堆叠窗口（原分析类型GroupBox中的内容）
+        self.options_stack = QStackedWidget()
+        file_layout.addWidget(self.options_stack)
+        
+        # 分析按钮（原在分析类型GroupBox之后）
+        button_layout = QHBoxLayout()
+        self.analyze_button = QPushButton("开始分析")
+        self.export_button = QPushButton("导出结果")
+        button_layout.addWidget(self.analyze_button)
+        button_layout.addWidget(self.export_button)
+        file_layout.addLayout(button_layout)
+        
         file_group.setLayout(file_layout)
         control_layout.addWidget(file_group)
-        
-        # 数据分析类型选择
-        type_group = QGroupBox("分析类型")
-        type_layout = QVBoxLayout()
-        type_layout.setSpacing(6)  # 减小组内间距
-        
-        self.analysis_combo = QComboBox()
-        self.analysis_combo.addItems(["S参数", "TDR", "ADC数据分析"])
-        type_layout.addWidget(self.analysis_combo)
-        
-        # 分析选项堆叠窗口
-        self.options_stack = QStackedWidget()
-        type_layout.addWidget(self.options_stack)
-        
-        type_group.setLayout(type_layout)
-        control_layout.addWidget(type_group)
 
         # S参数选项
         s_param_widget = self.create_s_parameter_options()
@@ -145,14 +147,6 @@ class DataAnalysisView(QWidget):
         # ADC数据分析选项
         adc_analysis_widget = self.create_adc_analysis_options()
         self.options_stack.addWidget(adc_analysis_widget)
-        
-        # 分析按钮
-        button_layout = QHBoxLayout()
-        self.analyze_button = QPushButton("开始分析")
-        self.export_button = QPushButton("导出结果")
-        button_layout.addWidget(self.analyze_button)
-        button_layout.addWidget(self.export_button)
-        control_layout.addLayout(button_layout)
         
         control_panel.setLayout(control_layout)
         
@@ -167,7 +161,7 @@ class DataAnalysisView(QWidget):
         self.setLayout(main_layout)
         
         # 初始显示S参数选项
-        self.options_stack.setCurrentIndex(0)
+        self.options_stack.setCurrentIndex(2)
         
         # 连接浏览目录按钮
         self.browse_dir_button.clicked.connect(self.on_browse_directory)
@@ -313,15 +307,25 @@ class DataAnalysisView(QWidget):
         roi_layout.addWidget(self.adc_roi_end)
         layout.addLayout(roi_layout)
         
-        # 选项
+        # 选项 - 修改这里，将SearchMethod下拉框添加到同一行
         options_layout = QHBoxLayout()
-        self.adc_recursive_check = QCheckBox("递归搜索子目录")
+        self.adc_recursive_check = QCheckBox("递归")
         self.adc_recursive_check.setChecked(True)
         options_layout.addWidget(self.adc_recursive_check)
         
-        self.adc_signed_check = QCheckBox("使用有符号18位")
+ 
+        self.adc_signed_check = QCheckBox("18bit")
         self.adc_signed_check.setChecked(True)
         options_layout.addWidget(self.adc_signed_check)
+
+        # 添加SearchMethod下拉框
+        options_layout.addWidget(QLabel("Mode:"))
+        self.search_method_combo = QComboBox()
+        self.search_method_combo.addItem("Raise", 1)  # SearchMethod.RISING
+        self.search_method_combo.addItem("MAX", 2)  # SearchMethod.MAX
+        self.search_method_combo.setCurrentIndex(0)  # 默认选择上升沿
+        options_layout.addWidget(self.search_method_combo)
+        
         layout.addLayout(options_layout)
         
         widget.setLayout(layout)
