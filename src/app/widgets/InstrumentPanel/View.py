@@ -16,19 +16,6 @@ class InstrumentPanelView(QWidget):
         main_layout.setContentsMargins(5, 5, 5, 5)
         main_layout.setSpacing(8)
 
-        # 仪器信息显示组
-        info_group = QGroupBox("仪器信息")
-        info_group.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        info_layout = QVBoxLayout()
-        
-        self.infoLabel = QLabel("请先连接仪器...")
-        self.infoLabel.setStyleSheet("color: gray; font-style: italic;")
-        self.infoLabel.setWordWrap(True)
-        info_layout.addWidget(self.infoLabel)
-        
-        info_group.setLayout(info_layout)
-        main_layout.addWidget(info_group)
-        
         # 仪器连接配置组
         config_group = QGroupBox("仪器连接配置")
         config_group.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
@@ -53,8 +40,9 @@ class InstrumentPanelView(QWidget):
         
         connect_layout.addWidget(QLabel("端口:"))
         self.portEdit = QLineEdit("15000")
-        self.portEdit.setValidator(QIntValidator(1000, 65535))  # 端口号验证
-        self.portEdit.setMaximumWidth(80)
+        self.portEdit.setValidator(QIntValidator(0, 32768))  # 端口号验证
+        self.portEdit.setMinimumWidth(100)
+        self.portEdit.setMaximumWidth(120)
         connect_layout.addWidget(self.portEdit)
         config_layout.addLayout(connect_layout)
         
@@ -85,7 +73,6 @@ class InstrumentPanelView(QWidget):
         config_group.setLayout(config_layout)
         main_layout.addWidget(config_group)
         
-        
         # 添加弹性空间
         main_layout.addStretch()
         
@@ -104,13 +91,10 @@ class InstrumentPanelView(QWidget):
             self.statusLabel.setText("已连接")
             self.statusLabel.setStyleSheet("color: green; font-size: 11px;")
             
-            # 显示仪器信息
+            # 不再显示仪器信息，将通过系统日志输出
             if instrument_info:
-                info_text = f"型号: {instrument_info.get('model', '未知')}\n"
-                info_text += f"序列号: {instrument_info.get('serial', '未知')}\n"
-                info_text += f"固件版本: {instrument_info.get('firmware', '未知')}"
-                self.infoLabel.setText(info_text)
-                self.infoLabel.setStyleSheet("color: black;")
+                # 仪器信息将通过日志系统输出，而不是在界面上显示
+                pass
         else:
             self.connectButton.setText("连接仪器")
             self.statusIndicator.setStyleSheet("""
@@ -121,8 +105,6 @@ class InstrumentPanelView(QWidget):
             """)
             self.statusLabel.setText("未连接")
             self.statusLabel.setStyleSheet("color: gray; font-size: 11px;")
-            self.infoLabel.setText("请先连接仪器...")
-            self.infoLabel.setStyleSheet("color: gray; font-style: italic;")
     
     def get_connection_info(self):
         """获取连接信息"""

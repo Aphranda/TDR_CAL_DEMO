@@ -89,6 +89,11 @@ class MainWindowController:
                 lambda instr: self.log_controller.log(f"仪表 {instr} 已断开", "WARNING")
             )
         
+        if instrument_controller and hasattr(instrument_controller, 'log_message'):
+            instrument_controller.log_message.connect(
+                lambda msg, level: self.log_controller.log(msg, level)
+            )
+                
         # 连接校准面板的信号到日志
         calibration_controller = self.sub_controllers.get('calibration')
         if calibration_controller and hasattr(calibration_controller, 'calibrationStarted'):
@@ -104,6 +109,11 @@ class MainWindowController:
         if calibration_controller and hasattr(calibration_controller, 'calibrationError'):
             calibration_controller.calibrationError.connect(
                 lambda msg: self.log_controller.log(f"校准错误: {msg}", "ERROR")
+            )
+            
+        if calibration_controller and hasattr(calibration_controller, 'log_message'):
+            calibration_controller.log_message.connect(
+                lambda msg, level: self.log_controller.log(msg, level)
             )
         
         # 连接网分控制面板的信号到日志

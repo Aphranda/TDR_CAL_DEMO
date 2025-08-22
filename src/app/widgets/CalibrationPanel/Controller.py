@@ -1,9 +1,11 @@
+# src/app/widgets/CalibrationPanel/Controller.py
 from PyQt5.QtCore import QObject, pyqtSignal, QThread
 from .Model import CalibrationModel, CalibrationType, PortConfig
 
 class CalibrationWorker(QThread):
     progress_updated = pyqtSignal(str, int)
     finished = pyqtSignal()
+    log_message = pyqtSignal(str, str)  # 新增：日志信号
     
     def __init__(self, model):
         super().__init__()
@@ -12,17 +14,27 @@ class CalibrationWorker(QThread):
         
     def run(self):
         self._is_running = True
+        self.log_message.emit("开始校准流程", "INFO")  # 新增：记录开始日志
+        
         for step, progress in self.model.simulate_calibration():
             if not self._is_running:
+                self.log_message.emit("校准被用户中断", "WARNING")  # 新增：记录中断日志
                 break
             self.progress_updated.emit(step, progress)
+            self.log_message.emit(f"执行步骤: {step}", "INFO")  # 新增：记录步骤日志
             self.msleep(500)  # 模拟耗时操作
+        
+        if self._is_running:
+            self.log_message.emit("校准流程完成", "INFO")  # 新增：记录完成日志
         self.finished.emit()
         
     def stop(self):
         self._is_running = False
 
 class CalibrationController(QObject):
+    # 新增：定义日志信号
+    log_message = pyqtSignal(str, str)  # (message, level)
+    
     def __init__(self, view, model):
         super().__init__()
         self.view = view
@@ -62,62 +74,72 @@ class CalibrationController(QObject):
         try:
             self.model.params.cal_type = CalibrationType(text)
             self.view.update_calibration_steps(self.model.generate_calibration_steps())
+            self.log_message.emit(f"校准类型更改为: {text}", "INFO")  # 新增：记录类型变更
         except ValueError:
-            pass
-        
+            self.log_message.emit(f"无效的校准类型: {text}", "ERROR")  # 新增：记录错误
+            
     def on_port_config_changed(self, text):
         """端口配置改变"""
         try:
             self.model.params.port_config = PortConfig(text)
             self.view.update_calibration_steps(self.model.generate_calibration_steps())
+            self.log_message.emit(f"端口配置更改为: {text}", "INFO")  # 新增：记录配置变更
         except ValueError:
-            pass
-        
+            self.log_message.emit(f"无效的端口配置: {text}", "ERROR")  # 新增：记录错误
+            
     def on_start_freq_changed(self, text):
         """起始频率改变"""
         try:
             self.model.params.start_freq = float(text)
+            self.log_message.emit(f"起始频率设置为: {text} MHz", "INFO")  # 新增：记录频率设置
         except ValueError:
-            pass
-        
+            self.log_message.emit(f"无效的起始频率: {text}", "ERROR")  # 新增：记录错误
+            
     def on_stop_freq_changed(self, text):
         """终止频率改变"""
         try:
             self.model.params.stop_freq = float(text)
+            self.log_message.emit(f"终止频率设置为: {text} MHz", "INFO")  # 新增：记录频率设置
         except ValueError:
-            pass
-        
+            self.log_message.emit(f"无效的终止频率: {text}", "ERROR")  # 新增：记录错误
+            
     def on_step_freq_changed(self, text):
         """步进频率改变"""
         try:
             self.model.params.step_freq = float(text)
+            self.log_message.emit(f"步进频率设置为: {text} MHz", "INFO")  # 新增：记录频率设置
         except ValueError:
-            pass
-        
+            self.log_message.emit(f"无效的步进频率: {text}", "ERROR")  # 新增：记录错误
+            
     def on_calibration_pow_changed(self, text):
         """校准功率改变"""
         try:
             self.model.params.calibration_pow = float(text)
+            self.log_message.emit(f"校准功率设置为: {text} dBm", "INFO")  # 新增：记录功率设置
         except ValueError:
-            pass
-        
+            self.log_message.emit(f"无效的校准功率: {text}", "ERROR")  # 新增：记录错误
+            
     def on_calibration_ifbw_changed(self, text):
         """校准IF带宽改变"""
         try:
             self.model.params.calibration_ifbw = int(text)
+            self.log_message.emit(f"IF带宽设置为: {text} Hz", "INFO")  # 新增：记录带宽设置
         except ValueError:
-            pass
-        
+            self.log_message.emit(f"无效的IF带宽: {text}", "ERROR")  # 新增：记录错误
+            
     def start_calibration(self):
         """开始校准"""
+        self.log_message.emit("开始校准流程", "INFO")  # 新增：记录开始校准
         self.view.set_calibration_running(True)
         self.worker = CalibrationWorker(self.model)
         self.worker.progress_updated.connect(self.on_progress_updated)
         self.worker.finished.connect(self.on_calibration_finished)
+        self.worker.log_message.connect(self.log_message)  # 新增：连接工作线程的日志信号
         self.worker.start()
         
     def stop_calibration(self):
         """停止校准"""
+        self.log_message.emit("用户请求停止校准", "WARNING")  # 新增：记录停止请求
         if self.worker:
             self.worker.stop()
             self.worker.wait()
@@ -137,6 +159,7 @@ class CalibrationController(QObject):
     def on_calibration_finished(self):
         """校准完成"""
         self.view.set_calibration_running(False)
+        self.log_message.emit("校准流程完成", "INFO")  # 新增：记录完成
         
     def get_calibration_parameters(self):
         """获取当前校准参数"""
@@ -169,6 +192,8 @@ class CalibrationController(QObject):
                 self.model.params.calibration_ifbw = int(params['calibration_ifbw'])
             
             self.update_view_from_model()
+            self.log_message.emit("校准参数已更新", "INFO")  # 新增：记录参数更新
             return True
-        except (ValueError, KeyError):
+        except (ValueError, KeyError) as e:
+            self.log_message.emit(f"设置校准参数失败: {str(e)}", "ERROR")  # 新增：记录错误
             return False
