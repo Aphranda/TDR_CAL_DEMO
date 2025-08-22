@@ -14,8 +14,11 @@ class PortConfig(Enum):
 class CalibrationParameters:
     cal_type: CalibrationType = CalibrationType.SOLT
     port_config: PortConfig = PortConfig.SINGLE
-    start_freq: float = 1e6  # 1MHz
-    stop_freq: float = 6e9   # 6GHz
+    start_freq: float = 1000.0  # MHz
+    stop_freq: float = 6000.0   # MHz
+    step_freq: float = 100.0    # MHz
+    calibration_pow: float = -20.0  # dBm
+    calibration_ifbw: int = 1000    # Hz
 
 class CalibrationModel:
     def __init__(self):

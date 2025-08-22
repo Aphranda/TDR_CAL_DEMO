@@ -2,7 +2,7 @@
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, 
     QPushButton, QLabel, QComboBox, QProgressBar, QLineEdit,
-    QFrame, QSizePolicy, QScrollArea
+    QFrame, QSizePolicy, QScrollArea, QGridLayout, QFormLayout
 )
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QPainter, QColor, QPen, QFont
@@ -14,7 +14,7 @@ class FlowStepWidget(QWidget):
         self.text = text
         self.step_number = step_number
         self.is_current = is_current
-        self.setMinimumSize(120, 60)  # 设置最小尺寸以适应水平布局
+        self.setMinimumSize(120, 60)
         self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         
     def paintEvent(self, event):
@@ -23,10 +23,10 @@ class FlowStepWidget(QWidget):
         
         # 设置颜色
         if self.is_current:
-            bg_color = QColor(100, 160, 220)  # 当前步骤蓝色
+            bg_color = QColor(100, 160, 220)
             text_color = QColor(255, 255, 255)
         else:
-            bg_color = QColor(240, 240, 240)  # 默认灰色
+            bg_color = QColor(240, 240, 240)
             text_color = QColor(80, 80, 80)
         
         # 绘制圆角矩形背景
@@ -48,7 +48,7 @@ class FlowStepWidget(QWidget):
         # 绘制步骤编号
         painter.drawText(self.width()//2 - 10, 8, 20, 20, Qt.AlignCenter, str(self.step_number))
         
-        # 绘制步骤文本（自动换行）
+        # 绘制步骤文本
         text_rect = self.rect().adjusted(5, 30, -5, -5)
         painter.drawText(text_rect, Qt.AlignCenter | Qt.TextWordWrap, self.text)
 
@@ -59,20 +59,18 @@ class FlowChartWidget(QWidget):
         self.steps = []
         self.current_step = -1
         self.layout = QHBoxLayout()
-        self.layout.setSpacing(5)  # 步骤间距
+        self.layout.setSpacing(5)
         self.layout.setContentsMargins(5, 10, 5, 10)
         self.setLayout(self.layout)
         self.setMinimumHeight(80)
         
     def update_steps(self, steps, current_step=-1):
         """更新流程图步骤"""
-        # 清除现有步骤
         while self.layout.count():
             item = self.layout.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
         
-        # 添加新步骤
         self.steps = steps
         self.current_step = current_step
         
@@ -81,7 +79,6 @@ class FlowChartWidget(QWidget):
             step_widget = FlowStepWidget(step_text, i+1, is_current)
             self.layout.addWidget(step_widget)
             
-            # 如果不是最后一步，添加右箭头
             if i < len(steps) - 1:
                 arrow = QLabel("→")
                 arrow.setAlignment(Qt.AlignCenter)
@@ -89,7 +86,6 @@ class FlowChartWidget(QWidget):
                 arrow.setMinimumWidth(20)
                 self.layout.addWidget(arrow)
         
-        # 添加弹性空间使内容居中
         self.layout.addStretch()
 
 class CalibrationView(QWidget):
@@ -105,66 +101,81 @@ class CalibrationView(QWidget):
         main_layout.setContentsMargins(5, 5, 5, 5)
         main_layout.setSpacing(8)
         
-        # 校准配置区域 - 使用紧凑布局
+        # 校准配置区域 - 使用表单布局（单行竖向布局）
         config_group = QGroupBox("校准配置")
         config_group.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        config_layout = QVBoxLayout()
-        config_layout.setSpacing(4)
+        config_layout = QFormLayout()
+        config_layout.setSpacing(8)
+        config_layout.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
         
-        # 第一行：校准类型和端口选择 - 修改为Expanding大小策略
-        row1_layout = QHBoxLayout()
-        row1_layout.addWidget(QLabel("类型:"))
+        # 第一行：校准类型
         self.cal_type_combo = QComboBox()
-        self.cal_type_combo.addItems(["SOLT", "TRL"])
-        # 移除 setMaximumWidth(120) 限制，改为Expanding策略
-        self.cal_type_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        row1_layout.addWidget(self.cal_type_combo)
+        self.cal_type_combo.addItems(["SOLT(Short-Open-Load-Thru)", "TRL(Thru-Reflect-Line)"])
+        config_layout.addRow("校准类型:", self.cal_type_combo)
         
-        row1_layout.addSpacing(10)
-        row1_layout.addWidget(QLabel("端口:"))
+        # 第二行：端口配置
         self.port_combo = QComboBox()
-        self.port_combo.addItems(["单端口", "双端口"])
-        # 移除 setMaximumWidth(80) 限制，改为Expanding策略
-        self.port_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        row1_layout.addWidget(self.port_combo)
-        row1_layout.addStretch()
-        config_layout.addLayout(row1_layout)
+        self.port_combo.addItems(["单端口(1)", "双端口(1-2)"])
+        config_layout.addRow("端口配置:", self.port_combo)
         
-        # 第二行：频率设置 - 修改为Expanding大小策略
-        row2_layout = QHBoxLayout()
-        row2_layout.addWidget(QLabel("起始:"))
-        self.start_freq_edit = QLineEdit("1e6")
-        # 移除 setMaximumWidth(80) 限制，改为Expanding策略
+        # 第三行：起始频率
+        freq_layout = QHBoxLayout()
+        self.start_freq_edit = QLineEdit("1000")
         self.start_freq_edit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        row2_layout.addWidget(self.start_freq_edit)
+        freq_layout.addWidget(self.start_freq_edit)
+        freq_layout.addWidget(QLabel("MHz"))
+        freq_layout.addStretch()
+        config_layout.addRow("起始频率:", freq_layout)
         
-        row2_layout.addSpacing(5)
-        row2_layout.addWidget(QLabel("Hz"))
-        row2_layout.addSpacing(10)
-        
-        row2_layout.addWidget(QLabel("终止:"))
-        self.stop_freq_edit = QLineEdit("6e9")
-        # 移除 setMaximumWidth(80) 限制，改为Expanding策略
+        # 第四行：终止频率
+        stop_freq_layout = QHBoxLayout()
+        self.stop_freq_edit = QLineEdit("6000")
         self.stop_freq_edit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        row2_layout.addWidget(self.stop_freq_edit)
-        row2_layout.addWidget(QLabel("Hz"))
-        row2_layout.addStretch()
-        config_layout.addLayout(row2_layout)
+        stop_freq_layout.addWidget(self.stop_freq_edit)
+        stop_freq_layout.addWidget(QLabel("MHz"))
+        stop_freq_layout.addStretch()
+        config_layout.addRow("终止频率:", stop_freq_layout)
+        
+        # 第五行：步进频率
+        step_freq_layout = QHBoxLayout()
+        self.step_freq_edit = QLineEdit("100")
+        self.step_freq_edit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        step_freq_layout.addWidget(self.step_freq_edit)
+        step_freq_layout.addWidget(QLabel("MHz"))
+        step_freq_layout.addStretch()
+        config_layout.addRow("步进频率:", step_freq_layout)
+        
+        # 第六行：校准功率
+        pow_layout = QHBoxLayout()
+        self.calibration_pow_edit = QLineEdit("-20")
+        self.calibration_pow_edit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        pow_layout.addWidget(self.calibration_pow_edit)
+        pow_layout.addWidget(QLabel("dBm"))
+        pow_layout.addStretch()
+        config_layout.addRow("校准功率:", pow_layout)
+        
+        # 第七行：IF带宽
+        ifbw_layout = QHBoxLayout()
+        self.calibration_ifbw_edit = QLineEdit("1000")
+        self.calibration_ifbw_edit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        ifbw_layout.addWidget(self.calibration_ifbw_edit)
+        ifbw_layout.addWidget(QLabel("Hz"))
+        ifbw_layout.addStretch()
+        config_layout.addRow("IF带宽:", ifbw_layout)
         
         config_group.setLayout(config_layout)
         main_layout.addWidget(config_group)
         
-        # 流程图区域 - 使用滚动区域以适应长流程
+        # 流程图区域
         flow_group = QGroupBox("校准流程")
         flow_group.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         flow_layout = QVBoxLayout()
         
-        # 创建滚动区域
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
         scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        scroll_area.setMaximumHeight(120)  # 限制高度
+        scroll_area.setMaximumHeight(120)
         
         self.flow_chart = FlowChartWidget()
         scroll_area.setWidget(self.flow_chart)
@@ -189,7 +200,6 @@ class CalibrationView(QWidget):
         self.stop_btn.setEnabled(False)
         button_layout.addWidget(self.start_btn)
         button_layout.addWidget(self.stop_btn)
-        # button_layout.addStretch()
         main_layout.addLayout(button_layout)
         
         self.setLayout(main_layout)
@@ -201,7 +211,6 @@ class CalibrationView(QWidget):
     def update_progress(self, value, current_step=-1):
         """更新进度"""
         self.progress_bar.setValue(value)
-        # 高亮显示当前步骤
         self.flow_chart.update_steps(self.flow_chart.steps, current_step)
     
     def set_calibration_running(self, running):
@@ -210,5 +219,4 @@ class CalibrationView(QWidget):
         self.stop_btn.setEnabled(running)
         if not running:
             self.progress_bar.setValue(0)
-            # 重置流程图高亮
             self.flow_chart.update_steps(self.flow_chart.steps, -1)

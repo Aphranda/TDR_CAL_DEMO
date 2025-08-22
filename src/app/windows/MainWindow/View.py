@@ -97,7 +97,7 @@ class MainWindowView(QMainWindow):
     def set_instrument_widget(self, widget):
         """设置仪表连接区域（在网分校准标签页中）"""
         widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
-        widget.setMinimumHeight(150)  # 设置最小高度
+        widget.setMinimumHeight(100)  # 设置最小高度
         self.calibration_splitter.addWidget(widget)
         
         # 设置分割比例
@@ -112,7 +112,7 @@ class MainWindowView(QMainWindow):
         
         # 设置分割比例
         if self.calibration_splitter.count() == 2:
-            self.calibration_splitter.setSizes([150, 200])
+            self.calibration_splitter.setSizes([100, 200])
     
     def set_log_widget(self, widget):
         """设置日志区域（在日志标签页中）"""
