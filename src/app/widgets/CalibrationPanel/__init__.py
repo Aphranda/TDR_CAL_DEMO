@@ -1,3 +1,4 @@
+# src/app/widgets/CalibrationPanel/__init__.py
 from .View import CalibrationView
 from .Model import CalibrationModel
 from .Controller import CalibrationController

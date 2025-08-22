@@ -1,3 +1,4 @@
+# src/app/widgets/CalibrationPanel/Model.py
 from enum import Enum
 from dataclasses import dataclass
 from typing import List
@@ -10,12 +11,17 @@ class PortConfig(Enum):
     SINGLE = "单端口(1)"
     DUAL = "双端口(1-2)"
 
+class CalibrationKitType(Enum):  # 新增：校准件类型
+    ELECTRONIC = "电子校准件"
+    MECHANICAL = "机械校准件"
+
 @dataclass
 class CalibrationParameters:
     cal_type: CalibrationType = CalibrationType.SOLT
     port_config: PortConfig = PortConfig.SINGLE
+    kit_type: CalibrationKitType = CalibrationKitType.MECHANICAL  # 新增：校准件类型
     start_freq: float = 1000.0  # MHz
-    stop_freq: float = 6000.0   # MHz
+    stop_freq: float = 35000.0   # MHz
     step_freq: float = 100.0    # MHz
     calibration_pow: float = -20.0  # dBm
     calibration_ifbw: int = 1000    # Hz
@@ -65,7 +71,6 @@ class CalibrationModel:
         
         return self.steps
 
-    
     def simulate_calibration(self):
         """模拟校准过程"""
         self.progress = 0
@@ -75,4 +80,10 @@ class CalibrationModel:
             # 这里应该替换为实际的仪器操作
             print(f"执行步骤: {step}")
             self.progress = int((i + 1) / total_steps * 100)
-            yield step, self.progress
+            
+            # 如果是机械校准件且需要人工操作的步骤，发出提示信号
+            if (self.params.kit_type == CalibrationKitType.MECHANICAL and 
+                ("连接" in step or "更换" in step)):
+                yield step, self.progress, True  # 第三个参数表示需要用户确认
+            else:
+                yield step, self.progress, False
