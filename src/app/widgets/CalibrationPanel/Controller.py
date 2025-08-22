@@ -215,6 +215,7 @@ class CalibrationController(QObject):
     def stop_calibration(self):
         """停止校准"""
         self.log_message.emit("用户请求停止校准", "WARNING")
+        self.view.reset_scroll_position()
         if self.worker:
             self.worker.stop()
             self.worker.wait()
@@ -234,6 +235,7 @@ class CalibrationController(QObject):
     def on_calibration_finished(self):
         """校准完成"""
         self.view.set_calibration_running(False)
+        self.view.reset_scroll_position()
         self.log_message.emit("校准流程完成", "INFO")
         
     def handle_user_confirmation(self, step_description):

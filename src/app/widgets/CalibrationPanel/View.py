@@ -3,9 +3,9 @@ from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, 
     QPushButton, QLabel, QComboBox, QProgressBar, QLineEdit,
     QFrame, QSizePolicy, QScrollArea, QGridLayout, QFormLayout,
-    QMessageBox  # 新增：用于显示提示框
+    QMessageBox,QApplication  # 新增：用于显示提示框
 )
-from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtCore import Qt, pyqtSignal,QTimer
 from PyQt5.QtGui import QPainter, QColor, QPen, QFont
 
 
@@ -62,7 +62,7 @@ class FlowStepWidget(QWidget):
         painter.drawText(text_rect, Qt.AlignCenter | Qt.TextWordWrap, self.text)
 
 
-
+# src/app/widgets/CalibrationPanel/View.py (部分修改)
 class FlowChartWidget(QWidget):
     """水平流程图控件，支持自动滚动"""
     def __init__(self, parent=None):
@@ -70,81 +70,158 @@ class FlowChartWidget(QWidget):
         self.steps = []
         self.current_step = -1
         self.step_widgets = []  # 存储步骤控件的引用
+        self.arrow_widgets = []  # 存储箭头控件的引用
         self.layout = QHBoxLayout()
         self.layout.setSpacing(5)
         self.layout.setContentsMargins(5, 10, 5, 10)
         self.setLayout(self.layout)
         self.setMinimumHeight(80)
+        self._scroll_area = None  # 存储滚动区域的引用
+        self._last_scroll_position = 0  # 记录上一次的滚动位置
+        self.step_target_positions = []  # 存储每个步骤的目标滚动位置
+
+    def reset_scroll_position(self):
+        """重置滚动位置到初始位置"""
+        if self._scroll_area:
+            self._scroll_area.horizontalScrollBar().setValue(0)
+            self._last_scroll_position = 0
+        
+    def set_scroll_area(self, scroll_area):
+        """设置滚动区域引用"""
+        self._scroll_area = scroll_area
         
     def update_steps(self, steps, current_step=-1):
-        """更新流程图步骤"""
-        # 清除现有控件
+        """更新流程图步骤 - 只更新必要的内容，避免完全重建"""
+        # 检查步骤是否真的改变了
+        if self.steps == steps and self.current_step == current_step:
+            return  # 没有变化，不需要更新
+            
+        # 保存当前滚动位置
+        scroll_pos = self.get_scroll_position()
+            
+        # 如果步骤数量或内容改变了，需要重新创建
+        if len(self.steps) != len(steps) or self.steps != steps:
+            # 清除现有控件
+            self.clear_widgets()
+            
+            self.steps = steps
+            self.step_widgets = []
+            self.arrow_widgets = []
+            
+            for i, step_text in enumerate(steps):
+                is_current = (i == current_step)
+                step_widget = FlowStepWidget(step_text, i+1, is_current)
+                self.step_widgets.append(step_widget)
+                self.layout.addWidget(step_widget)
+                
+                if i < len(steps) - 1:
+                    arrow = QLabel("→")
+                    arrow.setAlignment(Qt.AlignCenter)
+                    arrow.setStyleSheet("color: #808080; font-size: 16px; font-weight: bold; padding: 0 5px;")
+                    arrow.setMinimumWidth(20)
+                    self.arrow_widgets.append(arrow)
+                    self.layout.addWidget(arrow)
+            
+            self.layout.addStretch()
+            
+            # 更新最小宽度，确保内容可以正确计算
+            self.update_minimum_width()
+            
+            # 预先计算所有步骤的目标位置
+            QTimer.singleShot(100, self.precalculate_step_positions)
+            
+            # 恢复滚动位置
+            QTimer.singleShot(50, lambda: self.restore_scroll_position(scroll_pos))
+        else:
+            # 只是当前步骤改变了，更新样式即可
+            self.current_step = current_step
+            for i, widget in enumerate(self.step_widgets):
+                widget.is_current = (i == current_step)
+                widget.update()  # 触发重绘
+        
+        # 如果当前步骤有效，确保它可见
+        if 0 <= current_step < len(self.step_widgets):
+            # 使用定时器延迟滚动，确保布局已经完成
+            QTimer.singleShot(100, lambda: self.ensure_step_visible(current_step))
+    
+    def precalculate_step_positions(self):
+        """预先计算所有步骤的目标滚动位置"""
+        if not self._scroll_area or not self.step_widgets:
+            return
+            
+        self.step_target_positions = []
+        
+        # 确保布局已经完成
+        QApplication.processEvents()
+        
+        # 获取滚动区域的视口尺寸
+        viewport_width = self._scroll_area.viewport().width()
+        
+        for i, step_widget in enumerate(self.step_widgets):
+            # 计算步骤控件在滚动区域中的位置
+            step_pos = step_widget.mapTo(self._scroll_area, step_widget.rect().topLeft())
+            
+            # 计算需要滚动的距离
+            step_center_x = step_pos.x() + step_widget.width() // 2
+            target_scroll_x = step_center_x - viewport_width // 2
+            
+            # 确保滚动位置在有效范围内
+            max_scroll = self._scroll_area.horizontalScrollBar().maximum()
+            target_scroll_x = max(0, min(target_scroll_x, max_scroll))
+            
+            self.step_target_positions.append(target_scroll_x)
+    
+    def get_scroll_position(self):
+        """获取当前滚动位置"""
+        if self._scroll_area:
+            position = self._scroll_area.horizontalScrollBar().value()
+            max_scroll = self._scroll_area.horizontalScrollBar().maximum()
+            return position
+        return 0
+    
+    def restore_scroll_position(self, position):
+        """恢复滚动位置"""
+        if self._scroll_area:
+            # 确保位置在有效范围内
+            max_scroll = self._scroll_area.horizontalScrollBar().maximum()
+            position = min(position, max_scroll)
+            self._scroll_area.horizontalScrollBar().setValue(position)
+            self._last_scroll_position = position  # 记录最后的滚动位置
+    
+    def clear_widgets(self):
+        """清除所有控件"""
         while self.layout.count():
             item = self.layout.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
-        
-        self.steps = steps
-        self.current_step = current_step
         self.step_widgets = []
+        self.arrow_widgets = []
+        self.step_target_positions = []  # 清空预计算的位置
+    
+    def update_minimum_width(self):
+        """更新最小宽度，确保内容可以正确计算"""
+        total_width = 0
+        for i in range(len(self.step_widgets)):
+            total_width += self.step_widgets[i].minimumWidth()
+            if i < len(self.step_widgets) - 1:
+                total_width += 20  # 箭头宽度
         
-        for i, step_text in enumerate(steps):
-            is_current = (i == current_step)
-            step_widget = FlowStepWidget(step_text, i+1, is_current)
-            self.step_widgets.append(step_widget)
-            self.layout.addWidget(step_widget)
-            
-            if i < len(steps) - 1:
-                arrow = QLabel("→")
-                arrow.setAlignment(Qt.AlignCenter)
-                arrow.setStyleSheet("color: #808080; font-size: 16px; font-weight: bold; padding: 0 5px;")
-                arrow.setMinimumWidth(20)
-                self.layout.addWidget(arrow)
-        
-        self.layout.addStretch()
-        
-        # 如果当前步骤有效，确保它可见
-        if 0 <= current_step < len(self.step_widgets):
-            self.ensure_step_visible(current_step)
+        # 设置最小宽度，确保滚动区域可以正确计算内容大小
+        self.setMinimumWidth(total_width + 20)  # 添加一些边距
     
     def ensure_step_visible(self, step_index):
-        """确保指定步骤在可视区域内"""
-        if not 0 <= step_index < len(self.step_widgets):
+        """确保指定步骤在可视区域内 - 使用预计算的位置"""
+        if not 0 <= step_index < len(self.step_widgets) or not self._scroll_area:
             return
             
-        step_widget = self.step_widgets[step_index]
-        
-        # 获取父级滚动区域
-        scroll_area = self.find_parent_scroll_area()
-        if not scroll_area:
+        # 确保预计算的位置可用
+        if step_index >= len(self.step_target_positions):
+            print(f"警告: 步骤 {step_index} 的预计算位置不可用")
             return
             
-        # 计算步骤控件在滚动区域中的位置
-        step_pos = step_widget.mapTo(scroll_area, step_widget.rect().topLeft())
-        
-        # 获取滚动区域的视口尺寸
-        viewport_width = scroll_area.viewport().width()
-        
-        # 计算需要滚动的距离
-        step_center_x = step_pos.x() + step_widget.width() // 2
-        target_scroll_x = step_center_x - viewport_width // 2
-        
-        # 确保滚动位置在有效范围内
-        max_scroll = scroll_area.horizontalScrollBar().maximum()
-        target_scroll_x = max(0, min(target_scroll_x, max_scroll))
-        
-        # 平滑滚动到目标位置
-        scroll_area.horizontalScrollBar().setValue(target_scroll_x)
-    
-    def find_parent_scroll_area(self):
-        """查找父级滚动区域"""
-        parent = self.parent()
-        while parent:
-            if isinstance(parent, QScrollArea):
-                return parent
-            parent = parent.parent()
-        return None
-
+        target_scroll_x = self.step_target_positions[step_index]
+        self._scroll_area.horizontalScrollBar().setValue(target_scroll_x)
+        self._last_scroll_position = target_scroll_x  # 记录最后的滚动位置
 
 class CalibrationView(QWidget):
     calibration_started = pyqtSignal()
@@ -239,9 +316,9 @@ class CalibrationView(QWidget):
         scroll_area.setWidgetResizable(True)
         scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        scroll_area.setMaximumHeight(120)
         
         self.flow_chart = FlowChartWidget()
+        self.flow_chart.set_scroll_area(scroll_area)  # 设置滚动区域引用
         scroll_area.setWidget(self.flow_chart)
         
         flow_layout.addWidget(scroll_area)
@@ -271,6 +348,10 @@ class CalibrationView(QWidget):
     def update_calibration_steps(self, steps):
         """更新校准步骤流程图"""
         self.flow_chart.update_steps(steps)
+
+    def reset_scroll_position(self):
+        """重置滚动位置到初始位置"""
+        self.flow_chart.reset_scroll_position()
     
     def update_progress(self, value, current_step=-1):
         """更新进度"""
