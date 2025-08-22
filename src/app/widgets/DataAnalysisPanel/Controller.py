@@ -717,6 +717,7 @@ class DataAnalysisController(QObject):
         main_window_view.add_plot_tab(diff_freq_view, "差分频域")
         self.main_window_controller.sub_controllers['plot_diff_freq'] = diff_freq_controller
     
+
     def export_plots(self, base_path):
         """导出所有绘图到以base_path为基础的文件名"""
         plot_types = ['plot_time', 'plot_freq', 'plot_diff_time', 'plot_diff_freq']
@@ -727,6 +728,11 @@ class DataAnalysisController(QObject):
             'plot_diff_freq': '_diff_frequency_domain'
         }
         
+        # 确保目录存在
+        output_dir = os.path.dirname(base_path)
+        if output_dir and not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+        
         for plot_type in plot_types:
             controller = self.get_plot_controller(plot_type)
             if controller:
@@ -736,18 +742,25 @@ class DataAnalysisController(QObject):
                     self.log_message(f"导出{plot_type}图片成功: {file_path}", "INFO")
                 else:
                     self.log_message(f"导出{plot_type}图片失败", "WARNING")
+
     
     def export_single_plot(self, plot_controller, file_path):
         """导出单个绘图到文件"""
         try:
-            # 使用pyqtgraph的导出功能
-            exporter = pg.exporters.ImageExporter(plot_controller.view.plot_widget.scene())
-            exporter.export(file_path)
-            return True
+            # 获取绘图部件
+            plot_widget = plot_controller.view.plot_widget
+            
+            # 使用QPixmap捕获绘图区域
+            pixmap = plot_widget.grab()
+            
+            # 保存图片
+            success = pixmap.save(file_path)
+            return success
         except Exception as e:
             self.log_message(f"导出图片失败: {e}", "ERROR")
             return False
     
+
     def on_export(self):
         """导出分析结果 - 修改后的版本，同时导出图片"""
         if not self.model.results:
@@ -788,6 +801,7 @@ class DataAnalysisController(QObject):
         except Exception as e:
             self.errorOccurred.emit(f"导出失败: {str(e)}")
             self.log_message(f"导出失败: {str(e)}", "ERROR")
+
 
     def export_csv_results(self, file_path):
         """使用DataAnalyze的save_results函数导出CSV结果"""
