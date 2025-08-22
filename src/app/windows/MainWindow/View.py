@@ -41,8 +41,8 @@ class MainWindowView(QMainWindow):
         self.right_tab_widget.setMinimumWidth(350)
         self.right_tab_widget.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
         
-        # 创建三个标签页
-        # 网分校准标签页（包含仪表连接、校准、日志）
+        # 创建四个标签页
+        # 网分校准标签页（包含仪表连接、校准）
         self.calibration_tab = QWidget()
         self.calibration_tab_layout = QVBoxLayout()
         self.calibration_tab_layout.setContentsMargins(5, 5, 5, 5)
@@ -63,6 +63,13 @@ class MainWindowView(QMainWindow):
         self.data_analysis_tab.setLayout(self.data_analysis_layout)
         self.right_tab_widget.addTab(self.data_analysis_tab, "数据分析")
         
+        # 日志标签页
+        self.log_tab = QWidget()
+        self.log_layout = QVBoxLayout()
+        self.log_layout.setContentsMargins(5, 5, 5, 5)
+        self.log_tab.setLayout(self.log_layout)
+        self.right_tab_widget.addTab(self.log_tab, "日志")
+        
         splitter.addWidget(self.right_tab_widget)
         
         # 设置初始分割比例
@@ -77,7 +84,6 @@ class MainWindowView(QMainWindow):
         self.calibration_splitter.setHandleWidth(2)
         self.calibration_splitter.setChildrenCollapsible(False)
         self.calibration_tab_layout.addWidget(self.calibration_splitter)
-
     
     def add_plot_tab(self, widget, title):
         """添加绘图标签页"""
@@ -109,14 +115,9 @@ class MainWindowView(QMainWindow):
             self.calibration_splitter.setSizes([150, 200])
     
     def set_log_widget(self, widget):
-        """设置日志区域（在网分校准标签页中）"""
+        """设置日志区域（在日志标签页中）"""
         widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        widget.setMinimumHeight(150)  # 设置最小高度
-        self.calibration_splitter.addWidget(widget)
-        
-        # 设置分割比例
-        if self.calibration_splitter.count() == 3:
-            self.calibration_splitter.setSizes([150, 200, 150])
+        self.log_layout.addWidget(widget)
     
     def set_vna_control_widget(self, widget):
         """设置网分控制区域"""

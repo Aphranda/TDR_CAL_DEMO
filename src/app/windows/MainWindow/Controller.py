@@ -31,9 +31,9 @@ class MainWindowController:
         self.model.calibration_panel = calibration_panel
         self.sub_controllers['calibration'] = calibration_controller
         
-        # 添加日志面板
+        # 添加日志面板 - 现在在单独的标签页中
         log_widget, log_controller = create_log_widget()
-        self.view.set_log_widget(log_widget)
+        self.view.set_log_widget(log_widget)  # 这会添加到日志标签页
         self.model.log_controller = log_controller
         self.sub_controllers['log'] = log_controller
         self.log_controller = log_controller
@@ -44,12 +44,12 @@ class MainWindowController:
         self.model.vna_control_panel = vna_control_panel
         self.sub_controllers['vna_control'] = vna_controller
         
-        # 添加数据分析面板 - 这里需要特别注意！
+        # 添加数据分析面板
         data_analysis_panel, data_analysis_controller = create_data_analysis_panel()
         self.view.set_data_analysis_widget(data_analysis_panel)
         self.model.data_analysis_panel = data_analysis_panel
-        self.sub_controllers['data_analysis'] = data_analysis_controller  # 保存控制器引用
-
+        self.sub_controllers['data_analysis'] = data_analysis_controller
+        
         # 设置主窗口控制器引用
         data_analysis_controller.set_main_window_controller(self)
         
