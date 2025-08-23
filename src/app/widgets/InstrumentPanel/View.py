@@ -26,7 +26,7 @@ class InstrumentPanelView(QWidget):
         type_layout = QHBoxLayout()
         type_layout.addWidget(QLabel("仪器类型:"))
         self.instrumentCombo = QComboBox()
-        self.instrumentCombo.addItems(["TDR", "VNA", "ADC"])
+        self.instrumentCombo.addItems(["ADC", "VNA", "TDR"])
         self.instrumentCombo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         type_layout.addWidget(self.instrumentCombo)
         config_layout.addLayout(type_layout)

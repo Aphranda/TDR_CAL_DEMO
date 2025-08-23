@@ -25,6 +25,15 @@ class MainWindowController:
         self.model.instrument_panel = instrument_panel
         self.sub_controllers['instrument'] = instrument_controller
         
+        # 初始化仪表信息
+        self.model.set_instrument_info(
+            False,  # 初始状态未连接
+            instrument_controller.model.instrument_type,
+            instrument_controller.model.ip_address,
+            instrument_controller.model.port,
+            instrument_controller
+        )
+        
         # 添加日志面板到系统功能标签页
         log_widget, log_controller = create_log_widget()
         self.view.set_log_widget(log_widget)
@@ -84,16 +93,14 @@ class MainWindowController:
                 lambda msg: self.log_controller.log(msg, "ERROR")
             )
         
-        # 连接仪表面板的信号到日志
+        # 连接仪表面板的信号到日志和主窗口模型
         instrument_controller = self.sub_controllers.get('instrument')
-        if instrument_controller and hasattr(instrument_controller, 'instrumentConnected'):
-            instrument_controller.instrumentConnected.connect(
-                lambda instr: self.log_controller.log(f"仪表 {instr} 已连接", "INFO")
-            )
+        if instrument_controller and hasattr(instrument_controller, 'connectionChanged'):
+            instrument_controller.connectionChanged.connect(self._handle_instrument_connection_change)
         
-        if instrument_controller and hasattr(instrument_controller, 'instrumentDisconnected'):
-            instrument_controller.instrumentDisconnected.connect(
-                lambda instr: self.log_controller.log(f"仪表 {instr} 已断开", "WARNING")
+        if instrument_controller and hasattr(instrument_controller, 'instrumentError'):
+            instrument_controller.instrumentError.connect(
+                lambda msg: self.log_controller.log(f"仪表错误: {msg}", "ERROR")
             )
         
         if instrument_controller and hasattr(instrument_controller, 'log_message'):
@@ -173,3 +180,53 @@ class MainWindowController:
             data_analysis_controller.errorOccurred.connect(
                 lambda msg: self.log_controller.log(msg, "ERROR")
             )
+    
+    def _handle_instrument_connection_change(self, connected):
+        """处理仪表连接状态变化"""
+        instrument_controller = self.sub_controllers.get('instrument')
+        if instrument_controller:
+            # 更新主窗口模型中的仪表信息
+            self.model.set_instrument_info(
+                connected,
+                instrument_controller.model.instrument_type,
+                instrument_controller.model.ip_address,
+                instrument_controller.model.port,
+                instrument_controller
+            )
+            
+            # 通知其他面板仪表连接状态变化
+            self._notify_instrument_status_change(connected)
+            
+            # 更新状态栏
+            status_msg = f"仪表已连接: {instrument_controller.model.instrument_type} ({instrument_controller.model.ip_address}:{instrument_controller.model.port})" if connected else "仪表已断开"
+            self.view.show_status_message(status_msg, 5000)
+    
+    def _notify_instrument_status_change(self, connected):
+        """通知其他面板仪表连接状态变化"""
+        # 通知校准面板
+        calibration_controller = self.sub_controllers.get('calibration')
+        if calibration_controller and hasattr(calibration_controller, 'set_instrument_connected'):
+            calibration_controller.set_instrument_connected(connected, self.model.instrument_controller)
+        
+        # 通知网分控制面板
+        vna_controller = self.sub_controllers.get('vna_control')
+        if vna_controller and hasattr(vna_controller, 'set_instrument_connected'):
+            vna_controller.set_instrument_connected(connected, self.model.instrument_controller)
+        
+        # 通知ADC采样面板
+        adc_controller = self.sub_controllers.get('adc_sampling')
+        if adc_controller and hasattr(adc_controller, 'set_instrument_connected'):
+            adc_controller.set_instrument_connected(connected, self.model.instrument_controller)
+        
+        # 通知数据分析面板
+        data_analysis_controller = self.sub_controllers.get('data_analysis')
+        if data_analysis_controller and hasattr(data_analysis_controller, 'set_instrument_connected'):
+            data_analysis_controller.set_instrument_connected(connected, self.model.instrument_controller)
+    
+    def get_instrument_controller(self):
+        """获取仪表控制器"""
+        return self.model.instrument_controller
+    
+    def is_instrument_connected(self):
+        """检查仪表是否已连接"""
+        return self.model.instrument_connected

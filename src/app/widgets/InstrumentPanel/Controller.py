@@ -1,7 +1,6 @@
 # src/app/widgets/InstrumentPanel/Controller.py
 from PyQt5.QtCore import QObject, pyqtSignal
 from app.core.TcpClient import TcpClient  # 导入TcpClient类
-
 class InstrumentPanelController(QObject):
     connectionChanged = pyqtSignal(bool)
     instrumentError = pyqtSignal(str)
@@ -36,7 +35,7 @@ class InstrumentPanelController(QObject):
                 self.model.instrument_type = connection_info['instrument_type']
                 
                 self.view.update_connection_status(True)
-                self.connectionChanged.emit(True)
+                self.connectionChanged.emit(True)  # 发出连接状态变化信号
                 
                 # 通过日志输出连接信息
                 self.log_message.emit(
@@ -64,7 +63,7 @@ class InstrumentPanelController(QObject):
             self.tcp_client.close()
             self.model.connected = False
             self.view.update_connection_status(False)
-            self.connectionChanged.emit(False)
+            self.connectionChanged.emit(False)  # 发出连接状态变化信号
             
             # 通过日志输出断开信息
             self.log_message.emit("仪器已断开连接", "INFO")
