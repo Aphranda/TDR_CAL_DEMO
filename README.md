@@ -49,6 +49,12 @@ TDR_CAL_DEMO
 │  │  │  ├─ 📄ProcessManager.py
 │  │  │  └─ 📄StyleManager.py
 │  │  ├─ 📁widgets
+│  │  │  ├─ 📁ADCSamplingPanel
+│  │  │  │  ├─ 📁__pycache__
+│  │  │  │  ├─ 📄Controller.py
+│  │  │  │  ├─ 📄Model.py
+│  │  │  │  ├─ 📄View.py
+│  │  │  │  └─ 📄__init__.py
 │  │  │  ├─ 📁CalibrationPanel
 │  │  │  │  ├─ 📁__pycache__
 │  │  │  │  ├─ 📄Controller.py

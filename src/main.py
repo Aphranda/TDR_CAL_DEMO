@@ -28,7 +28,7 @@ if __name__ == "__main__":
     
     # 设置应用程序名称（用于任务管理器识别）
     app.setApplicationName("TDR Calibration System")
-    app.setApplicationDisplayName("TDR自动校准系统")
+    app.setApplicationDisplayName("TDR Automatic Calibration System")
     
     # 创建主窗口
     window = create_main_window()

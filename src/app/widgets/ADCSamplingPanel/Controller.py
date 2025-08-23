@@ -88,16 +88,15 @@ class ADCSamplingController(QObject):
         super().__init__()
         self.view = view
         self.model = model
-        self.adc_sample = ADCSample()
+        self.adc_sample = ADCSample()  # 初始化为空ADCSample实例
         self.adc_worker = None
         self.adc_thread = None
+        self.main_window_controller = None
         self.setup_connections()
 
     def setup_connections(self):
         """设置信号槽连接"""
-        # ADC连接按钮
-        self.view.connect_button.clicked.connect(self.on_connect_adc)
-        self.view.disconnect_button.clicked.connect(self.on_disconnect_adc)
+        # 移除连接和断开按钮的连接
         self.view.sample_button.clicked.connect(self.on_sample_adc)
         self.view.browse_dir_button.clicked.connect(self.on_browse_directory)
         
@@ -110,53 +109,31 @@ class ADCSamplingController(QObject):
         self.dataSaved.connect(lambda path, msg: self.log_message(f"{msg}: {path}", "INFO"))
         self.dataLoaded.connect(lambda msg: self.log_message(msg, "INFO"))
 
+    def set_instrument_connected(self, connected, instrument_controller):
+        """设置仪器连接状态，由主窗口调用"""
+        if connected and instrument_controller and instrument_controller.tcp_client:
+            # 使用主窗口传入的TcpClient实例
+            self.adc_sample.set_tcp_client(instrument_controller.tcp_client)
+            self.model.set_adc_connection_status(True)
+            self.adcStatusChanged.emit(True, "使用主窗口仪表连接")
+            self.log_message("ADC采样使用主窗口仪表连接", "INFO")
+        else:
+            self.model.set_adc_connection_status(False)
+            self.adcStatusChanged.emit(False, "仪表未连接")
+            self.log_message("仪表未连接，无法进行ADC采样", "WARNING")
+
     def log_message(self, message, level="INFO"):
         """记录消息到日志区域"""
         if hasattr(self, 'main_window_controller') and self.main_window_controller:
             self.main_window_controller.log_controller.log(message, level)
-    
-    def on_connect_adc(self):
-        """连接ADC"""
-        try:
-            ip = self.view.adc_ip_edit.text()
-            port_text = self.view.adc_port_edit.text()
-            try:
-                port = int(port_text)
-            except ValueError:
-                self.errorOccurred.emit("端口号必须是有效的数字")
-                return
-            
-            # 更新模型
-            self.model.adc_ip = ip
-            self.model.adc_port = port
-            
-            self.adc_sample.set_server_config(ip, port)
-            success, message = self.adc_sample.connect()
-            self.model.set_adc_connection_status(success)
-            self.adcStatusChanged.emit(success, message)
-            self.log_message(f"ADC连接状态: {message}", "INFO" if success else "WARNING")
-        except Exception as e:
-            error_msg = f"连接ADC失败: {str(e)}"
-            self.errorOccurred.emit(error_msg)
-            self.adcStatusChanged.emit(False, str(e))
-            self.log_message(error_msg, "ERROR")
-    
-    def on_disconnect_adc(self):
-        """断开ADC连接"""
-        try:
-            self.adc_sample.disconnect()
-            self.model.set_adc_connection_status(False)
-            self.adcStatusChanged.emit(False, "手动断开连接")
-            self.log_message("ADC已手动断开连接", "INFO")
-        except Exception as e:
-            error_msg = f"断开连接失败: {str(e)}"
-            self.errorOccurred.emit(error_msg)
-            self.log_message(error_msg, "ERROR")
+        else:
+            # 如果没有设置主窗口控制器，直接打印到控制台
+            print(f"[{level}] {message}")
     
     def on_sample_adc(self):
         """开始ADC采样"""
         if not self.model.adc_connected:
-            error_msg = "请先连接ADC"
+            error_msg = "仪表未连接，请先连接仪表"
             self.errorOccurred.emit(error_msg)
             self.log_message(error_msg, "WARNING")
             return
@@ -224,12 +201,3 @@ class ADCSamplingController(QObject):
     def set_main_window_controller(self, main_window_controller):
         """设置主窗口控制器引用"""
         self.main_window_controller = main_window_controller
-
-    def log_message(self, message, level="INFO"):
-        """记录消息到日志区域"""
-        # 如果已经设置了主窗口控制器引用，使用它来记录日志
-        if hasattr(self, 'main_window_controller') and self.main_window_controller:
-            self.main_window_controller.log_controller.log(message, level)
-        else:
-            # 如果没有设置主窗口控制器，直接打印到控制台
-            print(f"[{level}] {message}")

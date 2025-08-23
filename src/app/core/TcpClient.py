@@ -8,8 +8,12 @@ class TcpClient:
         self.sock = None
         self.connected = False
         self.last_error = None  # 记录最后一次错误
+        self.server_ip = '192.168.1.10'
+        self.server_port = 15000
 
     def connect(self, ip, port, timeout=3):
+        self.server_ip = ip
+        self.server_port = port
         self.close()
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.sock.settimeout(timeout)

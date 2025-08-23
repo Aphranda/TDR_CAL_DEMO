@@ -1,4 +1,5 @@
 # src/app/core/ADCSample.py
+# src/app/core/ADCSample.py
 import struct
 import os
 import time
@@ -10,16 +11,25 @@ import logging
 logger = logging.getLogger(__name__)
 
 class ADCSample:
-    """使用TcpClient优化的ADC采样类"""
+    """使用外部TcpClient实例的ADC采样类"""
     
-    def __init__(self, file_manager=None):
-        self.tcp_client = TcpClient()
+    def __init__(self, tcp_client=None, file_manager=None):
+        # 使用外部传入的TcpClient实例
+        self.tcp_client = tcp_client or TcpClient()
         self.file_manager = file_manager or FileManager()
-        self.connected = False
-        self.server_ip = '192.168.1.10'
-        self.server_port = 15000
+        self.connected = self.tcp_client.connected if self.tcp_client else False
+        self.server_ip = self.tcp_client.server_ip if self.tcp_client and self.tcp_client.server_ip else '192.168.1.10'
+        self.server_port = self.tcp_client.server_port if self.tcp_client and self.tcp_client.server_port else 15000
         self.chunk_size = 32768
         self.output_dir = 'data\\results\\test'
+    
+    def set_tcp_client(self, tcp_client):
+        """设置外部TcpClient实例"""
+        self.tcp_client = tcp_client
+        self.connected = tcp_client.connected if tcp_client else False
+        if tcp_client:
+            self.server_ip = tcp_client.server_ip
+            self.server_port = tcp_client.server_port
     
     def set_server_config(self, ip, port):
         """设置服务器配置"""
@@ -30,20 +40,13 @@ class ADCSample:
         """设置输出目录"""
         self.output_dir = output_dir
     
-    def connect(self, timeout=3):
-        """连接到ADC服务器"""
-        success, message = self.tcp_client.connect(self.server_ip, self.server_port, timeout)
-        self.connected = success
-        return success, message
-    
-    def disconnect(self):
-        """断开连接"""
-        self.tcp_client.close()
-        self.connected = False
+    def is_connected(self):
+        """检查是否已连接"""
+        return self.tcp_client and self.tcp_client.connected
     
     def send_command(self, command, max_retries=3):
         """发送命令并获取响应"""
-        if not self.connected:
+        if not self.is_connected():
             return False, "未连接到服务器"
         
         success, response = self.tcp_client.send(command, max_retries)
@@ -59,7 +62,7 @@ class ADCSample:
         专门用于接收二进制数据的方法
         返回: (是否成功, 字节数据或错误信息)
         """
-        if not self.connected or not self.tcp_client.sock:
+        if not self.is_connected() or not self.tcp_client.sock:
             return False, "未连接"
         
         retry_count = 0
@@ -101,7 +104,7 @@ class ADCSample:
     
     def perform_single_test(self, test_num):
         """执行单次测试并返回数据"""
-        if not self.connected:
+        if not self.is_connected():
             return None, "未连接到服务器"
         
         try:
@@ -144,7 +147,7 @@ class ADCSample:
     
     def perform_multiple_tests(self, test_count=10, delay_between_tests=0.1):
         """执行多次测试"""
-        if not self.connected:
+        if not self.is_connected():
             return False, "未连接到服务器"
         
         self.file_manager.ensure_dir_exists(self.output_dir)
@@ -220,6 +223,7 @@ class ADCSample:
         except Exception as e:
             logger.error(f"二进制数据保存失败: {str(e)}")
             return False, f"二进制数据保存失败: {str(e)}"
+
 
 
 # 保持向后兼容的独立函数

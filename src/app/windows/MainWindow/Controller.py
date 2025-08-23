@@ -69,6 +69,9 @@ class MainWindowController:
         data_analysis_controller.set_main_window_controller(self)
         adc_controller.set_main_window_controller(self)
         
+        # 通知ADC采样面板仪表连接状态
+        adc_controller.set_instrument_connected(False, None)
+        
         # 添加初始绘图区域
         plot_widget, plot_controller = create_plot_widget("时域响应")
         self.view.add_plot_tab(plot_widget, "时域")

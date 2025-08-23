@@ -3,7 +3,7 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGroupBox,
                              QLabel, QPushButton, QLineEdit, QSpinBox, 
                              QProgressBar, QDoubleSpinBox, QFileDialog)
 from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QIntValidator
+from PyQt5.QtGui import QIntValidator, QPalette, QColor
 
 class ADCSamplingView(QWidget):
     def __init__(self):
@@ -21,46 +21,40 @@ class ADCSamplingView(QWidget):
         instrument_layout.setSpacing(6)
         instrument_layout.setContentsMargins(8, 12, 8, 12)
         
-        # 连接设置
-        connect_layout = QHBoxLayout()
-        connect_layout.setSpacing(4)
-        connect_layout.addWidget(QLabel("IP地址:"))
-        self.adc_ip_edit = QLineEdit("192.168.1.10")
-        self.adc_ip_edit.setPlaceholderText("输入ADC IP地址")
-        connect_layout.addWidget(self.adc_ip_edit)
-
-        connect_layout.addWidget(QLabel("端口:"))
-        self.adc_port_edit = QLineEdit("15000")
-        self.adc_port_edit.setValidator(QIntValidator(0, 32768))
-        self.adc_port_edit.setMinimumWidth(100)
-        self.adc_port_edit.setMaximumWidth(120)
-        connect_layout.addWidget(self.adc_port_edit)
-        instrument_layout.addLayout(connect_layout)
-        
-        # 连接按钮
-        button_layout = QHBoxLayout()
-        button_layout.setSpacing(4)
-        self.connect_button = QPushButton("连接ADC")
-        self.disconnect_button = QPushButton("断开连接")
-        self.disconnect_button.setEnabled(False)
-        button_layout.addWidget(self.connect_button)
-        button_layout.addWidget(self.disconnect_button)
-        instrument_layout.addLayout(button_layout)
+        # 连接状态显示
+        status_layout = QHBoxLayout()
+        self.status_label = QLabel("等待主窗口仪表连接...")
+        self.status_label.setAlignment(Qt.AlignCenter)
+        self.status_label.setMinimumHeight(20)
+        self.status_label.setMaximumHeight(50)
+        self.status_label.setStyleSheet("""
+            QLabel {
+                border: 1px solid #cccccc;
+                border-radius: 4px;
+                padding: 2px;
+                background-color: #f0f0f0;
+                color: #666666;
+            }
+        """)
+        status_layout.addWidget(self.status_label)
+        instrument_layout.addLayout(status_layout)
         
         # 采样设置
         sample_layout = QHBoxLayout()
         sample_layout.setSpacing(4)
-        sample_layout.addWidget(QLabel("采样次数:"))
+        sample_layout.addWidget(QLabel("次数:"))
         self.sample_count_spin = QSpinBox()
         self.sample_count_spin.setRange(1, 1000)
         self.sample_count_spin.setValue(10)
-        self.sample_count_spin.setMaximumWidth(70)
+        self.sample_count_spin.setMinimumWidth(70)
+        self.sample_count_spin.setMaximumWidth(100)
         sample_layout.addWidget(self.sample_count_spin)
         sample_layout.addWidget(QLabel("间隔(s):"))
         self.sample_interval_spin = QDoubleSpinBox()
         self.sample_interval_spin.setRange(0.1, 10.0)
         self.sample_interval_spin.setValue(0.1)
-        self.sample_interval_spin.setMaximumWidth(70)
+        self.sample_interval_spin.setMinimumWidth(70)
+        self.sample_interval_spin.setMaximumWidth(100)
         sample_layout.addWidget(self.sample_interval_spin)
         instrument_layout.addLayout(sample_layout)
           
@@ -103,17 +97,40 @@ class ADCSamplingView(QWidget):
     
     def update_adc_connection_status(self, connected: bool, message: str = ""):
         """更新ADC连接状态"""
-        self.connect_button.setEnabled(not connected)
-        self.disconnect_button.setEnabled(connected)
-        self.sample_button.setEnabled(connected)
+        status_text = f"{'已连接' if connected else '未连接'} - {message}"
         
         if connected:
-            self.connect_button.setText("已连接")
+            # 已连接状态 - 浅绿色背景
+            self.status_label.setStyleSheet("""
+                QLabel {
+                    border: 1px solid #c3e6cb;
+                    border-radius: 4px;
+                    padding: 2px;
+                    background-color: #d4edda;
+                    color: #155724;
+                }
+            """)
         else:
-            self.connect_button.setText("连接ADC")
+            # 未连接状态 - 浅黄色背景
+            self.status_label.setStyleSheet("""
+                QLabel {
+                    border: 1px solid #ffeeba;
+                    border-radius: 4px;
+                    padding: 2px;
+                    background-color: #fff3cd;
+                    color: #856404;
+                }
+            """)
+            
+        self.status_label.setText(status_text)
+        self.sample_button.setEnabled(connected)
     
     def update_sampling_progress(self, current: int, total: int, message: str = ""):
         """更新采样进度"""
         self.progress_bar.setVisible(True)
         self.progress_bar.setMaximum(total)
         self.progress_bar.setValue(current)
+        if message:
+            self.progress_bar.setFormat(f"{message} - %p%")
+        else:
+            self.progress_bar.setFormat("%p%")

@@ -1,4 +1,4 @@
-/* resources/styles/style_bule.css */
+/* resources/styles/style_bule.qss */
 /* ... 原有的样式内容保持不变 ... */
 
 /* ===== MainWindow 专用样式 ===== */
@@ -59,12 +59,12 @@ MainWindow QSplitter::handle:vertical {
 }
 
 /* 右侧标签页容器的特殊样式 */
-MainWindow #right_tab_widget {
+#right_tab_widget {
     background: #f8f8f8;
     border-left: 1px solid #d0d0d0;
 }
 
-MainWindow #right_tab_widget::pane {
+#right_tab_widget::pane {
     border: 1px solid #d0d0d0;
     background: #ffffff;
     border-radius: 8px;
@@ -72,35 +72,35 @@ MainWindow #right_tab_widget::pane {
 }
 
 /* 绘图区域标签页样式 */
-MainWindow #plot_area {
+#plot_area {
     background: #ffffff;
     border: 1px solid #d0d0d0;
     border-radius: 8px;
     margin: 5px;
 }
 
-MainWindow #plot_area::pane {
+#plot_area::pane {
     border: none;
     background: #ffffff;
 }
 
 /* 网分校准标签页内部样式 */
-MainWindow #calibration_tab {
+#calibration_tab {
     background: #f8f8f8;
     border: none;
 }
 
-MainWindow #calibration_splitter {
+#calibration_splitter {
     background: transparent;
 }
 
-MainWindow #calibration_splitter::handle {
+#calibration_splitter::handle {
     background-color: #e0e0e0;
     height: 3px;
     border: 1px solid #d0d0d0;
 }
 
-MainWindow #calibration_splitter::handle:hover {
+#calibration_splitter::handle:hover {
     background-color: #c0c0c0;
 }
 
@@ -120,7 +120,7 @@ MainWindow QStatusBar::item {
 }
 
 /* 标签页内容区域的通用样式 */
-MainWindow QWidget[tabContent="true"] {
+QWidget[tabContent="true"] {
     background: #ffffff;
     border: 1px solid #e0e0e0;
     border-radius: 6px;
@@ -142,27 +142,18 @@ MainWindow QTabWidget QLabel[tabTitle="true"] {
     font-weight: bold;
     color: #1976d2;
     padding: 5px 0;
-    background: linear-gradient(to bottom, #f8f8f8, #e8e8e8);
+    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
+                              stop: 0 #f8f8f8, stop: 1 #e8e8e8);
     border-bottom: 2px solid #1976d2;
 }
 
 /* 响应式设计 - 小屏幕适配 */
-@media (max-width: 1000px) {
-    MainWindow QTabBar::tab {
-        padding: 6px 12px;
-        min-width: 80px;
-        font-size: 12px;
-    }
-    
-    MainWindow QStatusBar {
-        font-size: 11px;
-        padding: 3px 6px;
-    }
-}
+/* 注意：QSS不支持@media查询，这部分需要移除或通过其他方式实现 */
 
 /* 高DPI缩放支持 */
 MainWindow {
-    -qt-style-hint: scale-factor: 1.0;
+    /* -qt-style-hint: scale-factor: 1.0; */
+    /* QSS不支持此属性，需要在代码中处理DPI缩放 */
 }
 
 /* 暗色主题支持 */
@@ -196,6 +187,51 @@ MainWindow[darkMode="true"] QStatusBar {
     background: #333333;
     color: #cccccc;
     border-top-color: #444444;
+}
+
+MainWindow[darkMode="true"] #right_tab_widget {
+    background: #353535;
+    border-left-color: #555555;
+}
+
+MainWindow[darkMode="true"] #right_tab_widget::pane {
+    border-color: #555555;
+    background: #3d3d3d;
+}
+
+MainWindow[darkMode="true"] #plot_area {
+    background: #3d3d3d;
+    border-color: #555555;
+}
+
+MainWindow[darkMode="true"] #plot_area::pane {
+    background: #3d3d3d;
+}
+
+MainWindow[darkMode="true"] #calibration_tab {
+    background: #353535;
+}
+
+MainWindow[darkMode="true"] #calibration_splitter::handle {
+    background-color: #555555;
+    border-color: #444444;
+}
+
+MainWindow[darkMode="true"] QWidget[tabContent="true"] {
+    background: #3d3d3d;
+    border-color: #555555;
+}
+
+MainWindow[darkMode="true"] QSplitter > QWidget {
+    background: #3d3d3d;
+    border-color: #555555;
+}
+
+MainWindow[darkMode="true"] QTabWidget QLabel[tabTitle="true"] {
+    color: #64b5f6;
+    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
+                              stop: 0 #444444, stop: 1 #353535);
+    border-bottom-color: #64b5f6;
 }
 
 /* 新增QCheckBox样式 */
