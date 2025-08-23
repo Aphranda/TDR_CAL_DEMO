@@ -6,121 +6,22 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGroupBox,
                              QStackedWidget, QFileDialog, QGridLayout)
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QIntValidator
-from ...widgets.PlotWidget import create_plot_widget
-import numpy as np
 
 class DataAnalysisView(QWidget):
     def __init__(self):
         super().__init__()
-        self.plot_widgets = {}  # 存储绘图部件
-        self.plot_controllers = {}  # 新增：存储绘图控制器
-        self.main_window_view = None  # 添加main_window_view属性，初始为None
         self.setup_ui()
 
     def setup_ui(self):
-        main_layout = QVBoxLayout()  # 修改：使用垂直布局
+        main_layout = QVBoxLayout()
         main_layout.setSpacing(8)
-        main_layout.setContentsMargins(6, 6, 6, 6)  # 减小主布局边距
-        
-        # 左侧控制面板
-        control_panel = QWidget()
-        control_layout = QVBoxLayout()
-        control_layout.setSpacing(8)  # 减小整体间距
-        control_layout.setContentsMargins(4, 4, 4, 4)  # 减小控制面板边距
-        
-        # 仪表控制部分 - 新增GroupBox
-        instrument_group = QGroupBox("仪表控制")
-        instrument_layout = QVBoxLayout()
-        instrument_layout.setSpacing(6)  # 减小组内间距
-        instrument_layout.setContentsMargins(8, 12, 8, 12)  # 减小GroupBox内部边距
-        
-        # 连接设置
-        connect_layout = QHBoxLayout()
-        connect_layout.setSpacing(4)  # 减小水平布局间距
-        connect_layout.addWidget(QLabel("IP地址:"))
-        self.adc_ip_edit = QLineEdit("192.168.1.10")
-        self.adc_ip_edit.setPlaceholderText("输入ADC IP地址")
-        connect_layout.addWidget(self.adc_ip_edit)
-
-        connect_layout.addWidget(QLabel("端口:"))
-        self.adc_port_edit = QLineEdit("15000")
-        self.adc_port_edit.setValidator(QIntValidator(0, 32768))
-        self.adc_port_edit.setMinimumWidth(100)  # 减小端口输入框宽度
-        self.adc_port_edit.setMaximumWidth(120)
-        connect_layout.addWidget(self.adc_port_edit)
-        instrument_layout.addLayout(connect_layout)
-        
-        # 连接按钮
-        button_layout = QHBoxLayout()
-        button_layout.setSpacing(4)
-        self.connect_button = QPushButton("连接ADC")
-        self.disconnect_button = QPushButton("断开连接")
-        self.disconnect_button.setEnabled(False)
-        button_layout.addWidget(self.connect_button)
-        button_layout.addWidget(self.disconnect_button)
-        instrument_layout.addLayout(button_layout)
-        
-        instrument_group.setLayout(instrument_layout)
-        control_layout.addWidget(instrument_group)
-        
-        # ADC采样控制部分 - 修改后的GroupBox
-        adc_group = QGroupBox("ADC采样控制")
-        adc_layout = QVBoxLayout()
-        adc_layout.setSpacing(6)  # 减小组内间距
-        adc_layout.setContentsMargins(8, 12, 8, 12)  # 减小GroupBox内部边距
-        
-        # 采样设置
-        sample_layout = QHBoxLayout()
-        sample_layout.setSpacing(4)
-        sample_layout.addWidget(QLabel("采样次数:"))
-        self.sample_count_spin = QSpinBox()
-        self.sample_count_spin.setRange(1, 1000)
-        self.sample_count_spin.setValue(10)
-        self.sample_count_spin.setMaximumWidth(70)
-        sample_layout.addWidget(self.sample_count_spin)
-        sample_layout.addWidget(QLabel("间隔(s):"))
-        self.sample_interval_spin = QDoubleSpinBox()
-        self.sample_interval_spin.setRange(0.1, 10.0)
-        self.sample_interval_spin.setValue(0.1)
-        self.sample_interval_spin.setMaximumWidth(70)
-        sample_layout.addWidget(self.sample_interval_spin)
-        adc_layout.addLayout(sample_layout)
-          
-        # 文件名设置
-        filename_layout = QHBoxLayout()
-        filename_layout.setSpacing(4)
-        filename_layout.addWidget(QLabel("文件名称:"))
-        self.filename_edit = QLineEdit("adc_data")
-        self.filename_edit.setPlaceholderText("输入保存的文件名（不含扩展名）")
-        filename_layout.addWidget(self.filename_edit)
-        adc_layout.addLayout(filename_layout)
-
-        # 输出目录设置
-        output_dir_layout = QHBoxLayout()
-        output_dir_layout.setSpacing(4)
-        output_dir_layout.addWidget(QLabel("输出目录:"))
-        self.output_dir_edit = QLineEdit("data\\results\\test")
-        self.output_dir_edit.setPlaceholderText("选择输出目录")
-        output_dir_layout.addWidget(self.output_dir_edit)
-        
-        self.browse_dir_button = QPushButton("浏览")
-        self.browse_dir_button.setMinimumWidth(60)
-        output_dir_layout.addWidget(self.browse_dir_button)
-        adc_layout.addLayout(output_dir_layout)
-
-        # 采样按钮
-        self.sample_button = QPushButton("开始采样")
-        self.sample_button.setEnabled(False)
-        adc_layout.addWidget(self.sample_button)
-        
-        adc_group.setLayout(adc_layout)
-        control_layout.addWidget(adc_group)
+        main_layout.setContentsMargins(6, 6, 6, 6)
         
         # 数据文件选择
         file_group = QGroupBox("数据分析")
         file_layout = QVBoxLayout()
-        file_layout.setSpacing(6)  # 减小组内间距
-        file_layout.setContentsMargins(8, 12, 8, 12)  # 减小GroupBox内部边距
+        file_layout.setSpacing(6)
+        file_layout.setContentsMargins(8, 12, 8, 12)
         
         # 文件操作按钮
         file_control_layout = QHBoxLayout()
@@ -139,7 +40,7 @@ class DataAnalysisView(QWidget):
         # 分析类型选择
         file_layout.addWidget(QLabel("分析类型:"))
         self.analysis_combo = QComboBox()
-        self.analysis_combo.addItems(["ADC数据分析","S参数", "TDR"])
+        self.analysis_combo.addItems(["ADC数据分析", "S参数", "TDR"])
         file_layout.addWidget(self.analysis_combo)
         
         # 分析选项堆叠窗口
@@ -156,7 +57,7 @@ class DataAnalysisView(QWidget):
         file_layout.addLayout(button_layout)
         
         file_group.setLayout(file_layout)
-        control_layout.addWidget(file_group)
+        main_layout.addWidget(file_group)
 
         # S参数选项
         s_param_widget = self.create_s_parameter_options()
@@ -170,12 +71,7 @@ class DataAnalysisView(QWidget):
         adc_analysis_widget = self.create_adc_analysis_options()
         self.options_stack.addWidget(adc_analysis_widget)
         
-        control_panel.setLayout(control_layout)
-        
-        # 删除右侧结果显示区域，只保留控制面板
-        main_layout.addWidget(control_panel)
-        
-        # 添加公用进度条到最外层底部
+        # 进度条
         self.progress_bar = QProgressBar()
         self.progress_bar.setVisible(False)
         main_layout.addWidget(self.progress_bar)
@@ -184,26 +80,13 @@ class DataAnalysisView(QWidget):
         
         # 初始显示ADC数据分析选项
         self.options_stack.setCurrentIndex(2)
-        
-        # 连接浏览目录按钮
-        self.browse_dir_button.clicked.connect(self.on_browse_directory)
-
-    def on_browse_directory(self):
-        """浏览选择输出目录"""
-        directory = QFileDialog.getExistingDirectory(
-            self, 
-            "选择输出目录",
-            self.output_dir_edit.text() or "."
-        )
-        if directory:
-            self.output_dir_edit.setText(directory)
     
     def create_s_parameter_options(self):
         """创建S参数选项"""
         widget = QWidget()
         layout = QVBoxLayout()
-        layout.setSpacing(6)  # 减小组间间距
-        layout.setContentsMargins(0, 0, 0, 0)  # 移除内部边距
+        layout.setSpacing(6)
+        layout.setContentsMargins(0, 0, 0, 0)
         
         # 频率范围设置
         freq_layout = QHBoxLayout()
@@ -268,8 +151,8 @@ class DataAnalysisView(QWidget):
         """创建TDR选项"""
         widget = QWidget()
         layout = QVBoxLayout()
-        layout.setSpacing(6)  # 减小组间间距
-        layout.setContentsMargins(0, 0, 0, 0)  # 移除内部边距
+        layout.setSpacing(6)
+        layout.setContentsMargins(0, 0, 0, 0)
         
         # 时间范围设置
         time_layout = QHBoxLayout()
@@ -302,8 +185,8 @@ class DataAnalysisView(QWidget):
         """创建ADC数据分析选项"""
         widget = QWidget()
         layout = QVBoxLayout()
-        layout.setSpacing(6)  # 减小组间间距
-        layout.setContentsMargins(0, 0, 0, 0)  # 移除内部边距
+        layout.setSpacing(6)
+        layout.setContentsMargins(0, 0, 0, 0)
         
         # 频率设置
         clock_layout = QHBoxLayout()
@@ -377,20 +260,3 @@ class DataAnalysisView(QWidget):
     def show_adc_analysis_options(self):
         """显示ADC数据分析选项"""
         self.options_stack.setCurrentIndex(2)
-    
-    def update_adc_connection_status(self, connected: bool, message: str = ""):
-        """更新ADC连接状态"""
-        self.connect_button.setEnabled(not connected)
-        self.disconnect_button.setEnabled(connected)
-        self.sample_button.setEnabled(connected)
-        
-        if connected:
-            self.connect_button.setText("已连接")
-        else:
-            self.connect_button.setText("连接ADC")
-    
-    def update_sampling_progress(self, current: int, total: int, message: str = ""):
-        """更新采样进度"""
-        self.progress_bar.setVisible(True)
-        self.progress_bar.setMaximum(total)
-        self.progress_bar.setValue(current)

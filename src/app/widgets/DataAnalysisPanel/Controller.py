@@ -4,7 +4,6 @@ import numpy as np
 import pyqtgraph as pg
 from PyQt5.QtWidgets import QFileDialog, QMessageBox
 from PyQt5.QtCore import QObject, pyqtSignal, QThread, pyqtSlot
-from ...core.ADCSample import ADCSample
 from ...core.DataAnalyze import DataAnalyzer, AnalysisConfig
 from ...core.FileManager import FileManager
 from ...widgets.PlotWidget import create_plot_widget
@@ -16,82 +15,12 @@ class SearchMethod:
     RISING = 1
     MAX = 2
 
-
-class ADCWorker(QObject):
-    """ADC采样工作线程"""
-    progress = pyqtSignal(int, int, str)
-    finished = pyqtSignal(bool, str)
-    sampleData = pyqtSignal(list)
-    dataSaved = pyqtSignal(str, str)  # 新增：数据保存信号 (文件路径, 消息)
-    
-    def __init__(self, adc_sample, count, interval, save_raw_data=True, output_dir=None, filename_prefix=None):
-        super().__init__()
-        self.adc_sample = adc_sample
-        self.count = count
-        self.interval = interval
-        self.save_raw_data = save_raw_data
-        self.output_dir = output_dir or 'data\\results\\test'
-        self.filename_prefix = filename_prefix or 'adc_raw_data'  # 新增：文件名前缀
-        self.running = False
-    
-    @pyqtSlot()
-    def run(self):
-        """执行ADC采样"""
-        self.running = True
-        successful_samples = 0
-        all_samples = []
-        
-        try:
-            # 确保输出目录存在
-            if self.save_raw_data:
-                self.adc_sample.file_manager.ensure_dir_exists(self.output_dir)
-            
-            for i in range(self.count):
-                if not self.running:
-                    break
-                
-                self.progress.emit(i + 1, self.count, f"采样 {i + 1}/{self.count}")
-                
-                # 执行单次采样
-                u32_values, error = self.adc_sample.perform_single_test(i)
-                if error:
-                    self.progress.emit(i + 1, self.count, f"采样失败: {error}")
-                    continue
-                
-                successful_samples += 1
-                all_samples.append(u32_values)
-                
-                # 保存原始数据 - 使用文件名前缀作为第一个字段
-                if self.save_raw_data:
-                    filename = f'{self.filename_prefix}_{i + 1:04d}.csv'  # 修改：使用文件名前缀
-                    success, message = self.adc_sample.save_test_result(i, u32_values, filename, self.output_dir)
-                    if success:
-                        self.dataSaved.emit(os.path.join(self.output_dir, filename), f"数据已保存: {filename}")
-                    else:
-                        self.progress.emit(i + 1, self.count, f"数据保存失败: {message}")
-                
-                # 等待间隔
-                time.sleep(self.interval)
-            
-            success = successful_samples > 0
-            message = f"完成 {successful_samples}/{self.count} 次采样"
-            self.sampleData.emit(all_samples)
-            self.finished.emit(success, message)
-            
-        except Exception as e:
-            self.finished.emit(False, f"采样过程中发生错误: {str(e)}")
-    
-    def stop(self):
-        """停止采样"""
-        self.running = False
-
-        
 class ADCProcessWorker(QObject):
     """ADC数据处理工作线程 - 使用DataAnalyzer进行分析"""
     progress = pyqtSignal(int, int, str)
     finished = pyqtSignal(dict, dict)  # 传递结果和平均值
     error = pyqtSignal(str)
-    log_message = pyqtSignal(str, str)  # 新增：日志消息信号
+    log_message = pyqtSignal(str, str)  # 日志消息信号
     
     def __init__(self, file_list, config):
         super().__init__()
@@ -204,18 +133,12 @@ class DataAnalysisController(QObject):
     analysisStarted = pyqtSignal(str)  # 分析开始信号
     analysisCompleted = pyqtSignal(dict)  # 分析完成信号，传递结果
     errorOccurred = pyqtSignal(str)  # 错误信号
-    adcStatusChanged = pyqtSignal(bool, str)  # ADC连接状态变化信号
-    samplingProgress = pyqtSignal(int, int, str)  # 采样进度信号
-    dataSaved = pyqtSignal(str, str)  # 新增：数据保存信号
-    plotDataReady = pyqtSignal(str, np.ndarray, np.ndarray)  # 新增：绘图数据准备信号 (类型, x_data, y_data)
+    plotDataReady = pyqtSignal(str, np.ndarray, np.ndarray)  # 绘图数据准备信号 (类型, x_data, y_data)
     
     def __init__(self, view, model):
         super().__init__()
         self.view = view
         self.model = model
-        self.adc_sample = ADCSample()
-        self.adc_worker = None
-        self.adc_thread = None
         self.data_analyzer = None
         self.setup_connections()
 
@@ -235,20 +158,8 @@ class DataAnalysisController(QObject):
         # 文件列表选择变化
         self.view.file_list.currentRowChanged.connect(self.on_file_selected)
         
-        # ADC连接按钮
-        self.view.connect_button.clicked.connect(self.on_connect_adc)
-        self.view.disconnect_button.clicked.connect(self.on_disconnect_adc)
-        self.view.sample_button.clicked.connect(self.on_sample_adc)
-        
-        # 连接状态信号
-        self.adcStatusChanged.connect(self.view.update_adc_connection_status)
-        self.samplingProgress.connect(self.view.update_sampling_progress)
-        
-        
+        # 错误信号连接到日志记录
         self.errorOccurred.connect(lambda msg: self.log_message(msg, "ERROR"))
-        self.dataSaved.connect(lambda path, msg: self.log_message(f"{msg}: {path}", "INFO"))
-        
-        # 将其他信号连接到日志记录
         self.dataLoaded.connect(lambda msg: self.log_message(msg, "INFO"))
         self.analysisCompleted.connect(self.log_analysis_results)
 
@@ -264,102 +175,6 @@ class DataAnalysisController(QObject):
             self.main_window_controller.log_controller.log("=" * 50, "INFO")
             for key, value in results.items():
                 self.main_window_controller.log_controller.log(f"{key}: {value}", "INFO")
-    
-    def on_connect_adc(self):
-        """连接ADC"""
-        try:
-            ip = self.view.adc_ip_edit.text()
-            port_text = self.view.adc_port_edit.text()
-            try:
-                port = int(port_text)
-            except ValueError:
-                self.errorOccurred.emit("端口号必须是有效的数字")
-                return
-            
-            # 更新模型
-            self.model.adc_ip = ip
-            self.model.adc_port = port
-            
-            self.adc_sample.set_server_config(ip, port)
-            success, message = self.adc_sample.connect()
-            self.model.set_adc_connection_status(success)
-            self.adcStatusChanged.emit(success, message)
-            self.log_message(f"ADC连接状态: {message}", "INFO" if success else "WARNING")
-        except Exception as e:
-            error_msg = f"连接ADC失败: {str(e)}"
-            self.errorOccurred.emit(error_msg)
-            self.adcStatusChanged.emit(False, str(e))
-            self.log_message(error_msg, "ERROR")
-    
-    def on_disconnect_adc(self):
-        """断开ADC连接"""
-        try:
-            self.adc_sample.disconnect()
-            self.model.set_adc_connection_status(False)
-            self.adcStatusChanged.emit(False, "手动断开连接")
-            self.log_message("ADC已手动断开连接", "INFO")
-        except Exception as e:
-            error_msg = f"断开连接失败: {str(e)}"
-            self.errorOccurred.emit(error_msg)
-            self.log_message(error_msg, "ERROR")
-    
-    def on_sample_adc(self):
-        """开始ADC采样"""
-        if not self.model.adc_connected:
-            error_msg = "请先连接ADC"
-            self.errorOccurred.emit(error_msg)
-            self.log_message(error_msg, "WARNING")
-            return
-        
-        # 获取采样参数
-        count = self.view.sample_count_spin.value()
-        interval = self.view.sample_interval_spin.value()
-        save_raw_data = True
-        output_dir = self.view.output_dir_edit.text() or 'data\\results\\test'
-        filename_prefix = self.view.filename_edit.text() or 'adc_raw_data'  # 新增：获取文件名前缀
-        
-        # 更新模型
-        self.model.sample_count = count
-        self.model.sample_interval = interval
-        self.model.save_raw_data = save_raw_data
-        self.model.output_dir = output_dir
-        self.model.filename_prefix = filename_prefix  # 新增：文件名前缀
-        
-        # 创建工作线程 - 传入文件名前缀
-        self.adc_thread = QThread()
-        self.adc_worker = ADCWorker(self.adc_sample, count, interval, save_raw_data, output_dir, filename_prefix)
-        self.adc_worker.moveToThread(self.adc_thread)
-        
-        # 连接信号
-        self.adc_thread.started.connect(self.adc_worker.run)
-        self.adc_worker.progress.connect(self.samplingProgress)
-        self.adc_worker.finished.connect(self.on_sampling_finished)
-        self.adc_worker.finished.connect(self.adc_thread.quit)
-        self.adc_worker.finished.connect(self.adc_worker.deleteLater)
-        self.adc_thread.finished.connect(self.adc_thread.deleteLater)
-        self.adc_worker.sampleData.connect(self.on_sample_data_received)
-        self.adc_worker.dataSaved.connect(self.dataSaved)
-        
-        # 启动线程
-        self.adc_thread.start()
-        self.log_message(f"开始ADC采样，次数: {count}, 间隔: {interval}s", "INFO")
-    
-    def on_sampling_finished(self, success, message):
-        """采样完成"""
-        if success:
-            self.dataLoaded.emit(message)
-            self.log_message(message, "INFO")
-        else:
-            self.errorOccurred.emit(message)
-            self.log_message(message, "ERROR")
-    
-    def on_sample_data_received(self, sample_data):
-        """接收到采样数据"""
-        for data in sample_data:
-            self.model.add_adc_sample(data)
-        msg = f"接收到 {len(sample_data)} 组采样数据"
-        self.dataLoaded.emit(msg)
-        self.log_message(msg, "INFO")
     
     def on_load_file(self):
         """加载数据文件"""
@@ -473,7 +288,7 @@ class DataAnalysisController(QObject):
             config.recursive = True
             config.use_signed18 = True
             
-            # 新增：获取SearchMethod的值
+            # 获取SearchMethod的值
             config.search_method = self.view.search_method_combo.currentData()
             
             self.analysisStarted.emit("ADC数据分析")
@@ -497,7 +312,7 @@ class DataAnalysisController(QObject):
             self.adc_process_worker.finished.connect(self.adc_process_worker.deleteLater)
             self.adc_process_thread.finished.connect(self.adc_process_thread.deleteLater)
             self.adc_process_worker.error.connect(self.on_adc_process_error)
-            self.adc_process_worker.log_message.connect(self.log_message)  # 新增：连接日志信号
+            self.adc_process_worker.log_message.connect(self.log_message)
             
             # 启动线程
             self.adc_process_thread.start()
@@ -506,8 +321,6 @@ class DataAnalysisController(QObject):
             error_msg = f"ADC数据分析失败: {str(e)}"
             self.errorOccurred.emit(error_msg)
             self.log_message(error_msg, "ERROR")
-
-
 
     def on_adc_process_progress(self, current, total, message):
         """ADC处理进度更新"""
@@ -557,7 +370,7 @@ class DataAnalysisController(QObject):
         return None
 
     def generate_plot_data(self, results, averages, config):
-        """生成绘图数据，完全参考plot_results函数的实现"""
+        """生成绘图数据"""
         try:
             # 清除所有现有的标记线
             self.clear_all_markers()
@@ -566,8 +379,6 @@ class DataAnalysisController(QObject):
             t_roi_us = (np.arange(config.l_roi) * config.ts_eff) * 1e6
             
             # 将ADC数据转换为电压值 (±3V范围，带符号19位)
-            # 19位带符号数据的范围是 -2^18 到 2^18-1 (-262144 到 262143)
-            # 电压转换公式: voltage = (adc_value / 2^18) * 3.0
             adc_max_value = 2**19  # 262144
             y_avg_voltage = (averages['y_avg'] / adc_max_value) * 3.0
             
@@ -608,6 +419,10 @@ class DataAnalysisController(QObject):
             t_diff_us = t_roi_us[config.diff_points:]
             y_d_avg_voltage = (averages['y_d_avg'] / adc_max_value) * 3.0
             
+            # 获取或创建差分时域绘图控制器
+            diff_time_controller = self.get_plot_controller('plot_diff_time')
+            if not diff_time_controller:
+                self.create_additional_plot_tabs()
             # 获取或创建差分时域绘图控制器
             diff_time_controller = self.get_plot_controller('plot_diff_time')
             if not diff_time_controller:
@@ -660,7 +475,6 @@ class DataAnalysisController(QObject):
             self.errorOccurred.emit(f"清除标记失败: {str(e)}")
             self.log_message(f"清除标记失败: {str(e)}", "ERROR")
 
-
     def add_vertical_line(self, plot_controller, x_position, color='red', style='dashed', label=''):
         """添加垂直标记线"""
         try:
@@ -672,7 +486,7 @@ class DataAnalysisController(QObject):
             
             if label:
                 # 获取当前Y轴数据范围
-                y_range = self.view.plot_widget.getViewBox().viewRange()[1]
+                y_range = plot_widget.getViewBox().viewRange()[1]
                 
                 # 计算最大数据值并添加余量
                 if hasattr(self.model, 'y_data') and self.model.y_data:
@@ -696,7 +510,6 @@ class DataAnalysisController(QObject):
             print(f"添加标记线失败: {e}")
             return None
 
-
     def create_additional_plot_tabs(self):
         """创建额外的绘图标签页"""
         if not hasattr(self, 'main_window_controller') or not self.main_window_controller:
@@ -713,7 +526,6 @@ class DataAnalysisController(QObject):
         diff_freq_view, diff_freq_controller = create_plot_widget("差分频域信号")
         main_window_view.add_plot_tab(diff_freq_view, "差分频域")
         self.main_window_controller.sub_controllers['plot_diff_freq'] = diff_freq_controller
-    
 
     def export_plots(self, base_path):
         """导出所有绘图到以base_path为基础的文件名"""
@@ -740,7 +552,6 @@ class DataAnalysisController(QObject):
                 else:
                     self.log_message(f"导出{plot_type}图片失败", "WARNING")
 
-    
     def export_single_plot(self, plot_controller, file_path):
         """导出单个绘图到文件"""
         try:
@@ -756,10 +567,9 @@ class DataAnalysisController(QObject):
         except Exception as e:
             self.log_message(f"导出图片失败: {e}", "ERROR")
             return False
-    
 
     def on_export(self):
-        """导出分析结果 - 修改后的版本，同时导出图片"""
+        """导出分析结果"""
         if not self.model.results:
             self.errorOccurred.emit("没有可导出的分析结果")
             self.log_message("没有可导出的分析结果", "WARNING")
@@ -799,7 +609,6 @@ class DataAnalysisController(QObject):
             self.errorOccurred.emit(f"导出失败: {str(e)}")
             self.log_message(f"导出失败: {str(e)}", "ERROR")
 
-
     def export_csv_results(self, file_path):
         """使用DataAnalyze的save_results函数导出CSV结果"""
         try:
@@ -809,8 +618,7 @@ class DataAnalysisController(QObject):
             # 创建DataAnalyzer实例
             analyzer = DataAnalyzer(config)
             
-            # 获取当前的分析结果数据（这里需要根据实际情况调整）
-            # 假设我们有存储的results和averages数据
+            # 获取当前的分析结果数据
             if hasattr(self, 'last_analysis_results') and hasattr(self, 'last_averages'):
                 results = self.last_analysis_results
                 averages = self.last_averages

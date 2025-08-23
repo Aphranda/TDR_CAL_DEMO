@@ -4,7 +4,9 @@ from app.widgets.LogWidget import create_log_widget
 from app.widgets.InstrumentPanel import create_instrument_panel
 from app.widgets.PlotWidget import create_plot_widget
 from app.widgets.VNAControlPanel import create_vna_control_panel
+from app.widgets.ADCSamplingPanel import create_adc_sampling_panel
 from app.widgets.DataAnalysisPanel import create_data_analysis_panel
+
 class MainWindowController:
     def __init__(self, view, model):
         self.view = view
@@ -41,15 +43,22 @@ class MainWindowController:
         self.view.set_vna_control_widget(vna_control_panel)
         self.model.vna_control_panel = vna_control_panel
         self.sub_controllers['vna_control'] = vna_controller
+
+        # 添加ADC采样面板到数据处理标签页
+        adc_sampling_panel, adc_controller = create_adc_sampling_panel()
+        self.view.set_adc_sampling_widget(adc_sampling_panel)
+        self.model.adc_sampling_panel = adc_sampling_panel
+        self.sub_controllers['adc_sampling'] = adc_controller
         
         # 添加数据分析面板
         data_analysis_panel, data_analysis_controller = create_data_analysis_panel()
-        self.view.set_data_analysis_widget(data_analysis_panel)
+        self.view.set_data_processing_widget(data_analysis_panel)
         self.model.data_analysis_panel = data_analysis_panel
         self.sub_controllers['data_analysis'] = data_analysis_controller
         
         # 设置主窗口控制器引用
         data_analysis_controller.set_main_window_controller(self)
+        adc_controller.set_main_window_controller(self)
         
         # 添加初始绘图区域
         plot_widget, plot_controller = create_plot_widget("时域响应")
@@ -126,7 +135,24 @@ class MainWindowController:
                 lambda: self.log_controller.log("网分扫描完成", "INFO")
             )
         
-        # 连接数据分析面板的信号 - 这里特别重要！
+        # 连接ADC采样面板的信号到日志
+        adc_controller = self.sub_controllers.get('adc_sampling')
+        if adc_controller and hasattr(adc_controller, 'errorOccurred'):
+            adc_controller.errorOccurred.connect(
+                lambda msg: self.log_controller.log(f"ADC错误: {msg}", "ERROR")
+            )
+        
+        if adc_controller and hasattr(adc_controller, 'dataLoaded'):
+            adc_controller.dataLoaded.connect(
+                lambda msg: self.log_controller.log(f"ADC: {msg}", "INFO")
+            )
+        
+        if adc_controller and hasattr(adc_controller, 'adcStatusChanged'):
+            adc_controller.adcStatusChanged.connect(
+                lambda connected, msg: self.log_controller.log(f"ADC连接状态: {msg}", "INFO" if connected else "WARNING")
+            )
+        
+        # 连接数据分析面板的信号
         data_analysis_controller = self.sub_controllers.get('data_analysis')
         if data_analysis_controller and hasattr(data_analysis_controller, 'dataLoaded'):
             data_analysis_controller.dataLoaded.connect(
