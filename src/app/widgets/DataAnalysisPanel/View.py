@@ -45,8 +45,8 @@ class DataAnalysisView(QWidget):
         connect_layout.addWidget(QLabel("端口:"))
         self.adc_port_edit = QLineEdit("15000")
         self.adc_port_edit.setValidator(QIntValidator(0, 32768))
-        self.adc_port_edit.setMinimumWidth(60)  # 减小端口输入框宽度
-        self.adc_port_edit.setMaximumWidth(80)
+        self.adc_port_edit.setMinimumWidth(100)  # 减小端口输入框宽度
+        self.adc_port_edit.setMaximumWidth(120)
         connect_layout.addWidget(self.adc_port_edit)
         adc_layout.addLayout(connect_layout)
         
@@ -343,13 +343,6 @@ class DataAnalysisView(QWidget):
         # 选项
         options_layout = QHBoxLayout()
         options_layout.setSpacing(4)
-        self.adc_recursive_check = QCheckBox("递归")
-        self.adc_recursive_check.setChecked(True)
-        options_layout.addWidget(self.adc_recursive_check)
-        
-        self.adc_signed_check = QCheckBox("18bit")
-        self.adc_signed_check.setChecked(True)
-        options_layout.addWidget(self.adc_signed_check)
 
         # 添加SearchMethod下拉框
         options_layout.addWidget(QLabel("Mode:"))
@@ -357,7 +350,6 @@ class DataAnalysisView(QWidget):
         self.search_method_combo.addItem("Raise", 1)
         self.search_method_combo.addItem("MAX", 2)
         self.search_method_combo.setCurrentIndex(0)
-        self.search_method_combo.setMaximumWidth(80)
         options_layout.addWidget(self.search_method_combo)
         
         layout.addLayout(options_layout)

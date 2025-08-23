@@ -473,8 +473,8 @@ class DataAnalysisController(QObject):
             config.trigger_freq = self.view.adc_trigger_freq.value()
             config.roi_start_tenths = self.view.adc_roi_start.value()
             config.roi_end_tenths = self.view.adc_roi_end.value()
-            config.recursive = self.view.adc_recursive_check.isChecked()
-            config.use_signed18 = self.view.adc_signed_check.isChecked()
+            config.recursive = True
+            config.use_signed18 = True
             
             # 新增：获取SearchMethod的值
             config.search_method = self.view.search_method_combo.currentData()

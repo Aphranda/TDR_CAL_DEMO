@@ -36,12 +36,15 @@ venv/
 .idea/
 .Python
 output/
+data/
 
 # 临时文件
 *.bak
 *.tmp
 *.swp
 *.swo
+*.csv
+
 
 # 单元测试缓存
 htmlcov/
