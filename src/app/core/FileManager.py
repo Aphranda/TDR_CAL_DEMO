@@ -7,7 +7,6 @@ import pandas as pd
 import struct
 from datetime import datetime
 from pathlib import Path
-import h5py
 import logging
 
 logger = logging.getLogger(__name__)
@@ -20,16 +19,8 @@ class FileManager:
     def create_directory_structure(self):
         """创建数据目录结构"""
         directories = [
-            "raw/adc_samples",
-            "raw/calibration",
-            "processed/s_parameters",
-            "processed/tdr",
-            "processed/adc_analysis",
-            "calibration/s2p_files",
-            "calibration/coefficients",
-            "results/reports",
+            "calibration",
             "results/plots",
-            "results/exports",
             "results/test"  # 新增默认输出目录
         ]
         
@@ -45,15 +36,6 @@ class FileManager:
             os.makedirs(directory)
             logger.info(f"创建目录: {directory}")
         return directory
-    
-    def get_today_raw_data_path(self, channel: int = None) -> Path:
-        """获取今天的原始数据目录路径"""
-        today = datetime.now().strftime("%Y-%m-%d")
-        path = self.base_data_path / "raw" / "adc_samples" / today
-        if channel is not None:
-            path = path / f"channel{channel}"
-        path.mkdir(parents=True, exist_ok=True)
-        return path
     
     def save_adc_csv_data(self, data, filename, output_dir, include_timestamp=True):
         """保存ADC数据到CSV文件"""
@@ -206,44 +188,4 @@ class FileManager:
         logger.info(f"找到 {len(files)} 个CSV文件")
         return files
     
-    def save_adc_raw_data_h5(self, data: np.ndarray, metadata: dict, 
-                           channel: int = 1, prefix: str = "adc_sample") -> str:
-        """保存ADC原始数据到HDF5文件"""
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"{prefix}_{timestamp}_ch{channel}.h5"
-        filepath = self.get_today_raw_data_path(channel) / filename
-        
-        with h5py.File(filepath, 'w') as f:
-            # 保存原始数据
-            f.create_dataset('raw_data', data=data)
-            
-            # 保存元数据
-            metadata_group = f.create_group('metadata')
-            metadata['acquisition_time'] = datetime.now().isoformat()
-            metadata['data_points'] = len(data)
-            metadata['data_type'] = 'uint32'
-            
-            for key, value in metadata.items():
-                if isinstance(value, (str, int, float, bool)):
-                    metadata_group.attrs[key] = value
-                elif isinstance(value, dict):
-                    metadata_group.attrs[key] = json.dumps(value)
-        
-        return str(filepath)
     
-    def load_adc_data_h5(self, filepath: str) -> tuple:
-        """从HDF5文件加载ADC数据"""
-        with h5py.File(filepath, 'r') as f:
-            # 加载数据
-            data = f['adc_data'][:]
-            
-            # 加载元数据
-            metadata = {}
-            for key, value in f['metadata'].attrs.items():
-                try:
-                    # 尝试解析JSON字符串
-                    metadata[key] = json.loads(value)
-                except (json.JSONDecodeError, TypeError):
-                    metadata[key] = value
-        
-        return data, metadata

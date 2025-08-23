@@ -2,6 +2,8 @@
 from enum import Enum
 from dataclasses import dataclass
 from typing import List
+import os
+import datetime
 
 class CalibrationType(Enum):
     SOLT = "SOLT(Short-Open-Load-Thru)"
@@ -11,7 +13,7 @@ class PortConfig(Enum):
     SINGLE = "单端口(1)"
     DUAL = "双端口(1-2)"
 
-class CalibrationKitType(Enum):  # 新增：校准件类型
+class CalibrationKitType(Enum):
     ELECTRONIC = "电子校准件"
     MECHANICAL = "机械校准件"
 
@@ -19,7 +21,7 @@ class CalibrationKitType(Enum):  # 新增：校准件类型
 class CalibrationParameters:
     cal_type: CalibrationType = CalibrationType.SOLT
     port_config: PortConfig = PortConfig.SINGLE
-    kit_type: CalibrationKitType = CalibrationKitType.MECHANICAL  # 新增：校准件类型
+    kit_type: CalibrationKitType = CalibrationKitType.MECHANICAL
     start_freq: float = 1000.0  # MHz
     stop_freq: float = 35000.0   # MHz
     step_freq: float = 100.0    # MHz
@@ -31,6 +33,7 @@ class CalibrationModel:
         self.params = CalibrationParameters()
         self.steps = []
         self.progress = 0
+        self.base_calibration_path = None
         
     def generate_calibration_steps(self):
         """改进的校准步骤生成"""
@@ -71,8 +74,85 @@ class CalibrationModel:
         
         return self.steps
 
+    def create_calibration_folders(self):
+        """创建校准文件夹结构，每个测量步骤下包含Raw_ADC_Data和Processed_Data子文件夹"""
+        # 确保data/calibration目录存在
+        calibration_base_dir = os.path.join("data", "calibration")
+        os.makedirs(calibration_base_dir, exist_ok=True)
+        
+        # 创建基础校准目录
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        cal_type = "SOLT" if self.params.cal_type == CalibrationType.SOLT else "TRL"
+        port_config = "SinglePort" if self.params.port_config == PortConfig.SINGLE else "DualPort"
+        
+        base_dir_name = f"Calibration_{cal_type}_{port_config}_{timestamp}"
+        self.base_calibration_path = os.path.join(calibration_base_dir, base_dir_name)
+        
+        # 创建基础目录
+        os.makedirs(self.base_calibration_path, exist_ok=True)
+        
+        # 根据校准类型创建子文件夹
+        if self.params.cal_type == CalibrationType.SOLT:
+            if self.params.port_config == PortConfig.SINGLE:
+                measurement_folders = [
+                    "Short_Port1",
+                    "Open_Port1", 
+                    "Load_Port1"
+                ]
+                analysis_folders = [
+                    "ErrorCoefficients",
+                    "Verification"
+                ]
+            else:  # DUAL port
+                measurement_folders = [
+                    "Short_Port1",
+                    "Open_Port1",
+                    "Load_Port1",
+                    "Short_Port2",
+                    "Open_Port2",
+                    "Load_Port2",
+                    "Thru"
+                ]
+                analysis_folders = [
+                    "ErrorCoefficients",
+                    "Verification"
+                ]
+        else:  # TRL calibration
+            measurement_folders = [
+                "Thru",
+                "Reflect_Port1",
+                "Reflect_Port2",
+                "Line"
+            ]
+            analysis_folders = [
+                "ErrorCoefficients",
+                "Verification"
+            ]
+        
+        # 为每个测量文件夹创建Raw_ADC_Data和Processed_Data子文件夹
+        for folder in measurement_folders:
+            folder_path = os.path.join(self.base_calibration_path, folder)
+            os.makedirs(folder_path, exist_ok=True)
+            
+            # 创建数据子文件夹
+            raw_data_path = os.path.join(folder_path, "Raw_ADC_Data")
+            processed_data_path = os.path.join(folder_path, "Processed_Data")
+            os.makedirs(raw_data_path, exist_ok=True)
+            os.makedirs(processed_data_path, exist_ok=True)
+        
+        # 创建分析和验证文件夹
+        for folder in analysis_folders:
+            folder_path = os.path.join(self.base_calibration_path, folder)
+            os.makedirs(folder_path, exist_ok=True)
+            
+        return self.base_calibration_path
+
     def simulate_calibration(self):
         """模拟校准过程"""
+        # 首先创建文件夹
+        base_path = self.create_calibration_folders()
+        print(f"校准文件夹已创建: {base_path}")
+        
         self.progress = 0
         total_steps = len(self.steps)
         
@@ -87,6 +167,6 @@ class CalibrationModel:
             # 如果是机械校准件且需要人工操作的步骤，发出提示信号
             if (self.params.kit_type == CalibrationKitType.MECHANICAL and 
                 ("连接" in step or "更换" in step or has_measurement)):
-                yield step, self.progress, True, has_measurement  # 第四个参数表示是否有测量字段
+                yield step, self.progress, True, has_measurement
             else:
                 yield step, self.progress, False, False
