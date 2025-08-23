@@ -17,7 +17,7 @@ class InstrumentPanelView(QWidget):
         main_layout.setSpacing(8)
 
         # 仪器连接配置组
-        config_group = QGroupBox("仪器连接配置")
+        config_group = QGroupBox("仪器控制")
         config_group.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         config_layout = QVBoxLayout()
         config_layout.setSpacing(10)
@@ -26,7 +26,7 @@ class InstrumentPanelView(QWidget):
         type_layout = QHBoxLayout()
         type_layout.addWidget(QLabel("仪器类型:"))
         self.instrumentCombo = QComboBox()
-        self.instrumentCombo.addItems(["VNA", "TDR", "ADC"])
+        self.instrumentCombo.addItems(["TDR", "VNA", "ADC"])
         self.instrumentCombo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         type_layout.addWidget(self.instrumentCombo)
         config_layout.addLayout(type_layout)

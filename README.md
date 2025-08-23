@@ -8,45 +8,6 @@ TDR_CAL_DEMO
 │  └─ 📄__init__.py
 ├─ 📁CSV_Data0818_testonly
 ├─ 📁data
-│  ├─ 📁calibration
-│  │  ├─ 📁coefficients
-│  │  └─ 📁s2p_files
-│  ├─ 📁processed
-│  │  ├─ 📁adc_analysis
-│  │  ├─ 📁s_parameters
-│  │  └─ 📁tdr
-│  ├─ 📁raw
-│  │  ├─ 📁adc_samples
-│  │  └─ 📁calibration
-│  │     ├─ 📄Sdd21.csv
-│  │     ├─ 📄Sdd21_diff_frequency_domain.csv
-│  │     ├─ 📄Sdd21_diff_time_domain.csv
-│  │     ├─ 📄Sdd21_frequency_domain.csv
-│  │     └─ 📄Sdd21_time_domain.csv
-│  └─ 📁results
-│     ├─ 📁exports
-│     ├─ 📁plots
-│     │  ├─ 📄Sdd21.csv
-│     │  ├─ 📄Sdd21_diff_frequency_domain.csv
-│     │  ├─ 📄Sdd21_diff_frequency_domain.png
-│     │  ├─ 📄Sdd21_diff_time_domain.csv
-│     │  ├─ 📄Sdd21_diff_time_domain.png
-│     │  ├─ 📄Sdd21_frequency_domain.csv
-│     │  ├─ 📄Sdd21_frequency_domain.png
-│     │  ├─ 📄Sdd21_time_domain.csv
-│     │  └─ 📄Sdd21_time_domain.png
-│     ├─ 📁reports
-│     └─ 📁test
-│        ├─ 📄adc_data_0001.csv
-│        ├─ 📄adc_data_0002.csv
-│        ├─ 📄adc_data_0003.csv
-│        ├─ 📄adc_data_0004.csv
-│        ├─ 📄adc_data_0005.csv
-│        ├─ 📄adc_data_0006.csv
-│        ├─ 📄adc_data_0007.csv
-│        ├─ 📄adc_data_0008.csv
-│        ├─ 📄adc_data_0009.csv
-│        └─ 📄adc_data_0010.csv
 ├─ 📁docs
 │  ├─ 📄calibration_protocol.md
 │  ├─ 📄ODC网分设计.pptx
@@ -56,6 +17,7 @@ TDR_CAL_DEMO
 ├─ 📁logs
 ├─ 📁scripts
 │  ├─ 📄ADC_DataAnalyze.py
+│  ├─ 📄Doicon.py
 │  ├─ 📄project.py
 │  ├─ 📄S_paramCalibration.py
 │  ├─ 📄Testing.py
@@ -67,8 +29,8 @@ TDR_CAL_DEMO
 │  │  │  ├─ 📄ADCSample.py
 │  │  │  ├─ 📄DataAnalyze.py
 │  │  │  ├─ 📄FileManager.py
-│  │  │  ├─ 📄S_paramCalibration.py
 │  │  │  ├─ 📄TcpClient.py
+│  │  │  ├─ 📄VNACalibration.py
 │  │  │  └─ 📄__init__.py
 │  │  ├─ 📁dialogs
 │  │  │  ├─ 📁CalibrationWizard
@@ -139,6 +101,7 @@ TDR_CAL_DEMO
 │  ├─ 📁docs
 │  ├─ 📁resources
 │  │  ├─ 📁icon
+│  │  │  └─ 📄icon_TDR_01.ico
 │  │  ├─ 📁styles
 │  │  │  ├─ 📄style_bule.css
 │  │  │  └─ 📄style_bule.qss
@@ -153,7 +116,6 @@ TDR_CAL_DEMO
 │  │  └─ 📄__init__.py
 │  └─ 📄__init__.py
 ├─ 📄.gitignore
-├─ 📄Cable_S23.csv
 ├─ 📄generation_report.txt
 ├─ 📄README.md
 └─ 📄requirements.txt

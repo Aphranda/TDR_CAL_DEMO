@@ -1,7 +1,7 @@
 # src/app/windows/MainWindow/Model.py
 class MainWindowModel:
     def __init__(self):
-        self._window_title = "网络分析仪校准系统"
+        self._window_title = "TDR Analyzer Calibration System"
         self._window_size = (1200, 800)
         self.instrument_panel = None
         self.calibration_panel = None

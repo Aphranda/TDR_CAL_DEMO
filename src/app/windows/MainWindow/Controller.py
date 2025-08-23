@@ -5,38 +5,36 @@ from app.widgets.InstrumentPanel import create_instrument_panel
 from app.widgets.PlotWidget import create_plot_widget
 from app.widgets.VNAControlPanel import create_vna_control_panel
 from app.widgets.DataAnalysisPanel import create_data_analysis_panel
-
 class MainWindowController:
     def __init__(self, view, model):
         self.view = view
         self.model = model
-        self.sub_controllers = {}  # 存储所有子控制器的引用
+        self.sub_controllers = {}
         self._initialize()
         self.setup_connections()
     
     def _initialize(self):
         """初始化窗口内容"""
-        # 设置窗口基本属性
         self.view.setWindowTitle(self.model.window_title)
         
-        # 添加仪表连接面板
+        # 添加仪表连接面板到系统功能标签页
         instrument_panel, instrument_controller = create_instrument_panel()
         self.view.set_instrument_widget(instrument_panel)
         self.model.instrument_panel = instrument_panel
         self.sub_controllers['instrument'] = instrument_controller
         
-        # 添加校准面板
+        # 添加日志面板到系统功能标签页
+        log_widget, log_controller = create_log_widget()
+        self.view.set_log_widget(log_widget)
+        self.model.log_controller = log_controller
+        self.sub_controllers['log'] = log_controller
+        self.log_controller = log_controller
+        
+        # 添加校准面板到网分校准标签页
         calibration_panel, calibration_controller = create_calibration_panel()
         self.view.set_calibration_widget(calibration_panel)
         self.model.calibration_panel = calibration_panel
         self.sub_controllers['calibration'] = calibration_controller
-        
-        # 添加日志面板 - 现在在单独的标签页中
-        log_widget, log_controller = create_log_widget()
-        self.view.set_log_widget(log_widget)  # 这会添加到日志标签页
-        self.model.log_controller = log_controller
-        self.sub_controllers['log'] = log_controller
-        self.log_controller = log_controller
         
         # 添加网分控制面板
         vna_control_panel, vna_controller = create_vna_control_panel()
