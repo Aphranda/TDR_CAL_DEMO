@@ -14,9 +14,11 @@ class ADCWorker(QObject):
     sampleData = pyqtSignal(list)
     dataSaved = pyqtSignal(str, str)  # 数据保存信号 (文件路径, 消息)
     
-    def __init__(self, adc_sample, count, interval, save_raw_data=True, output_dir=None, filename_prefix=None):
+    def __init__(self, tcp_client, count, interval, save_raw_data=True, output_dir=None, filename_prefix=None):
         super().__init__()
-        self.adc_sample = adc_sample
+        # 使用传入的tcp_client实例化ADCSample
+        self.adc_sample = ADCSample()
+        self.adc_sample.set_tcp_client(tcp_client)  # 设置TCP客户端
         self.count = count
         self.interval = interval
         self.save_raw_data = save_raw_data
@@ -88,7 +90,7 @@ class ADCSamplingController(QObject):
         super().__init__()
         self.view = view
         self.model = model
-        self.adc_sample = ADCSample()  # 初始化为空ADCSample实例
+        self.tcp_client = None  # 存储TCP客户端引用
         self.adc_worker = None
         self.adc_thread = None
         self.main_window_controller = None
@@ -112,12 +114,13 @@ class ADCSamplingController(QObject):
     def set_instrument_connected(self, connected, instrument_controller):
         """设置仪器连接状态，由主窗口调用"""
         if connected and instrument_controller and instrument_controller.tcp_client:
-            # 使用主窗口传入的TcpClient实例
-            self.adc_sample.set_tcp_client(instrument_controller.tcp_client)
+            # 保存TCP客户端引用，供ADCWorker使用
+            self.tcp_client = instrument_controller.tcp_client
             self.model.set_adc_connection_status(True)
             self.adcStatusChanged.emit(True, "使用主窗口仪表连接")
             self.log_message("ADC采样使用主窗口仪表连接", "INFO")
         else:
+            self.tcp_client = None
             self.model.set_adc_connection_status(False)
             self.adcStatusChanged.emit(False, "仪表未连接")
             self.log_message("仪表未连接，无法进行ADC采样", "WARNING")
@@ -132,7 +135,7 @@ class ADCSamplingController(QObject):
     
     def on_sample_adc(self):
         """开始ADC采样"""
-        if not self.model.adc_connected:
+        if not self.model.adc_connected or not self.tcp_client:
             error_msg = "仪表未连接，请先连接仪表"
             self.errorOccurred.emit(error_msg)
             self.log_message(error_msg, "WARNING")
@@ -152,9 +155,9 @@ class ADCSamplingController(QObject):
         self.model.output_dir = output_dir
         self.model.filename_prefix = filename_prefix
         
-        # 创建工作线程
+        # 创建工作线程，传入TCP客户端
         self.adc_thread = QThread()
-        self.adc_worker = ADCWorker(self.adc_sample, count, interval, save_raw_data, output_dir, filename_prefix)
+        self.adc_worker = ADCWorker(self.tcp_client, count, interval, save_raw_data, output_dir, filename_prefix)
         self.adc_worker.moveToThread(self.adc_thread)
         
         # 连接信号
