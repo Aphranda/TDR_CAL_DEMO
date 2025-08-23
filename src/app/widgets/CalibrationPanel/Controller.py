@@ -2,6 +2,9 @@
 from PyQt5.QtCore import QObject, pyqtSignal, QThread, QEventLoop, QMutex, QWaitCondition
 from PyQt5.QtWidgets import QMessageBox
 from .Model import CalibrationModel, CalibrationType, PortConfig, CalibrationKitType
+import os
+import numpy as np
+import glob
 
 class CalibrationWorker(QThread):
     progress_updated = pyqtSignal(str, int, bool, bool)  # 修改：添加第三个参数表示是否需要用户确认
@@ -23,15 +26,128 @@ class CalibrationWorker(QThread):
         self._is_running = True
         self.log_message.emit("开始校准流程", "INFO")
         
-        for step, progress, needs_confirmation, has_measurement in self.model.simulate_calibration():
+        # 获取ADC采样和数据分析控制器
+        adc_controller = self.controller.get_adc_controller()
+        data_analysis_controller = self.controller.get_data_analysis_controller()
+        
+        # 获取主窗口控制器
+        main_controller = self.controller.get_main_window_controller()
+        
+        # 创建校准文件夹
+        base_path = self.model.create_calibration_folders()
+        self.log_message.emit(f"校准文件夹已创建: {base_path}", "INFO")
+        
+        # 获取校准步骤
+        steps = self.model.generate_calibration_steps()
+        total_steps = len(steps)
+        
+        for i, step in enumerate(steps):
             if not self._is_running:
                 self.log_message.emit("校准被用户中断", "WARNING")
                 break
             
-            self.progress_updated.emit(step, progress, needs_confirmation, has_measurement)
+            progress = int((i + 1) / total_steps * 100)
+            
+            # 判断是否有测量字段
+            has_measurement = "测量" in step
+            
+            # 更新进度
+            self.progress_updated.emit(step, progress, False, has_measurement)
             self.log_message.emit(f"执行步骤: {step}", "INFO")
             
+            # 如果是测量步骤，执行ADC采样和数据分析
+            if has_measurement and self._is_running:
+                # 获取当前步骤对应的文件夹
+                folder_name = self.model.get_folder_name_from_step(step)
+                folder_path = os.path.join(base_path, folder_name)
+                
+                raw_data_dir = os.path.join(folder_path, "Raw_ADC_Data")
+                processed_data_dir = os.path.join(folder_path, "Processed_Data")
+                
+                # 确保目录存在
+                os.makedirs(raw_data_dir, exist_ok=True)
+                os.makedirs(processed_data_dir, exist_ok=True)
+                
+                # 设置ADC采样参数
+                adc_controller.view.output_dir_edit.setText(raw_data_dir)
+                adc_controller.view.filename_edit.setText(f"step_{i+1}_{folder_name}")
+                # adc_controller.view.sample_count_spin.setValue(10)  # 多次采样
+                # adc_controller.view.sample_interval_spin.setValue(0.1)  # 短间隔
+                
+                # 执行ADC采样
+                self.log_message.emit(f"开始ADC采样: {step}", "INFO")
+                adc_controller.on_sample_adc()
+                
+                # 等待采样完成
+                loop = QEventLoop()
+                adc_controller.dataLoaded.connect(loop.quit)
+                adc_controller.errorOccurred.connect(loop.quit)
+                loop.exec_()
+                
+                # 检查是否采样成功
+                if not adc_controller.model.adc_samples:
+                    self.log_message.emit(f"ADC采样失败: {step}", "ERROR")
+                    continue
+                
+                # 获取当前文件夹中的所有数据文件
+                data_files = glob.glob(os.path.join(raw_data_dir, "*.csv"))
+                if not data_files:
+                    self.log_message.emit(f"未找到数据文件: {raw_data_dir}", "ERROR")
+                    continue
+                
+                # 设置数据分析参数
+                data_analysis_controller.model.data_files = data_files  # 传入文件列表
+                data_analysis_controller.view.file_list.clear()
+                
+                # 添加文件到列表视图
+                for file_path in data_files:
+                    data_analysis_controller.view.file_list.addItem(os.path.basename(file_path))
+                
+                # 执行数据分析
+                self.log_message.emit(f"开始数据分析: {step}", "INFO")
+                data_analysis_controller.on_analyze()
+                
+                # 等待分析完成
+                loop2 = QEventLoop()
+                data_analysis_controller.analysisCompleted.connect(loop2.quit)
+                data_analysis_controller.errorOccurred.connect(loop2.quit)
+                loop2.exec_()
+                
+                # 保存分析结果
+                if data_analysis_controller.model.results:
+                    # 保存处理后的数据
+                    processed_filename = f"step_{i+1}_{folder_name}_processed.csv"
+                    processed_filepath = os.path.join(processed_data_dir, processed_filename)
+                    
+                    # 这里应该根据实际分析结果保存数据
+                    # 简化处理：保存分析结果的统计信息
+                    with open(processed_filepath, 'w') as f:
+                        f.write("Analysis Results\n")
+                        f.write("=" * 50 + "\n")
+                        for key, value in data_analysis_controller.model.results.items():
+                            f.write(f"{key}: {value}\n")
+                    
+                    self.log_message.emit(f"分析结果已保存: {processed_filename}", "INFO")
+                # 替换为：
+                # 保存分析结果
+                if data_analysis_controller.model.results:
+                    # 保存处理后的数据
+                    processed_filename = f"step_{i+1}_{folder_name}_processed"
+                    processed_filepath = os.path.join(processed_data_dir, processed_filename)
+                    
+                    # 使用数据分析控制器的导出函数保存数据
+                    try:
+                        # 导出CSV结果
+                        data_analysis_controller.export_csv_results(processed_filepath + ".csv")
+                        data_analysis_controller.export_plots(processed_filepath)
+                        self.log_message.emit(f"分析结果已保存: {processed_filename}*.csv", "INFO")
+                    except Exception as e:
+                        self.log_message.emit(f"保存分析结果失败: {str(e)}", "ERROR")
+            
             # 如果需要用户确认，等待用户响应
+            needs_confirmation = (self.model.params.kit_type == CalibrationKitType.MECHANICAL and 
+                                ("连接" in step or "更换" in step or has_measurement))
+            
             if needs_confirmation and self._is_running:
                 self.log_message.emit(f"等待用户确认: {step}", "INFO")
                 # 通过控制器请求用户确认
@@ -78,6 +194,7 @@ class CalibrationWorker(QThread):
         self._is_running = False
         self.wake_up_confirmation(False)  # 唤醒等待的确认
 
+
 class CalibrationController(QObject):
     log_message = pyqtSignal(str, str)
     user_confirmation_requested = pyqtSignal(str, bool)  # 修改：添加第二个参数表示是否有测量字段
@@ -89,6 +206,9 @@ class CalibrationController(QObject):
         self.view = view
         self.model = model
         self.worker = None
+        self.main_window_controller = None
+        self.adc_controller = None
+        self.data_analysis_controller = None
         
         # 连接信号槽
         self.connect_signals()
@@ -228,7 +348,7 @@ class CalibrationController(QObject):
             self.worker.wait()
         self.view.set_calibration_running(False)
         
-    def on_progress_updated(self, step, progress, needs_confirmation):
+    def on_progress_updated(self, step, progress, needs_confirmation, has_measurement):
         """更新进度"""
         # 计算当前步骤索引
         current_step_index = -1
@@ -323,3 +443,27 @@ class CalibrationController(QObject):
         except (ValueError, KeyError) as e:
             self.log_message.emit(f"设置校准参数失败: {str(e)}", "ERROR")
             return False
+
+    def set_main_window_controller(self, main_window_controller):
+        """设置主窗口控制器引用"""
+        self.main_window_controller = main_window_controller
+        
+    def set_adc_controller(self, adc_controller):
+        """设置ADC控制器引用"""
+        self.adc_controller = adc_controller
+        
+    def set_data_analysis_controller(self, data_analysis_controller):
+        """设置数据分析控制器引用"""
+        self.data_analysis_controller = data_analysis_controller
+        
+    def get_adc_controller(self):
+        """获取ADC控制器"""
+        return self.adc_controller
+        
+    def get_data_analysis_controller(self):
+        """获取数据分析控制器"""
+        return self.data_analysis_controller
+        
+    def get_main_window_controller(self):
+        """获取主窗口控制器"""
+        return self.main_window_controller

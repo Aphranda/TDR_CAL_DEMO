@@ -69,6 +69,11 @@ class MainWindowController:
         data_analysis_controller.set_main_window_controller(self)
         adc_controller.set_main_window_controller(self)
         
+        # 设置校准控制器的引用
+        calibration_controller.set_main_window_controller(self)
+        calibration_controller.set_adc_controller(adc_controller)
+        calibration_controller.set_data_analysis_controller(data_analysis_controller)
+        
         # 通知ADC采样面板仪表连接状态
         adc_controller.set_instrument_connected(False, None)
         
@@ -87,6 +92,7 @@ class MainWindowController:
         # 初始状态消息
         self.view.show_status_message("就绪", 3000)
         self.log_controller.log("应用程序初始化完成", "INFO")
+    
     
     def setup_connections(self):
         """设置信号槽连接"""

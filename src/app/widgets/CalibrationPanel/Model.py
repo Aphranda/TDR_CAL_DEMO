@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import List
 import os
 import datetime
+import numpy as np
 
 class CalibrationType(Enum):
     SOLT = "SOLT(Short-Open-Load-Thru)"
@@ -144,8 +145,34 @@ class CalibrationModel:
         for folder in analysis_folders:
             folder_path = os.path.join(self.base_calibration_path, folder)
             os.makedirs(folder_path, exist_ok=True)
-            
+        
+        # 返回基础路径
         return self.base_calibration_path
+
+    def get_folder_name_from_step(self, step):
+        """根据步骤描述获取文件夹名称"""
+        if "短路" in step:
+            base = "Short"
+        elif "开路" in step:
+            base = "Open"
+        elif "负载" in step:
+            base = "Load"
+        elif "直通" in step:
+            return "Thru"
+        elif "反射" in step:
+            base = "Reflect"
+        elif "延迟线" in step:
+            return "Line"
+        else:
+            return "Unknown"
+
+        # 检查端口
+        if "端口1" in step:
+            return f"{base}_Port1"
+        elif "端口2" in step:
+            return f"{base}_Port2"
+        else:
+            return base
 
     def simulate_calibration(self):
         """模拟校准过程"""
@@ -163,6 +190,35 @@ class CalibrationModel:
             
             # 判断是否有测量字段
             has_measurement = "测量" in step
+            
+            # 如果是测量步骤，生成并保存模拟数据
+            if has_measurement and base_path:
+                folder_name = self.get_folder_name_from_step(step)
+                folder_path = os.path.join(base_path, folder_name)
+                
+                raw_data_dir = os.path.join(folder_path, "Raw_ADC_Data")
+                processed_data_dir = os.path.join(folder_path, "Processed_Data")
+                
+                # 确保目录存在
+                os.makedirs(raw_data_dir, exist_ok=True)
+                os.makedirs(processed_data_dir, exist_ok=True)
+                
+                # 生成模拟数据
+                raw_data = np.random.randint(0, 2**19, 1024, dtype=np.uint32)  # 19位ADC
+                
+                # 保存原始数据
+                raw_filename = f"step_{i+1}_{folder_name}.csv"
+                raw_filepath = os.path.join(raw_data_dir, raw_filename)
+                np.savetxt(raw_filepath, raw_data, delimiter=',', fmt='%u')
+                
+                # 模拟数据处理：计算FFT
+                processed_data = np.fft.fft(raw_data.astype(np.float64))
+                mag = np.abs(processed_data)
+                
+                # 保存处理后的数据
+                processed_filename = f"step_{i+1}_{folder_name}_fft_mag.csv"
+                processed_filepath = os.path.join(processed_data_dir, processed_filename)
+                np.savetxt(processed_filepath, mag, delimiter=',')
             
             # 如果是机械校准件且需要人工操作的步骤，发出提示信号
             if (self.params.kit_type == CalibrationKitType.MECHANICAL and 
