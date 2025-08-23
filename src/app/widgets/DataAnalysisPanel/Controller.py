@@ -244,9 +244,6 @@ class DataAnalysisController(QObject):
         self.adcStatusChanged.connect(self.view.update_adc_connection_status)
         self.samplingProgress.connect(self.view.update_sampling_progress)
         
-        # 删除以下连接，因为View中的对应方法已被删除
-        # self.dataLoaded.connect(self.view.append_result_text)
-        # self.analysisCompleted.connect(self.view.display_analysis_results)
         
         self.errorOccurred.connect(lambda msg: self.log_message(msg, "ERROR"))
         self.dataSaved.connect(lambda path, msg: self.log_message(f"{msg}: {path}", "INFO"))

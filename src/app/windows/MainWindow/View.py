@@ -42,6 +42,13 @@ class MainWindowView(QMainWindow):
         self.right_tab_widget.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
         
         # 创建四个标签页
+        # 系统标签页
+        self.sys_tab = QWidget()
+        self.sys_layout = QVBoxLayout()
+        self.sys_layout.setContentsMargins(5, 5, 5, 5)
+        self.sys_tab.setLayout(self.sys_layout)
+        self.right_tab_widget.addTab(self.sys_tab, "系统功能")
+        
         # 网分校准标签页（包含仪表连接、校准）
         self.calibration_tab = QWidget()
         self.calibration_tab_layout = QVBoxLayout()
@@ -63,12 +70,7 @@ class MainWindowView(QMainWindow):
         self.data_analysis_tab.setLayout(self.data_analysis_layout)
         self.right_tab_widget.addTab(self.data_analysis_tab, "数据分析")
         
-        # 日志标签页
-        self.log_tab = QWidget()
-        self.log_layout = QVBoxLayout()
-        self.log_layout.setContentsMargins(5, 5, 5, 5)
-        self.log_tab.setLayout(self.log_layout)
-        self.right_tab_widget.addTab(self.log_tab, "日志")
+
         
         splitter.addWidget(self.right_tab_widget)
         
@@ -117,7 +119,7 @@ class MainWindowView(QMainWindow):
     def set_log_widget(self, widget):
         """设置日志区域（在日志标签页中）"""
         widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        self.log_layout.addWidget(widget)
+        self.sys_layout.addWidget(widget)
     
     def set_vna_control_widget(self, widget):
         """设置网分控制区域"""

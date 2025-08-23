@@ -46,28 +46,17 @@ class InstrumentPanelView(QWidget):
         connect_layout.addWidget(self.portEdit)
         config_layout.addLayout(connect_layout)
         
-        # 连接按钮和状态
+        # 连接按钮和断开按钮 - 参考数据分析界面的样式
         button_layout = QHBoxLayout()
         self.connectButton = QPushButton("连接仪器")
         self.connectButton.setMinimumHeight(32)
+        self.disconnectButton = QPushButton("断开连接")
+        self.disconnectButton.setMinimumHeight(32)
+        self.disconnectButton.setEnabled(False)  # 初始状态禁用断开按钮
+        
         button_layout.addWidget(self.connectButton)
+        button_layout.addWidget(self.disconnectButton)
         
-        # 状态指示灯
-        self.statusIndicator = QLabel("●")
-        self.statusIndicator.setAlignment(Qt.AlignCenter)
-        self.statusIndicator.setStyleSheet("""
-            font-size: 16px;
-            font-weight: bold;
-            color: red;
-            padding: 2px 6px;
-        """)
-        button_layout.addWidget(self.statusIndicator)
-        
-        self.statusLabel = QLabel("未连接")
-        self.statusLabel.setStyleSheet("color: gray; font-size: 11px;")
-        button_layout.addWidget(self.statusLabel)
-        
-        button_layout.addStretch()
         config_layout.addLayout(button_layout)
         
         config_group.setLayout(config_layout)
@@ -81,30 +70,25 @@ class InstrumentPanelView(QWidget):
     def update_connection_status(self, connected, instrument_info=None):
         """更新连接状态显示"""
         if connected:
-            self.connectButton.setText("断开连接")
-            self.statusIndicator.setStyleSheet("""
-                font-size: 16px;
-                font-weight: bold;
-                color: green;
-                padding: 2px 6px;
-            """)
-            self.statusLabel.setText("已连接")
-            self.statusLabel.setStyleSheet("color: green; font-size: 11px;")
+            self.connectButton.setEnabled(False)  # 连接后禁用连接按钮
+            self.disconnectButton.setEnabled(True)  # 启用断开按钮
+            self.connectButton.setText("已连接")
+            self.disconnectButton.setText("断开连接")
             
-            # 不再显示仪器信息，将通过系统日志输出
-            if instrument_info:
-                # 仪器信息将通过日志系统输出，而不是在界面上显示
-                pass
+            # 连接后禁用输入框，防止修改
+            self.ipEdit.setEnabled(False)
+            self.portEdit.setEnabled(False)
+            self.instrumentCombo.setEnabled(False)
         else:
+            self.connectButton.setEnabled(True)  # 断开后启用连接按钮
+            self.disconnectButton.setEnabled(False)  # 禁用断开按钮
             self.connectButton.setText("连接仪器")
-            self.statusIndicator.setStyleSheet("""
-                font-size: 16px;
-                font-weight: bold;
-                color: red;
-                padding: 2px 6px;
-            """)
-            self.statusLabel.setText("未连接")
-            self.statusLabel.setStyleSheet("color: gray; font-size: 11px;")
+            self.disconnectButton.setText("断开连接")
+            
+            # 断开后启用输入框，允许修改
+            self.ipEdit.setEnabled(True)
+            self.portEdit.setEnabled(True)
+            self.instrumentCombo.setEnabled(True)
     
     def get_connection_info(self):
         """获取连接信息"""

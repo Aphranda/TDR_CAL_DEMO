@@ -3,7 +3,7 @@ from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, 
     QPushButton, QLabel, QComboBox, QProgressBar, QLineEdit,
     QFrame, QSizePolicy, QScrollArea, QGridLayout, QFormLayout,
-    QMessageBox,QApplication  # 新增：用于显示提示框
+    QMessageBox,QDialog,QApplication  # 新增：用于显示提示框
 )
 from PyQt5.QtCore import Qt, pyqtSignal,QTimer
 from PyQt5.QtGui import QPainter, QColor, QPen, QFont
@@ -227,10 +227,14 @@ class CalibrationView(QWidget):
     calibration_started = pyqtSignal()
     calibration_stopped = pyqtSignal()
     user_confirmation_needed = pyqtSignal(str)  # 新增：需要用户确认的信号
+    retest_requested = pyqtSignal()  # 新增：重测请求信号
+    retest_finished = pyqtSignal()  # 新增：重测完成信号
     
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setup_ui()
+        self.retest_button = None  # 存储重测按钮的引用
+        self.is_retesting = False  # 重测状态标志
         
     def setup_ui(self):
         main_layout = QVBoxLayout()
@@ -370,13 +374,73 @@ class CalibrationView(QWidget):
             self.progress_bar.setValue(0)
             self.flow_chart.update_steps(self.flow_chart.steps, -1)
     
-    def show_user_confirmation(self, step_description):
-        """显示用户确认对话框"""
-        reply = QMessageBox.question(
-            self, 
-            "请确认操作", 
-            f"请确认已完成: {step_description}\n\n完成后请点击'确定'继续",
-            QMessageBox.Ok | QMessageBox.Cancel,
-            QMessageBox.Ok
-        )
-        return reply == QMessageBox.Ok
+    def show_user_confirmation(self, step_description, has_measurement=False):
+        """显示用户确认对话框 - 修改：添加has_measurement参数"""
+        # 创建自定义对话框
+        self.confirmation_dialog = QDialog(self)  # 保存对话框引用
+        self.confirmation_dialog.setWindowTitle("请确认操作")
+        self.confirmation_dialog.setModal(True)
+        
+        layout = QVBoxLayout(self.confirmation_dialog)
+        
+        # 添加说明文本
+        label = QLabel(f"请确认已完成: {step_description}\n\n完成后请点击'确定'继续")
+        layout.addWidget(label)
+        
+        # 添加按钮
+        button_layout = QHBoxLayout()
+        ok_button = QPushButton("确定")
+        cancel_button = QPushButton("取消")
+        
+        button_layout.addWidget(ok_button)
+        button_layout.addWidget(cancel_button)
+        
+        # 如果有测量字段，添加重测按钮
+        if has_measurement:
+            self.retest_button = QPushButton("重测")
+            button_layout.addWidget(self.retest_button)
+            self.retest_button.clicked.connect(lambda: self.on_retest_clicked(step_description))
+            # 设置初始样式
+            self.update_retest_button_style()
+        
+        layout.addLayout(button_layout)
+        
+        # 连接按钮信号
+        ok_button.clicked.connect(lambda: self.confirmation_dialog.done(QDialog.Accepted))
+        cancel_button.clicked.connect(lambda: self.confirmation_dialog.done(QDialog.Rejected))
+        
+        # 连接重测完成信号
+        self.retest_finished.connect(self.on_retest_finished)
+        
+        # 显示对话框并等待响应
+        result = self.confirmation_dialog.exec_()
+        
+        # 清理对话框引用
+        self.confirmation_dialog = None
+        self.retest_button = None
+        self.is_retesting = False
+        
+        return result == QDialog.Accepted
+    
+    def on_retest_clicked(self, step_description):
+        """处理重测按钮点击"""
+        if not self.is_retesting:
+            self.is_retesting = True
+            self.update_retest_button_style()
+            # 发送重测信号
+            self.retest_requested.emit()
+    
+    def on_retest_finished(self):
+        """处理重测完成"""
+        self.is_retesting = False
+        self.update_retest_button_style()
+    
+    def update_retest_button_style(self):
+        """更新重测按钮样式"""
+        if self.retest_button:
+            if self.is_retesting:
+                self.retest_button.setText("正在重测")
+                self.retest_button.setEnabled(False)
+            else:
+                self.retest_button.setText("重测")
+                self.retest_button.setEnabled(True)

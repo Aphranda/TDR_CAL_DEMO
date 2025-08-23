@@ -81,9 +81,12 @@ class CalibrationModel:
             print(f"执行步骤: {step}")
             self.progress = int((i + 1) / total_steps * 100)
             
+            # 判断是否有测量字段
+            has_measurement = "测量" in step
+            
             # 如果是机械校准件且需要人工操作的步骤，发出提示信号
             if (self.params.kit_type == CalibrationKitType.MECHANICAL and 
-                ("连接" in step or "更换" in step)):
-                yield step, self.progress, True  # 第三个参数表示需要用户确认
+                ("连接" in step or "更换" in step or has_measurement)):
+                yield step, self.progress, True, has_measurement  # 第四个参数表示是否有测量字段
             else:
-                yield step, self.progress, False
+                yield step, self.progress, False, False

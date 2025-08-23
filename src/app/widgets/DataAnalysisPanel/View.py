@@ -28,11 +28,11 @@ class DataAnalysisView(QWidget):
         control_layout.setSpacing(8)  # 减小整体间距
         control_layout.setContentsMargins(4, 4, 4, 4)  # 减小控制面板边距
         
-        # ADC控制部分
-        adc_group = QGroupBox("ADC采样控制")
-        adc_layout = QVBoxLayout()
-        adc_layout.setSpacing(6)  # 减小组内间距
-        adc_layout.setContentsMargins(8, 12, 8, 12)  # 减小GroupBox内部边距
+        # 仪表控制部分 - 新增GroupBox
+        instrument_group = QGroupBox("仪表控制")
+        instrument_layout = QVBoxLayout()
+        instrument_layout.setSpacing(6)  # 减小组内间距
+        instrument_layout.setContentsMargins(8, 12, 8, 12)  # 减小GroupBox内部边距
         
         # 连接设置
         connect_layout = QHBoxLayout()
@@ -48,7 +48,7 @@ class DataAnalysisView(QWidget):
         self.adc_port_edit.setMinimumWidth(100)  # 减小端口输入框宽度
         self.adc_port_edit.setMaximumWidth(120)
         connect_layout.addWidget(self.adc_port_edit)
-        adc_layout.addLayout(connect_layout)
+        instrument_layout.addLayout(connect_layout)
         
         # 连接按钮
         button_layout = QHBoxLayout()
@@ -58,7 +58,16 @@ class DataAnalysisView(QWidget):
         self.disconnect_button.setEnabled(False)
         button_layout.addWidget(self.connect_button)
         button_layout.addWidget(self.disconnect_button)
-        adc_layout.addLayout(button_layout)
+        instrument_layout.addLayout(button_layout)
+        
+        instrument_group.setLayout(instrument_layout)
+        control_layout.addWidget(instrument_group)
+        
+        # ADC采样控制部分 - 修改后的GroupBox
+        adc_group = QGroupBox("ADC采样控制")
+        adc_layout = QVBoxLayout()
+        adc_layout.setSpacing(6)  # 减小组内间距
+        adc_layout.setContentsMargins(8, 12, 8, 12)  # 减小GroupBox内部边距
         
         # 采样设置
         sample_layout = QHBoxLayout()
@@ -77,7 +86,7 @@ class DataAnalysisView(QWidget):
         sample_layout.addWidget(self.sample_interval_spin)
         adc_layout.addLayout(sample_layout)
           
-        # 新增：文件名设置
+        # 文件名设置
         filename_layout = QHBoxLayout()
         filename_layout.setSpacing(4)
         filename_layout.addWidget(QLabel("文件名称:"))
@@ -86,7 +95,7 @@ class DataAnalysisView(QWidget):
         filename_layout.addWidget(self.filename_edit)
         adc_layout.addLayout(filename_layout)
 
-        # 新增：输出目录设置
+        # 输出目录设置
         output_dir_layout = QHBoxLayout()
         output_dir_layout.setSpacing(4)
         output_dir_layout.addWidget(QLabel("输出目录:"))
@@ -107,7 +116,7 @@ class DataAnalysisView(QWidget):
         adc_group.setLayout(adc_layout)
         control_layout.addWidget(adc_group)
         
-        # 数据文件选择 - 修改这个GroupBox
+        # 数据文件选择
         file_group = QGroupBox("数据分析")
         file_layout = QVBoxLayout()
         file_layout.setSpacing(6)  # 减小组内间距

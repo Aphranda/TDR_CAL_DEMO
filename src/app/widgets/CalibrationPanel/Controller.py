@@ -4,7 +4,7 @@ from PyQt5.QtWidgets import QMessageBox
 from .Model import CalibrationModel, CalibrationType, PortConfig, CalibrationKitType
 
 class CalibrationWorker(QThread):
-    progress_updated = pyqtSignal(str, int, bool)  # 修改：添加第三个参数表示是否需要用户确认
+    progress_updated = pyqtSignal(str, int, bool, bool)  # 修改：添加第三个参数表示是否需要用户确认
     finished = pyqtSignal()
     log_message = pyqtSignal(str, str)
     confirmation_result = pyqtSignal(bool)  # 新增：用户确认结果信号
@@ -23,19 +23,19 @@ class CalibrationWorker(QThread):
         self._is_running = True
         self.log_message.emit("开始校准流程", "INFO")
         
-        for step, progress, needs_confirmation in self.model.simulate_calibration():
+        for step, progress, needs_confirmation, has_measurement in self.model.simulate_calibration():
             if not self._is_running:
                 self.log_message.emit("校准被用户中断", "WARNING")
                 break
             
-            self.progress_updated.emit(step, progress, needs_confirmation)
+            self.progress_updated.emit(step, progress, needs_confirmation, has_measurement)
             self.log_message.emit(f"执行步骤: {step}", "INFO")
             
             # 如果需要用户确认，等待用户响应
             if needs_confirmation and self._is_running:
                 self.log_message.emit(f"等待用户确认: {step}", "INFO")
                 # 通过控制器请求用户确认
-                confirmed = self.request_user_confirmation(step)
+                confirmed = self.request_user_confirmation(step, has_measurement)
                 if not confirmed:
                     self.log_message.emit("用户取消了校准", "WARNING")
                     self._is_running = False
@@ -47,11 +47,7 @@ class CalibrationWorker(QThread):
             self.log_message.emit("校准流程完成", "INFO")
         self.finished.emit()
         
-    def stop(self):
-        self._is_running = False
-        self.wake_up_confirmation(False)  # 唤醒等待的确认
-        
-    def request_user_confirmation(self, step_description):
+    def request_user_confirmation(self, step_description, has_measurement):
         """请求用户确认（在工作线程中调用）"""
         # 重置确认状态
         self.confirmation_mutex.lock()
@@ -59,7 +55,7 @@ class CalibrationWorker(QThread):
         self.confirmation_mutex.unlock()
         
         # 在主线程中显示确认对话框
-        self.controller.user_confirmation_requested.emit(step_description)
+        self.controller.user_confirmation_requested.emit(step_description, has_measurement)
         
         # 等待用户响应
         self.confirmation_mutex.lock()
@@ -78,9 +74,15 @@ class CalibrationWorker(QThread):
         self.confirmation_condition.wakeAll()
         self.confirmation_mutex.unlock()
 
+    def stop(self):
+        self._is_running = False
+        self.wake_up_confirmation(False)  # 唤醒等待的确认
+
 class CalibrationController(QObject):
     log_message = pyqtSignal(str, str)
-    user_confirmation_requested = pyqtSignal(str)  # 请求用户确认的信号
+    user_confirmation_requested = pyqtSignal(str, bool)  # 修改：添加第二个参数表示是否有测量字段
+    retest_requested = pyqtSignal()  # 新增：重测请求信号
+    retest_finished = pyqtSignal()  # 新增：重测完成信号
     
     def __init__(self, view, model):
         super().__init__()
@@ -108,6 +110,11 @@ class CalibrationController(QObject):
         
         # 连接用户确认信号
         self.user_confirmation_requested.connect(self.handle_user_confirmation)
+
+        # 连接重测信号
+        self.view.retest_requested.connect(self.on_retest_requested)
+        self.retest_requested.connect(self.on_retest_requested)
+        self.retest_finished.connect(self.view.retest_finished)  # 连接重测完成信号
         
     def update_view_from_model(self):
         """从模型更新视图"""
@@ -238,9 +245,9 @@ class CalibrationController(QObject):
         self.view.reset_scroll_position()
         self.log_message.emit("校准流程完成", "INFO")
         
-    def handle_user_confirmation(self, step_description):
+    def handle_user_confirmation(self, step_description, has_measurement):
         """处理用户确认请求（在主线程中执行）"""
-        confirmed = self.view.show_user_confirmation(step_description)
+        confirmed = self.view.show_user_confirmation(step_description, has_measurement)
         
         if not confirmed:
             self.log_message.emit(f"用户取消了步骤: {step_description}", "WARNING")
@@ -258,6 +265,24 @@ class CalibrationController(QObject):
             self.log_message.emit("用户确认继续", "INFO")
         else:
             self.log_message.emit("用户取消操作", "WARNING")
+
+    def on_retest_requested(self):
+        """处理重测请求"""
+        self.log_message.emit("用户请求重测当前步骤", "INFO")
+        
+        # 模拟重测操作
+        if self.worker and self.worker.isRunning():
+            # 可以在这里添加重测逻辑，例如重新发送测量命令
+            self.log_message.emit("正在重测当前步骤...", "INFO")
+            
+            # 使用QTimer来模拟异步重测操作，避免阻塞UI
+            from PyQt5.QtCore import QTimer
+            QTimer.singleShot(2000, self.on_retest_completed)  # 2秒后完成重测
+
+    def on_retest_completed(self):
+        """重测完成"""
+        self.log_message.emit("重测完成", "INFO")
+        self.retest_finished.emit()  # 发送重测完成信号
         
     def get_calibration_parameters(self):
         """获取当前校准参数"""
