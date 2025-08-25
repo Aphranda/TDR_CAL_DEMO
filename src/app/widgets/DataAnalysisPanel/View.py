@@ -219,7 +219,8 @@ class DataAnalysisView(QWidget):
         self.adc_roi_start.setRange(0, 100)
         self.adc_roi_start.setValue(20)
         self.adc_roi_start.setSuffix(" %")
-        self.adc_roi_start.setMaximumWidth(60)
+        self.adc_roi_start.setMinimumWidth(100)
+        self.adc_roi_start.setMaximumWidth(120)
         roi_layout.addWidget(self.adc_roi_start)
         
         roi_layout.addWidget(QLabel("-"))
@@ -228,7 +229,8 @@ class DataAnalysisView(QWidget):
         self.adc_roi_end.setRange(0, 100)
         self.adc_roi_end.setValue(30)
         self.adc_roi_end.setSuffix(" %")
-        self.adc_roi_end.setMaximumWidth(60)
+        self.adc_roi_end.setMinimumWidth(100)
+        self.adc_roi_end.setMaximumWidth(120)
         roi_layout.addWidget(self.adc_roi_end)
         layout.addLayout(roi_layout)
         

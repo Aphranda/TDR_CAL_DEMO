@@ -5,7 +5,7 @@ from PyQt5.QtWidgets import (
     QFrame, QSizePolicy, QScrollArea, QGridLayout, QFormLayout,
     QMessageBox,QDialog,QApplication  # 新增：用于显示提示框
 )
-from PyQt5.QtCore import Qt, pyqtSignal,QTimer
+from PyQt5.QtCore import Qt, pyqtSignal,QTimer,QEventLoop
 from PyQt5.QtGui import QPainter, QColor, QPen, QFont
 
 
@@ -375,11 +375,14 @@ class CalibrationView(QWidget):
             self.flow_chart.update_steps(self.flow_chart.steps, -1)
     
     def show_user_confirmation(self, step_description, has_measurement=False):
-        """显示用户确认对话框 - 修改：添加has_measurement参数"""
+        """显示用户确认对话框 - 修改为使用非模态对话框"""
         # 创建自定义对话框
         self.confirmation_dialog = QDialog(self)  # 保存对话框引用
         self.confirmation_dialog.setWindowTitle("请确认操作")
-        self.confirmation_dialog.setModal(True)
+        self.confirmation_dialog.setModal(False)  # 修改为非模态对话框
+        self.confirmation_dialog.setWindowFlags(
+            self.confirmation_dialog.windowFlags() | Qt.WindowStaysOnTopHint
+        )  # 添加窗口置顶标志
         
         layout = QVBoxLayout(self.confirmation_dialog)
         
@@ -406,21 +409,38 @@ class CalibrationView(QWidget):
         layout.addLayout(button_layout)
         
         # 连接按钮信号
-        ok_button.clicked.connect(lambda: self.confirmation_dialog.done(QDialog.Accepted))
-        cancel_button.clicked.connect(lambda: self.confirmation_dialog.done(QDialog.Rejected))
+        ok_button.clicked.connect(self.on_confirmation_ok)
+        cancel_button.clicked.connect(self.on_confirmation_cancel)
         
         # 连接重测完成信号
         self.retest_finished.connect(self.on_retest_finished)
         
-        # 显示对话框并等待响应
-        result = self.confirmation_dialog.exec_()
+        # 显示对话框但不阻塞
+        self.confirmation_dialog.show()
         
-        # 清理对话框引用
-        self.confirmation_dialog = None
+        # 创建事件循环等待用户响应
+        self.confirmation_loop = QEventLoop()
+        return self.confirmation_loop.exec_() == QDialog.Accepted
+    
+    def on_confirmation_ok(self):
+        """处理确认确定按钮"""
+        if hasattr(self, 'confirmation_loop'):
+            self.confirmation_loop.exit(QDialog.Accepted)
+        if self.confirmation_dialog:
+            self.confirmation_dialog.deleteLater()
+            self.confirmation_dialog = None
         self.retest_button = None
         self.is_retesting = False
-        
-        return result == QDialog.Accepted
+    
+    def on_confirmation_cancel(self):
+        """处理确认取消按钮"""
+        if hasattr(self, 'confirmation_loop'):
+            self.confirmation_loop.exit(QDialog.Rejected)
+        if self.confirmation_dialog:
+            self.confirmation_dialog.deleteLater()
+            self.confirmation_dialog = None
+        self.retest_button = None
+        self.is_retesting = False
     
     def on_retest_clicked(self, step_description):
         """处理重测按钮点击"""
