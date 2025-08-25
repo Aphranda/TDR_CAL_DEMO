@@ -140,6 +140,18 @@ class CalibrationModel:
             processed_data_path = os.path.join(folder_path, "Processed_Data")
             os.makedirs(raw_data_path, exist_ok=True)
             os.makedirs(processed_data_path, exist_ok=True)
+            
+            # 如果是双端口直通测试，创建S参数文件夹
+            if folder == "Thru" and self.params.port_config == PortConfig.DUAL:
+                # 在Raw_ADC_Data中创建S参数文件夹
+                for s_param in ["S11", "S12", "S21", "S22"]:
+                    s_param_raw_path = os.path.join(raw_data_path, s_param)
+                    os.makedirs(s_param_raw_path, exist_ok=True)
+                
+                # 在Processed_Data中创建S参数文件夹
+                for s_param in ["S11", "S12", "S21", "S22"]:
+                    s_param_processed_path = os.path.join(processed_data_path, s_param)
+                    os.makedirs(s_param_processed_path, exist_ok=True)
         
         # 创建分析和验证文件夹
         for folder in analysis_folders:

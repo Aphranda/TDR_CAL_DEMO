@@ -139,7 +139,7 @@ class CalibrationWorker(QThread):
                     try:
                         # 导出CSV结果
                         data_analysis_controller.export_csv_results(processed_filepath + ".csv")
-                        data_analysis_controller.export_plots(processed_filepath)
+                        
                         self.log_message.emit(f"分析结果已保存: {processed_filename}*.csv", "INFO")
                     except Exception as e:
                         self.log_message.emit(f"保存分析结果失败: {str(e)}", "ERROR")
