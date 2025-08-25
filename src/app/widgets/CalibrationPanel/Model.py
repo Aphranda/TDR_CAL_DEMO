@@ -149,6 +149,7 @@ class CalibrationModel:
         # 返回基础路径
         return self.base_calibration_path
 
+    # 修改 get_folder_name_from_step 方法，添加更多步骤识别
     def get_folder_name_from_step(self, step):
         """根据步骤描述获取文件夹名称"""
         if "短路" in step:
@@ -163,6 +164,12 @@ class CalibrationModel:
             base = "Reflect"
         elif "延迟线" in step:
             return "Line"
+        elif "误差系数" in step:
+            return "ErrorCoefficients"
+        elif "验证" in step:
+            return "Verification"
+        elif "保存" in step:
+            return "SaveResults"
         else:
             return "Unknown"
 
@@ -173,6 +180,7 @@ class CalibrationModel:
             return f"{base}_Port2"
         else:
             return base
+
 
     def simulate_calibration(self):
         """模拟校准过程"""

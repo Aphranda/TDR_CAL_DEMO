@@ -374,10 +374,17 @@ class CalibrationView(QWidget):
             self.progress_bar.setValue(0)
             self.flow_chart.update_steps(self.flow_chart.steps, -1)
     
+    # 修改 show_user_confirmation 方法
     def show_user_confirmation(self, step_description, has_measurement=False):
         """显示用户确认对话框 - 修改为使用非模态对话框"""
+        # 获取应用程序的主窗口
+        from PyQt5.QtWidgets import QApplication
+        main_window = QApplication.activeWindow()
+        if main_window is None:
+            main_window = self.window()  # 如果获取不到活动窗口，则使用当前窗口的顶级窗口
+
         # 创建自定义对话框
-        self.confirmation_dialog = QDialog(self)  # 保存对话框引用
+        self.confirmation_dialog = QDialog(main_window)  # 使用主窗口作为父窗口
         self.confirmation_dialog.setWindowTitle("请确认操作")
         self.confirmation_dialog.setModal(False)  # 修改为非模态对话框
         self.confirmation_dialog.setWindowFlags(
@@ -421,6 +428,7 @@ class CalibrationView(QWidget):
         # 创建事件循环等待用户响应
         self.confirmation_loop = QEventLoop()
         return self.confirmation_loop.exec_() == QDialog.Accepted
+
     
     def on_confirmation_ok(self):
         """处理确认确定按钮"""

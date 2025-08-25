@@ -73,6 +73,7 @@ class MainWindowController:
         calibration_controller.set_main_window_controller(self)
         calibration_controller.set_adc_controller(adc_controller)
         calibration_controller.set_data_analysis_controller(data_analysis_controller)
+        self.model.calibration_controller = calibration_controller
         
         # 通知ADC采样面板仪表连接状态
         adc_controller.set_instrument_connected(False, None)

@@ -347,6 +347,9 @@ class CalibrationController(QObject):
             self.worker.stop()
             self.worker.wait()
         self.view.set_calibration_running(False)
+        # 关闭可能打开的确认对话框
+        if hasattr(self.view, 'confirmation_dialog') and self.view.confirmation_dialog:
+            self.view.confirmation_dialog.reject()
         
     def on_progress_updated(self, step, progress, needs_confirmation, has_measurement):
         """更新进度"""
@@ -365,8 +368,10 @@ class CalibrationController(QObject):
         self.view.reset_scroll_position()
         self.log_message.emit("校准流程完成", "INFO")
         
+    # 修改 handle_user_confirmation 方法
     def handle_user_confirmation(self, step_description, has_measurement):
         """处理用户确认请求（在主线程中执行）"""
+        # 确保在主线程中执行
         confirmed = self.view.show_user_confirmation(step_description, has_measurement)
         
         if not confirmed:

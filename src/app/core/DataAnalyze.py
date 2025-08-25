@@ -35,7 +35,7 @@ class AnalysisConfig:
     show_up_to_GHz: float = 50.0
     skip_first_value: bool = True
     edge_search_start: int = 1
-    diff_points: int = 9
+    diff_points: int = 10
     search_method: int = SearchMethod.RISING
     roi_start_tenths: int = 20
     roi_end_tenths: int = 30
@@ -80,8 +80,8 @@ class DataAnalyzer:
     def validate_config(self):
         """验证配置参数"""
         # 修改这里：使用正确的属性名
-        if self.config.roi_start_tenths <= self.config.diff_points:
-            raise ValueError("ROI起始位置必须大于差分点数")
+        # if self.config.roi_start_tenths <= self.config.diff_points:
+        #     raise ValueError("ROI起始位置必须大于差分点数")
         
         if self.config.roi_start_tenths >= self.config.roi_end_tenths:
             raise ValueError("ROI起始位置必须小于结束位置")
