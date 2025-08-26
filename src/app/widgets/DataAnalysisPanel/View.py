@@ -217,7 +217,7 @@ class DataAnalysisView(QWidget):
         roi_layout.addWidget(QLabel("ROI范围:"))
         self.adc_roi_start = QSpinBox()
         self.adc_roi_start.setRange(0, 100)
-        self.adc_roi_start.setValue(20)
+        self.adc_roi_start.setValue(0)
         self.adc_roi_start.setSuffix(" %")
         self.adc_roi_start.setMinimumWidth(100)
         self.adc_roi_start.setMaximumWidth(120)
@@ -227,7 +227,7 @@ class DataAnalysisView(QWidget):
         
         self.adc_roi_end = QSpinBox()
         self.adc_roi_end.setRange(0, 100)
-        self.adc_roi_end.setValue(30)
+        self.adc_roi_end.setValue(100)
         self.adc_roi_end.setSuffix(" %")
         self.adc_roi_end.setMinimumWidth(100)
         self.adc_roi_end.setMaximumWidth(120)

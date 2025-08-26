@@ -380,7 +380,7 @@ class DataAnalysisController(QObject):
             t_roi_us = (np.arange(config.l_roi) * config.ts_eff) * 1e6
             
             # 将ADC数据转换为电压值 (±3V范围，带符号19位)
-            adc_max_value = 2**19  # 262144
+            adc_max_value = 3 # 2**19  # 262144
             y_avg_voltage = (averages['y_avg'] / adc_max_value) * 3.0
             
             # 边缘位置计算
