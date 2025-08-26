@@ -48,7 +48,7 @@ class AnalysisConfig:
     roi_start_tenths: int = 0
     roi_end_tenths: int = 100
     output_csv: str = 'data\\raw\\calibration\\S_data.csv'
-    min_edge_amplitude_ratio = 0.3
+    min_edge_amplitude_ratio:float = 0.3
     cal_mode: str = CalibrationMode.SHORT  # 新增CAL_Mode参数
     
     @property
@@ -157,137 +157,6 @@ class DataAnalyzer:
         return edge_idx[0] + 1  # 返回上升沿位置
     
 
-    def detect_rising_edges_with_amplitude(self, bit31: np.ndarray, 
-                                        adc_data: np.ndarray,
-                                        min_amplitude_ratio: float = 0.3,
-                                        edge_search_start: int = 1,
-                                        window_size: int = 10) -> List[Tuple[int, float]]:
-        """
-        检测所有满足幅值要求的上升沿位置和幅值
-        
-        Args:
-            bit31: bit31数据数组（触发信号）
-            adc_data: ADC数据数组（实际信号）
-            min_amplitude_ratio: 最小幅值比例（相对于峰峰值的百分比）
-            edge_search_start: 搜索起始位置
-            window_size: 计算幅值的窗口大小
-            
-        Returns:
-            包含(上升沿位置, 相对幅值)的元组列表
-        """
-        # 1. 检测所有上升沿位置
-        edge_idx = np.flatnonzero((bit31[1:] == 1) & (bit31[:-1] == 0))
-        edge_idx = edge_idx[edge_idx >= edge_search_start]
-        
-        if edge_idx.size == 0:
-            logger.warning("未找到上升沿")
-            return []
-        
-        # 转换为原始数组中的实际位置
-        edge_positions = edge_idx + 1
-        
-        # 2. 计算整个信号的峰峰值
-        signal_peak_to_peak = np.max(adc_data) - np.min(adc_data)
-        if signal_peak_to_peak == 0:
-            logger.warning("信号峰峰值为0，无法计算幅值比例")
-            return []
-        
-        # 3. 计算每个上升沿的幅值
-        valid_edges = []
-        
-        for pos in edge_positions:
-            # 确保窗口不越界
-            start_idx = max(0, pos - window_size // 2)
-            end_idx = min(len(adc_data), pos + window_size // 2)
-            
-            if end_idx - start_idx < window_size:
-                continue
-                
-            # 计算窗口内的幅值
-            window_data = adc_data[start_idx:end_idx]
-            window_min = np.min(window_data)
-            window_max = np.max(window_data)
-            window_amplitude = window_max - window_min
-            
-            # 计算相对幅值（相对于整个信号的峰峰值）
-            relative_amplitude = window_amplitude / signal_peak_to_peak
-            
-            # 检查是否满足幅值要求
-            if relative_amplitude >= min_amplitude_ratio:
-                valid_edges.append((pos, relative_amplitude))
-        
-        return valid_edges
-
-    def find_best_rising_edge(self, bit31: np.ndarray, adc_data: np.ndarray,
-                            min_amplitude_ratio: float = 0.3,
-                            edge_search_start: int = 1) -> Optional[Tuple[int, float]]:
-        """
-        找到幅值最大的有效上升沿
-        
-        Args:
-            bit31: bit31数据数组
-            adc_data: ADC数据数组
-            min_amplitude_ratio: 最小幅值比例要求
-            edge_search_start: 搜索起始位置
-            
-        Returns:
-            (最佳上升沿位置, 相对幅值) 或 None
-        """
-        all_edges = self.detect_rising_edges_with_amplitude(
-            bit31, adc_data, min_amplitude_ratio, edge_search_start
-        )
-        
-        if not all_edges:
-            return None
-        
-        # 按幅值降序排序，选择幅值最大的
-        all_edges.sort(key=lambda x: x[1], reverse=True)
-        return all_edges[0]
-
-    def analyze_rising_edges_statistics(self, bit31: np.ndarray, adc_data: np.ndarray,
-                                    min_amplitude_ratio: float = 0.1) -> Dict[str, Any]:
-        """
-        分析所有上升沿的统计信息
-        
-        Args:
-            bit31: bit31数据数组
-            adc_data: ADC数据数组
-            min_amplitude_ratio: 最小幅值比例
-            
-        Returns:
-            包含统计信息的字典
-        """
-        all_edges = self.detect_rising_edges_with_amplitude(
-            bit31, adc_data, min_amplitude_ratio, edge_search_start=1
-        )
-        
-        if not all_edges:
-            return {"total_edges": 0, "valid_edges": 0}
-        
-        positions = [edge[0] for edge in all_edges]
-        amplitudes = [edge[1] for edge in all_edges]
-        
-        # 计算时间间隔（假设采样率已知）
-        if len(positions) > 1:
-            time_intervals = np.diff(positions) * self.config.t_sample
-            avg_interval = np.mean(time_intervals)
-            std_interval = np.std(time_intervals)
-        else:
-            avg_interval = std_interval = 0
-        
-        return {
-            "total_edges": len(all_edges),
-            "positions": positions,
-            "amplitudes": amplitudes,
-            "avg_amplitude": np.mean(amplitudes),
-            "max_amplitude": np.max(amplitudes),
-            "min_amplitude": np.min(amplitudes),
-            "avg_interval_seconds": avg_interval,
-            "std_interval_seconds": std_interval,
-            "frequency_hz": 1/avg_interval if avg_interval > 0 else 0
-        }
-
-    
     def extract_data_segment(self,adc_data: np.ndarray, rise_idx: int, start_index: int, n_points: int) -> Optional[np.ndarray]:
         """
         从ADC数据中截取指定长度的数据段
@@ -436,79 +305,6 @@ class DataAnalyzer:
         """
         return data[diff_points:] - data[:-diff_points]
     
-    def process_single_file(self, u32_arr: np.ndarray, 
-                        min_edge_amplitude_ratio: float = 0.3) -> Optional[Tuple]:
-        """
-        改进的处理单个文件的方法，包含幅值过滤
-        
-        Args:
-            u32_arr: uint32数据数组
-            min_edge_amplitude_ratio: 最小上升沿幅值比例
-            
-        Returns:
-            处理结果元组或None
-        """
-        try:
-            # 1. 提取ADC数据
-            bit31, adc_full = self.extract_adc_data(u32_arr, self.config.use_signed18)
-            
-            # 2. 检测最佳上升沿（满足幅值要求）
-            best_edge = self.find_best_rising_edge(
-                bit31, adc_full, min_edge_amplitude_ratio, self.config.edge_search_start
-            )
-            
-            if best_edge is None:
-                logger.warning("未找到满足幅值要求的上升沿")
-                return None
-                
-            rise_idx, edge_amplitude = best_edge
-            logger.info(f"找到最佳上升沿位置: {rise_idx}, 相对幅值: {edge_amplitude:.3f}")
-            
-            # 3. 截取数据段
-            segment_adc = self.extract_data_segment(
-                adc_full, rise_idx, self.config.start_index, self.config.n_points
-            )
-            if segment_adc is None:
-                return None
-            
-            # 4. 按周期排序
-            y_sorted, _ = self.sort_data_by_period(
-                segment_adc, self.config.t_sample, self.config.t_trig
-            )
-            
-            # 5. 搜索上升沿位置
-            rise_pos = self.find_rise_position(
-                y_sorted, self.config.search_method, np.mean(adc_full)
-            )
-            
-            # 6. 数据对齐
-            target_idx = self.config.n_points // 4
-            y_full = self.align_data(y_sorted, rise_pos, target_idx)
-            
-            # 7. 提取ROI
-            y_roi = self.extract_roi(y_full, self.config.roi_start, self.config.roi_end)
-            
-            # 8. ROI频谱分析
-            freq, mag_linear, _ = self.compute_spectrum(y_roi, self.config.ts_eff)
-            
-            # 9. 差分处理
-            if self.config.l_roi <= self.config.diff_points:
-                return None
-                
-            y_diff = self.compute_difference(y_roi, self.config.diff_points)
-            
-            # 10. 差分频谱分析
-            freq_d, mag_linear_d, Xd_norm = self.compute_spectrum(y_diff, self.config.ts_eff)
-            
-            # 添加边缘信息到返回结果
-            return (y_roi, freq, mag_linear, y_diff, freq_d, mag_linear_d, Xd_norm, 
-                    rise_idx, edge_amplitude)
-                
-        except Exception as e:
-            logger.error(f"处理文件时出错: {e}")
-            return None
-
-
     def process_single_file(self, u32_arr: np.ndarray) -> Optional[Tuple]:
         """
         重构后的处理单个文件的方法
@@ -778,7 +574,7 @@ def main():
     # 创建配置
     # config_open = AnalysisConfig(cal_mode=CalibrationMode.OPEN)
     # config_short = AnalysisConfig(cal_mode=CalibrationMode.SHORT)
-    config = AnalysisConfig(cal_mode=CalibrationMode.LOAD,input_dir="data\\results\\test\\SHORT")
+    config = AnalysisConfig(cal_mode=CalibrationMode.LOAD,input_dir="data\\results\\test\\OPEN")
     # config_thru = AnalysisConfig(cal_mode=CalibrationMode.THRU)
     # config = AnalysisConfig()
     
