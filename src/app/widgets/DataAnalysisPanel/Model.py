@@ -22,6 +22,7 @@ class ADCConfig:
     search_method: int = 1  # SearchMethod.RISING
     roi_start_tenths: int = 20
     roi_end_tenths: int = 30
+    roi_mid_tenths: int = 10
     output_csv: str = 'analysis_results.csv'
     min_edge_amplitude_ratio:float = 0.3
     min_second_rise_ratio: float = 0.2    # 第二个上升沿最小幅度比例
@@ -51,6 +52,10 @@ class ADCConfig:
     @property
     def roi_end(self) -> int:
         return int(self.n_points * self.roi_end_tenths / 100)
+    
+    @property
+    def roi_mid(self) -> int:
+        return int(self.n_points * self.roi_mid_tenths / 100)
     
     @property
     def l_roi(self) -> int:

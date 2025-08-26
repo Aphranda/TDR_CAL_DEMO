@@ -47,10 +47,11 @@ class AnalysisConfig:
     search_method: int = SearchMethod.RISING
     roi_start_tenths: int = 0
     roi_end_tenths: int = 100
+    roi_mid_tenths: int = 10
     output_csv: str = 'data\\raw\\calibration\\S_data.csv'
     min_edge_amplitude_ratio:float = 0.2
-    min_second_rise_ratio: float = 0.2    # 第二个上升沿最小幅度比例
-    min_second_fall_ratio: float = 0.2           # 下降沿最小幅度比例
+    min_second_rise_ratio: float = 0.1    # 第二个上升沿最小幅度比例
+    min_second_fall_ratio: float = 0.1    # 下降沿最小幅度比例
     cal_mode: str = CalibrationMode.LOAD  # 新增CAL_Mode参数
     
     @property
@@ -76,6 +77,10 @@ class AnalysisConfig:
     @property
     def roi_end(self) -> int:
         return int(self.n_points * self.roi_end_tenths / 100)
+    
+    @property
+    def roi_mid(self) -> int:
+        return int(self.n_points * self.roi_mid_tenths / 100)
     
     @property
     def l_roi(self) -> int:
@@ -246,9 +251,9 @@ class DataAnalyzer:
             return max_pos
 
     def find_second_rise_position(self, sorted_data: np.ndarray, first_rise_pos: int, 
-                                min_second_rise_ratio: float = 0.3) -> Optional[int]:
+                                min_second_rise_ratio: float = 0.1) -> Optional[int]:
         """
-        查找第二个上升沿位置，基于第一个上升沿的幅值百分比
+        查找第二个上升沿位置，基于第一个上升沿的高电平作为起始电平
         
         Args:
             sorted_data: 排序后的数据
@@ -261,100 +266,128 @@ class DataAnalyzer:
         if first_rise_pos >= len(sorted_data) - 10:
             return None
         
+        # 计算第一个上升沿的峰值和高电平
+        first_peak_search_end = min(first_rise_pos + 100, len(sorted_data))
+        first_peak_val = np.max(sorted_data[first_rise_pos:first_peak_search_end])
+        first_peak_pos = first_rise_pos + np.argmax(sorted_data[first_rise_pos:first_peak_search_end])
+        
         # 计算第一个上升沿的幅度
         first_baseline = np.mean(sorted_data[max(0, first_rise_pos-10):first_rise_pos])
-        first_rise_amplitude = sorted_data[first_rise_pos] - first_baseline
+        first_rise_amplitude = first_peak_val - first_baseline
         
         # 计算第二个上升沿的最小幅度阈值
         min_second_amplitude = first_rise_amplitude * min_second_rise_ratio
         
-        # 在第一个上升沿之后搜索第二个上升沿
-        search_start = first_rise_pos + 500  # 避免检测到同一个上升沿
-        search_end = len(sorted_data) - 10
+        # 使用第一个上升沿的高电平作为第二个上升沿的起始电平
+        start_level = first_peak_val
+        
+        # 在第一个峰值之后搜索第二个上升沿
+        search_start = first_peak_pos + 50  # 避免检测到同一个上升沿
+        search_end = int(len(sorted_data) * 0.5)  # 只搜索前80%的数据
         
         second_rise_candidates = []
         
         for i in range(search_start, search_end):
-            # 检查是否出现新的上升沿
-            if (sorted_data[i] > sorted_data[i-1] + min_second_amplitude * 0.2 and  # 开始上升
-                np.all(sorted_data[i-5:i] < sorted_data[i] - min_second_amplitude * 0.5)):  # 前5点较低
+            # 检查是否从高电平开始新的上升
+            # 当前点应该接近起始电平，然后开始上升
+            if (abs(sorted_data[i] - start_level) < first_rise_amplitude * 0.2 and  # 接近起始电平
+                sorted_data[i + 1] > sorted_data[i] + min_second_amplitude * 0.3):  # 开始显著上升
                 
-                # 计算这个潜在上升沿的峰值
-                peak_search_end = min(i + 50, len(sorted_data))
-                peak_val = np.max(sorted_data[i:peak_search_end])
-                peak_pos = i + np.argmax(sorted_data[i:peak_search_end])
-                
-                # 计算上升沿幅度
-                current_baseline = np.mean(sorted_data[i-10:i])
-                rise_amplitude = peak_val - current_baseline
-                
-                if rise_amplitude >= min_second_amplitude:
-                    second_rise_candidates.append((peak_pos, rise_amplitude))
+                # 寻找上升沿的峰值
+                for j in range(i + 1, min(i + 100, len(sorted_data))):
+                    if sorted_data[j] < sorted_data[j - 1]:  # 开始下降，找到峰值
+                        peak_pos = j - 1
+                        peak_val = sorted_data[peak_pos]
+                        
+                        # 计算上升沿幅度（从起始电平到峰值）
+                        rise_amplitude = peak_val - start_level
+                        
+                        if rise_amplitude >= min_second_amplitude:
+                            second_rise_candidates.append(peak_pos)
+                        break
         
         if second_rise_candidates:
-            # 选择幅度最大的候选点
-            second_rise_candidates.sort(key=lambda x: x[1], reverse=True)
-            return second_rise_candidates[0][0]
+            # 选择距离第一个上升沿最近的候选点
+            distances = [abs(candidate - first_rise_pos) for candidate in second_rise_candidates]
+            closest_idx = np.argmin(distances)
+            return second_rise_candidates[closest_idx]
         
         return None
 
     def find_second_fall_position(self, sorted_data: np.ndarray, rise_pos: int, 
-                        min_second_fall_ratio: float = 0.3) -> Optional[int]:
+                        min_second_fall_ratio: float = 0.1) -> Optional[int]:
         """
-        查找下降沿位置，基于上升沿幅值的百分比
-        
-        Args:
-            sorted_data: 排序后的数据
-            rise_pos: 上升沿位置
-            min_second_fall_ratio: 下降沿最小幅度与上升沿幅度的比例
-            
-        Returns:
-            下降沿位置索引，如果未找到则返回None
+        查找下降沿位置，基于第一个上升沿稳定后的高电平作为起始电平
         """
         if rise_pos >= len(sorted_data) - 10:
             return None
         
-        # 计算上升沿的峰值和幅度
+        # 计算第一个上升沿的峰值
         peak_search_end = min(rise_pos + 100, len(sorted_data))
         peak_val = np.max(sorted_data[rise_pos:peak_search_end])
         peak_pos = rise_pos + np.argmax(sorted_data[rise_pos:peak_search_end])
         
+        # 计算第一个上升沿的幅度
         baseline = np.mean(sorted_data[max(0, rise_pos-10):rise_pos])
         rise_amplitude = peak_val - baseline
         
         # 计算下降沿的最小幅度阈值
         min_fall_amplitude = rise_amplitude * min_second_fall_ratio
         
-        # 在峰值之后搜索下降沿
-        search_start = peak_pos + 500  # 从峰值后开始搜索
-        search_end = len(sorted_data) - 10
+        # 找到第一个上升沿稳定后的高电平（去掉过冲）
+        stable_search_start = peak_pos + 20  # 跳过过冲区域
+        stable_search_end = min(stable_search_start + 50, len(sorted_data))
+        
+        # 计算稳定后的高电平（取稳定区域的均值）
+        stable_high_level = np.mean(sorted_data[stable_search_start:stable_search_end])
+        
+        # 使用稳定后的高电平作为下降沿的起始电平
+        start_level = stable_high_level
+        
+        # 在稳定区域之后搜索下降沿
+        search_start = stable_search_end + 10
+        search_end = int(len(sorted_data) * 0.5)
         
         fall_candidates = []
         
         for i in range(search_start, search_end):
-            # 检查是否出现显著的下降
-            if (sorted_data[i] < sorted_data[i-1] - min_fall_amplitude * 0.2 and  # 开始下降
-                sorted_data[i] < peak_val - min_fall_amplitude and  # 下降幅度足够
-                np.all(sorted_data[i:i+5] < sorted_data[i-5:i] - min_fall_amplitude * 0.3)):  # 持续下降
+            # 检查是否从稳定高电平开始下降
+            current_val = sorted_data[i]
+            next_val = sorted_data[i + 1] if i + 1 < len(sorted_data) else current_val
+            
+            if (abs(current_val - start_level) < rise_amplitude * 0.15 and  # 接近稳定电平
+                next_val < current_val - min_fall_amplitude * 0.4):  # 开始显著下降
                 
-                # 计算下降的谷值
-                valley_search_end = min(i + 50, len(sorted_data))
-                valley_val = np.min(sorted_data[i:valley_search_end])
-                valley_pos = i + np.argmin(sorted_data[i:valley_search_end])
+                # 寻找下降沿的谷值
+                valley_found = False
+                for j in range(i + 2, min(i + 150, len(sorted_data))):
+                    if j + 1 >= len(sorted_data):
+                        break
+                        
+                    # 检测谷值：当前点比前一点低，但比后一点高
+                    if (sorted_data[j] < sorted_data[j - 1] and 
+                        sorted_data[j] < sorted_data[j + 1]):
+                        valley_pos = j
+                        valley_val = sorted_data[valley_pos]
+                        
+                        # 计算下降沿幅度（从稳定电平到谷值）
+                        fall_amplitude = start_level - valley_val
+                        
+                        if fall_amplitude >= min_fall_amplitude:
+                            fall_candidates.append(valley_pos)
+                        valley_found = True
+                        break
                 
-                # 计算下降幅度
-                fall_amplitude = peak_val - valley_val
-                
-                if fall_amplitude >= min_fall_amplitude:
-                    fall_candidates.append((valley_pos, fall_amplitude))
+                if valley_found:
+                    continue
         
         if fall_candidates:
-            # 选择下降幅度最大的候选点
-            fall_candidates.sort(key=lambda x: x[1], reverse=True)
-            return fall_candidates[0][0]
+            # 选择距离上升沿最近的候选点
+            distances = [abs(candidate - rise_pos) for candidate in fall_candidates]
+            closest_idx = np.argmin(distances)
+            return fall_candidates[closest_idx]
         
         return None
-
 
     def align_data(self,sorted_data: np.ndarray, rise_pos: int, target_position: int) -> np.ndarray:
         """
@@ -441,7 +474,7 @@ class DataAnalyzer:
             # 1. 提取ADC数据
             bit31, adc_full = self.extract_adc_data(u32_arr, self.config.use_signed18)
             
-            # 2. 检测上升沿
+            # 2. 检测有效数据
             rise_idx = self.detect_valid_data(bit31, self.config.edge_search_start)
             if rise_idx is None:
                 return None
@@ -694,7 +727,7 @@ class DataAnalyzer:
         return averages
     
     def plot_results(self, results: Dict[str, Any], averages: Dict[str, Any]):
-        """绘制结果图表"""
+        """绘制结果图表，包含边沿检测标记和中点标记"""
         # 时间轴
         t_roi_us = (np.arange(self.config.l_roi) * self.config.ts_eff) * 1e6
         t_diff_us = t_roi_us[self.config.diff_points:]
@@ -706,20 +739,98 @@ class DataAnalyzer:
         # 边缘位置
         edge_in_roi = (self.config.n_points // 4 - self.config.roi_start)
         
+        # 对平均数据进行边沿分析
+        edge_analysis = self.analyze_edges(averages['y_avg'])
+        
         # 原始ROI图 - 添加校准模式到标题
-        fig, (ax_t, ax_f) = plt.subplots(2, 1, figsize=(12, 8))
+        fig, (ax_t, ax_f) = plt.subplots(2, 1, figsize=(16, 12))
+        
+        # 绘制时域信号
+        ax_t.plot(t_roi_us, averages['y_avg'], label='Average Signal', linewidth=2, color='blue')
+        
+        # 标记第一个上升沿
+        if edge_analysis['first_rise_pos'] is not None:
+            first_rise_time = t_roi_us[edge_analysis['first_rise_pos']]
+            ax_t.axvline(first_rise_time, linestyle='-', linewidth=2, 
+                        color='red', alpha=0.8, label='First Rise Edge')
+            
+            # 在图上添加文本标注
+            ax_t.text(first_rise_time, np.max(averages['y_avg']) * 0.9, 
+                    f'1st Rise\n{first_rise_time:.2f}μs', 
+                    ha='center', va='top', fontsize=9, color='red',
+                    bbox=dict(boxstyle="round,pad=0.3", facecolor="yellow", alpha=0.7))
+        
+        # 标记第二个上升沿
+        if edge_analysis['second_rise_pos'] is not None:
+            second_rise_time = t_roi_us[edge_analysis['second_rise_pos']]
+            ax_t.axvline(second_rise_time, linestyle='--', linewidth=2, 
+                        color='green', alpha=0.8, label='Second Rise Edge')
+            
+            # 计算并显示幅度比例
+            rise_ratio = edge_analysis.get('rise_ratio', 0)
+            ax_t.text(second_rise_time, np.max(averages['y_avg']) * 0.8, 
+                    f'2nd Rise\n{second_rise_time:.2f}μs\nRatio: {rise_ratio:.2f}', 
+                    ha='center', va='top', fontsize=9, color='green',
+                    bbox=dict(boxstyle="round,pad=0.3", facecolor="lightgreen", alpha=0.7))
+            
+            # 标记第一个和第二个上升沿的中点
+            if 'rise_midpoint_time' in edge_analysis:
+                rise_midpoint_time = edge_analysis['rise_midpoint_time']
+                ax_t.axvline(rise_midpoint_time, linestyle='-', linewidth=1.5, 
+                            color='cyan', alpha=0.7, label='Rise Midpoint')
+                ax_t.text(rise_midpoint_time, np.max(averages['y_avg']) * 0.6, 
+                        f'Rise Mid\n{rise_midpoint_time:.2f}μs', 
+                        ha='center', va='top', fontsize=8, color='cyan',
+                        bbox=dict(boxstyle="round,pad=0.2", facecolor="lightcyan", alpha=0.7))
+        
+        # 标记下降沿
+        if edge_analysis['fall_pos'] is not None:
+            fall_time = t_roi_us[edge_analysis['fall_pos']]
+            ax_t.axvline(fall_time, linestyle=':', linewidth=2, 
+                        color='purple', alpha=0.8, label='Fall Edge')
+            
+            # 计算并显示下降幅度比例
+            fall_ratio = edge_analysis.get('fall_ratio', 0)
+            ax_t.text(fall_time, np.max(averages['y_avg']) * 0.7, 
+                    f'Fall\n{fall_time:.2f}μs\nRatio: {fall_ratio:.2f}', 
+                    ha='center', va='top', fontsize=9, color='purple',
+                    bbox=dict(boxstyle="round,pad=0.3", facecolor="lavender", alpha=0.7))
+            
+            # 标记第一个上升沿和下降沿的中点
+            if 'fall_midpoint_time' in edge_analysis:
+                fall_midpoint_time = edge_analysis['fall_midpoint_time']
+                ax_t.axvline(fall_midpoint_time, linestyle='-', linewidth=1.5, 
+                            color='magenta', alpha=0.7, label='Fall Midpoint')
+                ax_t.text(fall_midpoint_time, np.max(averages['y_avg']) * 0.5, 
+                        f'Fall Mid\n{fall_midpoint_time:.2f}μs', 
+                        ha='center', va='top', fontsize=8, color='magenta',
+                        bbox=dict(boxstyle="round,pad=0.2", facecolor="lightpink", alpha=0.7))
+            
+            # 标记第二个上升沿和下降沿的中点（如果存在）
+            if 'second_fall_midpoint_time' in edge_analysis:
+                second_fall_midpoint_time = edge_analysis['second_fall_midpoint_time']
+                ax_t.axvline(second_fall_midpoint_time, linestyle='-', linewidth=1.5, 
+                            color='orange', alpha=0.7, label='2nd Rise-Fall Midpoint')
+                ax_t.text(second_fall_midpoint_time, np.max(averages['y_avg']) * 0.4, 
+                        f'2nd Mid\n{second_fall_midpoint_time:.2f}μs', 
+                        ha='center', va='top', fontsize=8, color='orange',
+                        bbox=dict(boxstyle="round,pad=0.2", facecolor="wheat", alpha=0.7))
+        
+        # 标记原始边缘位置
         if 0 <= edge_in_roi < self.config.l_roi:
-            ax_t.axvline(t_roi_us[edge_in_roi], linestyle="--", linewidth=0.8, 
-                        color='red', alpha=0.7, label='Edge Position')
-        ax_t.plot(t_roi_us, averages['y_avg'], label='Average Signal')
-        ax_t.set_title(f"{self.config.cal_mode} - Average Time-Domain ROI "
-                      f"(across {results['success_count']} files)")
+            ax_t.axvline(t_roi_us[edge_in_roi], linestyle="-.", linewidth=1.5, 
+                        color='gray', alpha=0.6, label='Original Edge')
+        
+        ax_t.set_title(f"{self.config.cal_mode} - Average Time-Domain ROI with Edge Detection\n"
+                    f"(across {results['success_count']} files)")
         ax_t.set_xlabel('Time (μs)')
         ax_t.set_ylabel('Amplitude')
-        ax_t.legend()
+        ax_t.legend(loc='upper right')
         ax_t.grid(True, alpha=0.3)
         
-        ax_f.plot(results['freq_ref'][mask]/1e9, averages['mag_avg_db'][mask])
+        # 频谱图
+        ax_f.plot(results['freq_ref'][mask]/1e9, averages['mag_avg_db'][mask], 
+                linewidth=2, color='blue')
         ax_f.set_title(f"{self.config.cal_mode} - Average Spectrum ROI")
         ax_f.set_xlabel('Frequency (GHz)')
         ax_f.set_ylabel('Magnitude (dB)')
@@ -728,21 +839,57 @@ class DataAnalyzer:
         plt.tight_layout()
         plt.show()
         
-        # 差分ROI图 - 添加校准模式到标题
-        fig2, (ax_t2, ax_f2) = plt.subplots(2, 1, figsize=(12, 8))
+        # 差分ROI图（也添加中点标记）
+        fig2, (ax_t2, ax_f2) = plt.subplots(2, 1, figsize=(16, 12))
+        
+        # 绘制差分时域信号
+        ax_t2.plot(t_diff_us, averages['y_d_avg'], label='Differenced Signal', 
+                linewidth=2, color='darkblue')
+        
+        # 在差分数据上也标记边沿和中点（需要调整位置）
+        if edge_analysis['first_rise_pos'] is not None:
+            first_rise_diff_time = t_roi_us[max(edge_analysis['first_rise_pos'] - self.config.diff_points, 0)]
+            ax_t2.axvline(first_rise_diff_time, linestyle='-', linewidth=2, 
+                        color='red', alpha=0.6, label='First Rise (Diff)')
+        
+        if edge_analysis['second_rise_pos'] is not None:
+            second_rise_diff_time = t_roi_us[max(edge_analysis['second_rise_pos'] - self.config.diff_points, 0)]
+            ax_t2.axvline(second_rise_diff_time, linestyle='--', linewidth=2, 
+                        color='green', alpha=0.6, label='Second Rise (Diff)')
+            
+            # 标记中点
+            if 'rise_midpoint' in edge_analysis:
+                rise_midpoint_diff_time = t_roi_us[max(edge_analysis['rise_midpoint'] - self.config.diff_points, 0)]
+                ax_t2.axvline(rise_midpoint_diff_time, linestyle='-', linewidth=1.5, 
+                            color='cyan', alpha=0.5, label='Rise Midpoint (Diff)')
+        
+        if edge_analysis['fall_pos'] is not None:
+            fall_diff_time = t_roi_us[max(edge_analysis['fall_pos'] - self.config.diff_points, 0)]
+            ax_t2.axvline(fall_diff_time, linestyle=':', linewidth=2, 
+                        color='purple', alpha=0.6, label='Fall (Diff)')
+            
+            # 标记中点
+            if 'fall_midpoint' in edge_analysis:
+                fall_midpoint_diff_time = t_roi_us[max(edge_analysis['fall_midpoint'] - self.config.diff_points, 0)]
+                ax_t2.axvline(fall_midpoint_diff_time, linestyle='-', linewidth=1.5, 
+                            color='magenta', alpha=0.5, label='Fall Midpoint (Diff)')
+        
+        # 标记原始边缘位置
         if (0 <= edge_in_roi < self.config.l_roi and 
             0 <= edge_in_roi - self.config.diff_points < averages['y_d_avg'].size):
             ax_t2.axvline(t_roi_us[max(edge_in_roi - self.config.diff_points, 0)], 
-                         linestyle="--", linewidth=0.8, color='red', alpha=0.7, 
-                         label='Edge Position')
-        ax_t2.plot(t_diff_us, averages['y_d_avg'], label='Differenced Signal')
-        ax_t2.set_title(f"{self.config.cal_mode} - Differenced Time-Domain Average")
+                        linestyle="-.", linewidth=1.5, color='gray', alpha=0.6, 
+                        label='Original Edge (Diff)')
+        
+        ax_t2.set_title(f"{self.config.cal_mode} - Differenced Time-Domain Average with Edge Detection")
         ax_t2.set_xlabel('Time (μs)')
         ax_t2.set_ylabel('Amplitude')
-        ax_t2.legend()
+        ax_t2.legend(loc='upper right')
         ax_t2.grid(True, alpha=0.3)
         
-        ax_f2.plot(results['freq_d_ref'][maskd]/1e9, averages['mag_d_avg_db'][maskd])
+        # 差分频谱图
+        ax_f2.plot(results['freq_d_ref'][maskd]/1e9, averages['mag_d_avg_db'][maskd], 
+                linewidth=2, color='darkblue')
         ax_f2.set_title(f"{self.config.cal_mode} - Differenced Spectrum Average")
         ax_f2.set_xlabel('Frequency (GHz)')
         ax_f2.set_ylabel('Magnitude (dB)')
@@ -750,7 +897,157 @@ class DataAnalyzer:
         
         plt.tight_layout()
         plt.show()
+        
+        # 打印边沿分析结果（包含中点信息）
+        self.print_edge_analysis_results(edge_analysis, t_roi_us)
 
+
+    def print_edge_analysis_results(self, edge_analysis: Dict[str, Any], t_roi_us: np.ndarray):
+        """打印边沿分析结果，包含中点信息"""
+        print("\n" + "="*80)
+        print("EDGE DETECTION ANALYSIS RESULTS")
+        print("="*80)
+        
+        if edge_analysis['first_rise_pos'] is not None:
+            first_rise_time = t_roi_us[edge_analysis['first_rise_pos']]
+            first_amplitude = edge_analysis.get('first_rise_amplitude', 0)
+            print(f"First Rise Edge: Position={edge_analysis['first_rise_pos']}, "
+                f"Time={first_rise_time:.2f}μs, Amplitude={first_amplitude:.1f}")
+        
+        if edge_analysis['second_rise_pos'] is not None:
+            second_rise_time = t_roi_us[edge_analysis['second_rise_pos']]
+            second_amplitude = edge_analysis.get('second_rise_amplitude', 0)
+            rise_ratio = edge_analysis.get('rise_ratio', 0)
+            print(f"Second Rise Edge: Position={edge_analysis['second_rise_pos']}, "
+                f"Time={second_rise_time:.2f}μs, Amplitude={second_amplitude:.1f}, "
+                f"Ratio={rise_ratio:.3f}")
+            
+            if 'rise_midpoint' in edge_analysis:
+                rise_midpoint_time = edge_analysis.get('rise_midpoint_time', 0)
+                print(f"Rise Midpoint: Position={edge_analysis['rise_midpoint']}, "
+                    f"Time={rise_midpoint_time:.2f}μs, "
+                    f"Distance from 1st: {edge_analysis['rise_midpoint'] - edge_analysis['first_rise_pos']} points")
+        
+        if edge_analysis['fall_pos'] is not None:
+            fall_time = t_roi_us[edge_analysis['fall_pos']]
+            fall_amplitude = edge_analysis.get('fall_amplitude', 0)
+            fall_ratio = edge_analysis.get('fall_ratio', 0)
+            print(f"Fall Edge: Position={edge_analysis['fall_pos']}, "
+                f"Time={fall_time:.2f}μs, Amplitude={fall_amplitude:.1f}, "
+                f"Ratio={fall_ratio:.3f}")
+            
+            if 'fall_midpoint' in edge_analysis:
+                fall_midpoint_time = edge_analysis.get('fall_midpoint_time', 0)
+                print(f"Fall Midpoint: Position={edge_analysis['fall_midpoint']}, "
+                    f"Time={fall_midpoint_time:.2f}μs, "
+                    f"Distance from 1st: {edge_analysis['fall_midpoint'] - edge_analysis['first_rise_pos']} points")
+            
+            # 如果同时有第二个上升沿和下降沿，打印它们的中点
+            if 'second_fall_midpoint' in edge_analysis:
+                second_fall_midpoint_time = edge_analysis.get('second_fall_midpoint_time', 0)
+                print(f"2nd Rise-Fall Midpoint: Position={edge_analysis['second_fall_midpoint']}, "
+                    f"Time={second_fall_midpoint_time:.2f}μs, "
+                    f"Distance from 2nd: {edge_analysis['second_fall_midpoint'] - edge_analysis['second_rise_pos']} points")
+        
+        # 计算并打印时间间隔信息
+        if (edge_analysis['first_rise_pos'] is not None and 
+            edge_analysis['second_rise_pos'] is not None):
+            rise_interval = edge_analysis['second_rise_pos'] - edge_analysis['first_rise_pos']
+            rise_interval_time = rise_interval * self.config.ts_eff * 1e6  # 转换为微秒
+            print(f"Rise-Rise Interval: {rise_interval} points, {rise_interval_time:.2f}μs")
+        
+        if (edge_analysis['first_rise_pos'] is not None and 
+            edge_analysis['fall_pos'] is not None):
+            rise_fall_interval = edge_analysis['fall_pos'] - edge_analysis['first_rise_pos']
+            rise_fall_interval_time = rise_fall_interval * self.config.ts_eff * 1e6
+            print(f"Rise-Fall Interval: {rise_fall_interval} points, {rise_fall_interval_time:.2f}μs")
+        
+        if (edge_analysis['second_rise_pos'] is not None and 
+            edge_analysis['fall_pos'] is not None):
+            second_rise_fall_interval = edge_analysis['fall_pos'] - edge_analysis['second_rise_pos']
+            second_rise_fall_interval_time = second_rise_fall_interval * self.config.ts_eff * 1e6
+            print(f"2nd Rise-Fall Interval: {second_rise_fall_interval} points, {second_rise_fall_interval_time:.2f}μs")
+        
+        # 打印稳定高电平信息
+        if 'stable_high_level' in edge_analysis:
+            print(f"Stable High Level: {edge_analysis['stable_high_level']:.1f}")
+        
+        print("="*80)
+
+    def analyze_edges(self, sorted_data: np.ndarray) -> Dict[str, Any]:
+        """
+        完整的边沿分析流程，返回边沿位置和中点位置
+        """
+        # 查找第一个上升沿
+        first_rise_pos = self.find_rise_position(
+            sorted_data, 
+            self.config.search_method, 
+            np.mean(sorted_data),
+            self.config.min_edge_amplitude_ratio
+        )
+        
+        result = {'first_rise_pos': first_rise_pos}
+        
+        if first_rise_pos is not None:
+            # 计算第一个上升沿的幅度
+            first_baseline = np.mean(sorted_data[max(0, first_rise_pos-10):first_rise_pos])
+            first_peak_search_end = min(first_rise_pos + 100, len(sorted_data))
+            first_peak_val = np.max(sorted_data[first_rise_pos:first_peak_search_end])
+            first_amplitude = first_peak_val - first_baseline
+            result['first_rise_amplitude'] = first_amplitude
+            
+            # 找到稳定后的高电平
+            first_peak_pos = first_rise_pos + np.argmax(sorted_data[first_rise_pos:first_peak_search_end])
+            stable_search_start = first_peak_pos + 20
+            stable_search_end = min(stable_search_start + 50, len(sorted_data))
+            stable_high_level = np.mean(sorted_data[stable_search_start:stable_search_end])
+            result['stable_high_level'] = stable_high_level
+            
+            # 查找第二个上升沿
+            second_rise_pos = self.find_second_rise_position(
+                sorted_data, first_rise_pos, self.config.min_second_rise_ratio
+            )
+            result['second_rise_pos'] = second_rise_pos
+            
+            if second_rise_pos is not None:
+                # 计算第二个上升沿的幅度（使用稳定高电平作为基准）
+                second_peak_search_end = min(second_rise_pos + 100, len(sorted_data))
+                second_peak_val = np.max(sorted_data[second_rise_pos:second_peak_search_end])
+                second_amplitude = second_peak_val - stable_high_level
+                result['second_rise_amplitude'] = second_amplitude
+                result['rise_ratio'] = second_amplitude / first_amplitude
+                
+                # 计算第一个和第二个上升沿的中点位置
+                rise_midpoint = (first_rise_pos + second_rise_pos) // 2
+                result['rise_midpoint'] = rise_midpoint
+                result['rise_midpoint_time'] = rise_midpoint * self.config.ts_eff * 1e6  # 转换为微秒
+            
+            # 查找下降沿
+            fall_pos = self.find_second_fall_position(
+                sorted_data, first_rise_pos, self.config.min_second_fall_ratio
+            )
+            result['fall_pos'] = fall_pos
+            
+            if fall_pos is not None:
+                # 计算下降幅度（使用稳定高电平作为基准）
+                fall_valley_search_end = min(fall_pos + 50, len(sorted_data))
+                fall_valley = np.min(sorted_data[fall_pos:fall_valley_search_end])
+                fall_amplitude = stable_high_level - fall_valley
+                result['fall_amplitude'] = fall_amplitude
+                result['fall_ratio'] = fall_amplitude / first_amplitude
+                
+                # 计算第一个上升沿和下降沿的中点位置
+                fall_midpoint = (first_rise_pos + fall_pos) // 2
+                result['fall_midpoint'] = fall_midpoint
+                result['fall_midpoint_time'] = fall_midpoint * self.config.ts_eff * 1e6  # 转换为微秒
+                
+                # 如果同时有第二个上升沿和下降沿，计算它们的中点
+                if second_rise_pos is not None:
+                    second_fall_midpoint = (second_rise_pos + fall_pos) // 2
+                    result['second_fall_midpoint'] = second_fall_midpoint
+                    result['second_fall_midpoint_time'] = second_fall_midpoint * self.config.ts_eff * 1e6
+        
+        return result
 
     def get_output_filename(self) -> str:
         """
@@ -814,7 +1111,7 @@ class DataAnalyzer:
         # 计算平均值
         averages = self.calculate_averages(results)
         
-        # 绘制图表
+        # 绘制图表（包含边沿检测标记）
         self.plot_results(results, averages)
         
         # 保存结果
@@ -827,7 +1124,7 @@ def main():
     # 创建配置
     # config_open = AnalysisConfig(cal_mode=CalibrationMode.OPEN)
     # config_short = AnalysisConfig(cal_mode=CalibrationMode.SHORT)
-    config = AnalysisConfig(cal_mode=CalibrationMode.LOAD,input_dir="data\\results\\test\\OPEN")
+    config = AnalysisConfig(cal_mode=CalibrationMode.LOAD,input_dir="data\\results\\test\\SHORT")
     # config_thru = AnalysisConfig(cal_mode=CalibrationMode.THRU)
     # config = AnalysisConfig()
     
