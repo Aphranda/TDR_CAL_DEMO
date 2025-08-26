@@ -287,7 +287,8 @@ class DataAnalysisController(QObject):
             config.roi_end_tenths = self.view.adc_roi_end.value()
             config.recursive = True
             config.use_signed18 = True
-            
+            config.cal_mode = self.view.cal_type_combo.currentText()
+            self.log_message(f"校准模式:{config.cal_mode}", "DEBUG")
             # 获取SearchMethod的值
             config.search_method = self.view.search_method_combo.currentData()
             

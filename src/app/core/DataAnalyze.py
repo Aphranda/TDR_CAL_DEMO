@@ -49,7 +49,7 @@ class AnalysisConfig:
     roi_end_tenths: int = 100
     output_csv: str = 'data\\raw\\calibration\\S_data.csv'
     min_edge_amplitude_ratio:float = 0.3
-    cal_mode: str = CalibrationMode.SHORT  # 新增CAL_Mode参数
+    cal_mode: str = CalibrationMode.LOAD  # 新增CAL_Mode参数
     
     @property
     def t_sample(self) -> float:
@@ -305,15 +305,15 @@ class DataAnalyzer:
         """
         return data[diff_points:] - data[:-diff_points]
     
-    def process_single_file(self, u32_arr: np.ndarray) -> Optional[Tuple]:
+    def extract_basic_segment(self, u32_arr: np.ndarray) -> Optional[Tuple[np.ndarray, np.ndarray, np.ndarray]]:
         """
-        重构后的处理单个文件的方法
+        提取基本数据段（步骤1-7）
         
         Args:
             u32_arr: uint32数据数组
             
         Returns:
-            处理结果元组或None
+            (adc_full, y_roi, adc_full_mean) 或 None
         """
         try:
             # 1. 提取ADC数据
@@ -348,6 +348,23 @@ class DataAnalyzer:
             # 7. 提取ROI
             y_roi = self.extract_roi(y_full, self.config.roi_start, self.config.roi_end)
             
+            return adc_full, y_roi, np.mean(adc_full)
+            
+        except Exception as e:
+            logger.error(f"提取基本数据段时出错: {e}")
+            return None
+
+    def process_thru_load_mode(self, y_roi: np.ndarray) -> Optional[Tuple]:
+        """
+        处理THRU和LOAD模式的数据（步骤8-10）
+        
+        Args:
+            y_roi: ROI数据
+            
+        Returns:
+            处理结果元组或None
+        """
+        try:
             # 8. ROI频谱分析
             freq, mag_linear, _ = self.compute_spectrum(y_roi, self.config.ts_eff)
             
@@ -363,8 +380,122 @@ class DataAnalyzer:
             return y_roi, freq, mag_linear, y_diff, freq_d, mag_linear_d, Xd_norm
             
         except Exception as e:
+            logger.error(f"处理THRU/LOAD模式时出错: {e}")
+            return None
+
+    def process_short_mode(self, y_roi: np.ndarray, adc_full_mean: float) -> Optional[Tuple]:
+        """
+        处理SHORT模式的数据
+        
+        Args:
+            y_roi: ROI数据
+            adc_full_mean: 完整数据的平均值
+            
+        Returns:
+            处理结果元组或None
+        """
+        try:
+            # SHORT模式特殊处理：使用差分后的数据进行频谱分析
+            if self.config.l_roi <= self.config.diff_points:
+                return None
+                
+            # 先进行差分处理
+            y_diff = self.compute_difference(y_roi, self.config.diff_points)
+            
+            # 对差分数据进行频谱分析
+            freq_d, mag_linear_d, Xd_norm = self.compute_spectrum(y_diff, self.config.ts_eff)
+            
+            # 对原始ROI数据也进行频谱分析（可选）
+            freq, mag_linear, _ = self.compute_spectrum(y_roi, self.config.ts_eff)
+            
+            return y_roi, freq, mag_linear, y_diff, freq_d, mag_linear_d, Xd_norm
+            
+        except Exception as e:
+            logger.error(f"处理SHORT模式时出错: {e}")
+            return None
+
+    def process_open_mode(self, y_roi: np.ndarray, adc_full_mean: float) -> Optional[Tuple]:
+        """
+        处理OPEN模式的数据
+        
+        Args:
+            y_roi: ROI数据
+            adc_full_mean: 完整数据的平均值
+            
+        Returns:
+            处理结果元组或None
+        """
+        try:
+            # OPEN模式特殊处理：可能需要不同的窗口函数或预处理
+            # 去均值处理
+            y_roi_centered = y_roi.astype(np.float64) - np.mean(y_roi)
+            
+            # 使用不同的窗口函数（Blackman窗）
+            window = np.blackman(len(y_roi_centered))
+            windowed_data = y_roi_centered * window
+            
+            # 计算FFT
+            fft_result = np.fft.rfft(windowed_data)
+            freq = np.fft.rfftfreq(len(y_roi_centered), d=self.config.ts_eff)
+            
+            # 归一化
+            scale = (np.sum(window) / len(y_roi_centered)) * len(y_roi_centered)
+            magnitude_linear = np.abs(fft_result) / (scale + 1e-12)
+            
+            # 差分处理
+            if self.config.l_roi <= self.config.diff_points:
+                return None
+                
+            y_diff = self.compute_difference(y_roi, self.config.diff_points)
+            
+            # 差分频谱分析
+            freq_d, mag_linear_d, Xd_norm = self.compute_spectrum(y_diff, self.config.ts_eff)
+            
+            return y_roi, freq, magnitude_linear, y_diff, freq_d, mag_linear_d, Xd_norm
+            
+        except Exception as e:
+            logger.error(f"处理OPEN模式时出错: {e}")
+            return None
+
+    def process_single_file(self, u32_arr: np.ndarray) -> Optional[Tuple]:
+        """
+        重构后的处理单个文件的方法
+        
+        Args:
+            u32_arr: uint32数据数组
+            
+        Returns:
+            处理结果元组或None
+        """
+        try:
+            # 提取基本数据段（步骤1-7）
+            basic_result = self.extract_basic_segment(u32_arr)
+            if basic_result is None:
+                return None
+                
+            adc_full, y_roi, adc_full_mean = basic_result
+            
+            # 根据校准模式选择不同的处理方法
+            if self.config.cal_mode in [CalibrationMode.THRU, CalibrationMode.LOAD]:
+                # THRU和LOAD模式使用标准处理
+                return self.process_thru_load_mode(y_roi)
+                
+            elif self.config.cal_mode == CalibrationMode.SHORT:
+                # SHORT模式特殊处理
+                return self.process_short_mode(y_roi, adc_full_mean)
+                
+            elif self.config.cal_mode == CalibrationMode.OPEN:
+                # OPEN模式特殊处理
+                return self.process_open_mode(y_roi, adc_full_mean)
+                
+            else:
+                logger.error(f"未知的校准模式: {self.config.cal_mode}")
+                return None
+                
+        except Exception as e:
             logger.error(f"处理文件时出错: {e}")
             return None
+
 
     def batch_process_files(self, file_list: List[str]) -> Dict[str, Any]:
         """

@@ -23,6 +23,8 @@ class ADCConfig:
     roi_start_tenths: int = 20
     roi_end_tenths: int = 30
     output_csv: str = 'analysis_results.csv'
+    min_edge_amplitude_ratio:float = 0.3
+    cal_mode: str = "LOAD"  # 新增CAL_Mode参数
 
     @property
     def t_sample(self) -> float:
