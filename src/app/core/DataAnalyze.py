@@ -8,9 +8,10 @@ import logging
 from dataclasses import dataclass
 from typing import List, Tuple, Optional, Dict, Any
 import json
-
-from .FileManager import FileManager
-
+try:
+    from .FileManager import FileManager
+except:
+    from FileManager import FileManager
 # 设置matplotlib后端
 matplotlib.use("TkAgg")
 
@@ -21,6 +22,13 @@ logger = logging.getLogger(__name__)
 class SearchMethod:
     RISING = 1
     MAX = 2
+
+# 校准模式枚举
+class CalibrationMode:
+    OPEN = "OPEN"
+    SHORT = "SHORT" 
+    LOAD = "LOAD"
+    THRU = "THRU"
 
 @dataclass
 class AnalysisConfig:
@@ -37,9 +45,11 @@ class AnalysisConfig:
     edge_search_start: int = 1
     diff_points: int = 10
     search_method: int = SearchMethod.RISING
-    roi_start_tenths: int = 20
-    roi_end_tenths: int = 30
+    roi_start_tenths: int = 0
+    roi_end_tenths: int = 100
     output_csv: str = 'data\\raw\\calibration\\S_data.csv'
+    min_edge_amplitude_ratio = 0.3
+    cal_mode: str = CalibrationMode.SHORT  # 新增CAL_Mode参数
     
     @property
     def t_sample(self) -> float:
@@ -82,6 +92,10 @@ class DataAnalyzer:
         # 修改这里：使用正确的属性名
         # if self.config.roi_start_tenths <= self.config.diff_points:
         #     raise ValueError("ROI起始位置必须大于差分点数")
+
+        valid_modes = [CalibrationMode.OPEN, CalibrationMode.SHORT, CalibrationMode.LOAD, CalibrationMode.THRU]
+        if self.config.cal_mode not in valid_modes:
+            raise ValueError(f"无效的校准模式: {self.config.cal_mode}。"f"有效模式: {valid_modes}")
         
         if self.config.roi_start_tenths >= self.config.roi_end_tenths:
             raise ValueError("ROI起始位置必须小于结束位置")
@@ -93,9 +107,411 @@ class DataAnalyzer:
         """从文件加载uint32数据"""
         return self.file_manager.load_u32_text_first_col(path, skip_first=self.config.skip_first_value)
     
+    def extract_adc_data(self, u32_arr: np.ndarray, use_signed18: bool = True) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        从uint32数组中提取bit31和ADC数据
+        
+        Args:
+            u32_arr: uint32数据数组
+            use_signed18: 是否使用18位有符号转换
+            
+        Returns:
+            bit31数组和ADC数据数组
+        """
+        # 提取bit31
+        bit31 = ((u32_arr >> 31) & 0x1).astype(np.uint8)
+        
+        # 提取ADC数据
+        adc_18u = (u32_arr & ((1 << 20) - 1)).astype(np.uint32)
+        
+        # 转换为有符号或无符号
+        if use_signed18:
+            adc_18s = ((adc_18u + (1 << 19)) & ((1 << 20) - 1)) - (1 << 19)
+            adc_data = adc_18s.astype(np.int32)
+        else:
+            adc_data = adc_18u.astype(np.int32)
+        
+        return bit31, adc_data
+    
+    def detect_rising_edge(self,bit31: np.ndarray, edge_search_start: int = 1) -> Optional[int]:
+        """
+        检测bit31数组中的上升沿位置
+        
+        Args:
+            bit31: bit31数据数组
+            edge_search_start: 搜索起始位置
+            
+        Returns:
+            上升沿位置索引或None
+        """
+        # 检测上升沿 (0->1转换)
+        edge_idx = np.flatnonzero((bit31[1:] == 1) & (bit31[:-1] == 0))
+        print(bit31)
+        # 过滤起始位置
+        edge_idx = edge_idx[edge_idx >= edge_search_start]
+        
+        if edge_idx.size == 0:
+            logger.warning("未找到上升沿")
+            return None
+        
+        return edge_idx[0] + 1  # 返回上升沿位置
+    
+
+    def detect_rising_edges_with_amplitude(self, bit31: np.ndarray, 
+                                        adc_data: np.ndarray,
+                                        min_amplitude_ratio: float = 0.3,
+                                        edge_search_start: int = 1,
+                                        window_size: int = 10) -> List[Tuple[int, float]]:
+        """
+        检测所有满足幅值要求的上升沿位置和幅值
+        
+        Args:
+            bit31: bit31数据数组（触发信号）
+            adc_data: ADC数据数组（实际信号）
+            min_amplitude_ratio: 最小幅值比例（相对于峰峰值的百分比）
+            edge_search_start: 搜索起始位置
+            window_size: 计算幅值的窗口大小
+            
+        Returns:
+            包含(上升沿位置, 相对幅值)的元组列表
+        """
+        # 1. 检测所有上升沿位置
+        edge_idx = np.flatnonzero((bit31[1:] == 1) & (bit31[:-1] == 0))
+        edge_idx = edge_idx[edge_idx >= edge_search_start]
+        
+        if edge_idx.size == 0:
+            logger.warning("未找到上升沿")
+            return []
+        
+        # 转换为原始数组中的实际位置
+        edge_positions = edge_idx + 1
+        
+        # 2. 计算整个信号的峰峰值
+        signal_peak_to_peak = np.max(adc_data) - np.min(adc_data)
+        if signal_peak_to_peak == 0:
+            logger.warning("信号峰峰值为0，无法计算幅值比例")
+            return []
+        
+        # 3. 计算每个上升沿的幅值
+        valid_edges = []
+        
+        for pos in edge_positions:
+            # 确保窗口不越界
+            start_idx = max(0, pos - window_size // 2)
+            end_idx = min(len(adc_data), pos + window_size // 2)
+            
+            if end_idx - start_idx < window_size:
+                continue
+                
+            # 计算窗口内的幅值
+            window_data = adc_data[start_idx:end_idx]
+            window_min = np.min(window_data)
+            window_max = np.max(window_data)
+            window_amplitude = window_max - window_min
+            
+            # 计算相对幅值（相对于整个信号的峰峰值）
+            relative_amplitude = window_amplitude / signal_peak_to_peak
+            
+            # 检查是否满足幅值要求
+            if relative_amplitude >= min_amplitude_ratio:
+                valid_edges.append((pos, relative_amplitude))
+        
+        return valid_edges
+
+    def find_best_rising_edge(self, bit31: np.ndarray, adc_data: np.ndarray,
+                            min_amplitude_ratio: float = 0.3,
+                            edge_search_start: int = 1) -> Optional[Tuple[int, float]]:
+        """
+        找到幅值最大的有效上升沿
+        
+        Args:
+            bit31: bit31数据数组
+            adc_data: ADC数据数组
+            min_amplitude_ratio: 最小幅值比例要求
+            edge_search_start: 搜索起始位置
+            
+        Returns:
+            (最佳上升沿位置, 相对幅值) 或 None
+        """
+        all_edges = self.detect_rising_edges_with_amplitude(
+            bit31, adc_data, min_amplitude_ratio, edge_search_start
+        )
+        
+        if not all_edges:
+            return None
+        
+        # 按幅值降序排序，选择幅值最大的
+        all_edges.sort(key=lambda x: x[1], reverse=True)
+        return all_edges[0]
+
+    def analyze_rising_edges_statistics(self, bit31: np.ndarray, adc_data: np.ndarray,
+                                    min_amplitude_ratio: float = 0.1) -> Dict[str, Any]:
+        """
+        分析所有上升沿的统计信息
+        
+        Args:
+            bit31: bit31数据数组
+            adc_data: ADC数据数组
+            min_amplitude_ratio: 最小幅值比例
+            
+        Returns:
+            包含统计信息的字典
+        """
+        all_edges = self.detect_rising_edges_with_amplitude(
+            bit31, adc_data, min_amplitude_ratio, edge_search_start=1
+        )
+        
+        if not all_edges:
+            return {"total_edges": 0, "valid_edges": 0}
+        
+        positions = [edge[0] for edge in all_edges]
+        amplitudes = [edge[1] for edge in all_edges]
+        
+        # 计算时间间隔（假设采样率已知）
+        if len(positions) > 1:
+            time_intervals = np.diff(positions) * self.config.t_sample
+            avg_interval = np.mean(time_intervals)
+            std_interval = np.std(time_intervals)
+        else:
+            avg_interval = std_interval = 0
+        
+        return {
+            "total_edges": len(all_edges),
+            "positions": positions,
+            "amplitudes": amplitudes,
+            "avg_amplitude": np.mean(amplitudes),
+            "max_amplitude": np.max(amplitudes),
+            "min_amplitude": np.min(amplitudes),
+            "avg_interval_seconds": avg_interval,
+            "std_interval_seconds": std_interval,
+            "frequency_hz": 1/avg_interval if avg_interval > 0 else 0
+        }
+
+    
+    def extract_data_segment(self,adc_data: np.ndarray, rise_idx: int, start_index: int, n_points: int) -> Optional[np.ndarray]:
+        """
+        从ADC数据中截取指定长度的数据段
+        
+        Args:
+            adc_data: ADC数据数组
+            rise_idx: 上升沿位置
+            start_index: 起始偏移
+            n_points: 数据点数
+            
+        Returns:
+            截取的数据段或None
+        """
+        start_capture = rise_idx + start_index
+        
+        # 检查数据长度是否足够
+        if start_capture + n_points > adc_data.size:
+            logger.warning("数据长度不足")
+            return None
+        
+        # 截取数据段
+        return adc_data[start_capture : start_capture + n_points]
+    
+    def sort_data_by_period(self,segment_data: np.ndarray, t_sample: float, t_trig: float) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        按周期时间对数据进行排序
+        
+        Args:
+            segment_data: 数据段
+            t_sample: 采样时间
+            t_trig: 触发周期
+            
+        Returns:
+            排序后的数据和排序索引
+        """
+        # 计算周期内时间
+        t_within_period = (np.arange(len(segment_data), dtype=np.float64) * t_sample) % t_trig
+        
+        # 按时间排序
+        sort_idx = np.argsort(t_within_period)
+        sorted_data = segment_data[sort_idx]
+        
+        return sorted_data, sort_idx
+    
+    def find_rise_position(self,sorted_data: np.ndarray, search_method: int, adc_full_mean: Optional[float] = None) -> int:
+        """
+        在排序后的数据中搜索上升沿位置
+        
+        Args:
+            sorted_data: 排序后的数据
+            search_method: 搜索方法 (RISING或MAX)
+            adc_full_mean: 完整数据的平均值(可选)
+            
+        Returns:
+            上升沿位置索引
+        """
+        if search_method == SearchMethod.RISING:
+            # 使用平均值方法检测上升沿
+            if adc_full_mean is None:
+                adc_full_mean = np.mean(sorted_data)
+            
+            rise_candidates = np.flatnonzero(
+                (sorted_data[10:] > adc_full_mean) & (sorted_data[:-10] <= adc_full_mean)
+            )
+            
+            if rise_candidates.size == 0:
+                # 使用差分最大值方法
+                dy = np.diff(sorted_data.astype(np.float64))
+                rise_pos = int(np.argmax(dy)) + 1
+            else:
+                rise_pos = int(rise_candidates[0])
+        else:
+            # 使用最大值方法
+            rise_pos = int(np.argmax(sorted_data))
+        
+        return rise_pos
+
+    def align_data(self,sorted_data: np.ndarray, rise_pos: int, target_position: int) -> np.ndarray:
+        """
+        对齐数据，使上升沿位于目标位置
+        
+        Args:
+            sorted_data: 排序后的数据
+            rise_pos: 上升沿当前位置
+            target_position: 目标位置
+            
+        Returns:
+            对齐后的数据
+        """
+        shift = (target_position - rise_pos) % len(sorted_data)
+        return np.roll(sorted_data, shift)
+    
+    def extract_roi(self,aligned_data: np.ndarray, roi_start: int, roi_end: int) -> np.ndarray:
+        """
+        从对齐后的数据中提取感兴趣区域(ROI)
+        
+        Args:
+            aligned_data: 对齐后的数据
+            roi_start: ROI起始索引
+            roi_end: ROI结束索引
+            
+        Returns:
+            ROI数据
+        """
+        return aligned_data[roi_start:roi_end]
+    
+
+    def compute_spectrum(self,data: np.ndarray, ts_eff: float) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """
+        计算数据的频谱
+        
+        Args:
+            data: 输入数据
+            ts_eff: 有效采样时间
+            
+        Returns:
+            频率数组、幅度谱(线性)、复数FFT结果
+        """
+        # 去均值
+        data_centered = data.astype(np.float64) - np.mean(data)
+        
+        # 加窗
+        window = np.hanning(len(data))
+        windowed_data = data_centered * window
+        
+        # 计算FFT
+        fft_result = np.fft.rfft(windowed_data)
+        freq = np.fft.rfftfreq(len(data), d=ts_eff)
+        
+        # 归一化
+        scale = (np.sum(window) / len(data)) * len(data)
+        magnitude_linear = np.abs(fft_result) / (scale + 1e-12)
+        
+        return freq, magnitude_linear, fft_result
+
+    def compute_difference(self,data: np.ndarray, diff_points: int) -> np.ndarray:
+        """
+        计算数据的差分
+        
+        Args:
+            data: 输入数据
+            diff_points: 差分点数
+            
+        Returns:
+            差分数据
+        """
+        return data[diff_points:] - data[:-diff_points]
+    
+    def process_single_file(self, u32_arr: np.ndarray, 
+                        min_edge_amplitude_ratio: float = 0.3) -> Optional[Tuple]:
+        """
+        改进的处理单个文件的方法，包含幅值过滤
+        
+        Args:
+            u32_arr: uint32数据数组
+            min_edge_amplitude_ratio: 最小上升沿幅值比例
+            
+        Returns:
+            处理结果元组或None
+        """
+        try:
+            # 1. 提取ADC数据
+            bit31, adc_full = self.extract_adc_data(u32_arr, self.config.use_signed18)
+            
+            # 2. 检测最佳上升沿（满足幅值要求）
+            best_edge = self.find_best_rising_edge(
+                bit31, adc_full, min_edge_amplitude_ratio, self.config.edge_search_start
+            )
+            
+            if best_edge is None:
+                logger.warning("未找到满足幅值要求的上升沿")
+                return None
+                
+            rise_idx, edge_amplitude = best_edge
+            logger.info(f"找到最佳上升沿位置: {rise_idx}, 相对幅值: {edge_amplitude:.3f}")
+            
+            # 3. 截取数据段
+            segment_adc = self.extract_data_segment(
+                adc_full, rise_idx, self.config.start_index, self.config.n_points
+            )
+            if segment_adc is None:
+                return None
+            
+            # 4. 按周期排序
+            y_sorted, _ = self.sort_data_by_period(
+                segment_adc, self.config.t_sample, self.config.t_trig
+            )
+            
+            # 5. 搜索上升沿位置
+            rise_pos = self.find_rise_position(
+                y_sorted, self.config.search_method, np.mean(adc_full)
+            )
+            
+            # 6. 数据对齐
+            target_idx = self.config.n_points // 4
+            y_full = self.align_data(y_sorted, rise_pos, target_idx)
+            
+            # 7. 提取ROI
+            y_roi = self.extract_roi(y_full, self.config.roi_start, self.config.roi_end)
+            
+            # 8. ROI频谱分析
+            freq, mag_linear, _ = self.compute_spectrum(y_roi, self.config.ts_eff)
+            
+            # 9. 差分处理
+            if self.config.l_roi <= self.config.diff_points:
+                return None
+                
+            y_diff = self.compute_difference(y_roi, self.config.diff_points)
+            
+            # 10. 差分频谱分析
+            freq_d, mag_linear_d, Xd_norm = self.compute_spectrum(y_diff, self.config.ts_eff)
+            
+            # 添加边缘信息到返回结果
+            return (y_roi, freq, mag_linear, y_diff, freq_d, mag_linear_d, Xd_norm, 
+                    rise_idx, edge_amplitude)
+                
+        except Exception as e:
+            logger.error(f"处理文件时出错: {e}")
+            return None
+
+
     def process_single_file(self, u32_arr: np.ndarray) -> Optional[Tuple]:
         """
-        处理单个文件的数据
+        重构后的处理单个文件的方法
         
         Args:
             u32_arr: uint32数据数组
@@ -104,90 +520,56 @@ class DataAnalyzer:
             处理结果元组或None
         """
         try:
-            # 提取bit31和ADC数据
-            bit31 = ((u32_arr >> 31) & 0x1).astype(np.uint8)
-            adc_18u = (u32_arr & ((1 << 20) - 1)).astype(np.uint32)
+            # 1. 提取ADC数据
+            bit31, adc_full = self.extract_adc_data(u32_arr, self.config.use_signed18)
             
-            # 转换为有符号或无符号
-            if self.config.use_signed18:
-                adc_18s = ((adc_18u + (1 << 19)) & ((1 << 20) - 1)) - (1 << 19)
-                adc_full = adc_18s.astype(np.int32)
-            else:
-                adc_full = adc_18u.astype(np.int32)
-            
-            # 检测上升沿
-            edge_idx = np.flatnonzero((bit31[1:] == 1) & (bit31[:-1] == 0))
-            edge_idx = edge_idx[edge_idx >= self.config.edge_search_start]
-            if edge_idx.size == 0:
-                logger.warning("未找到上升沿")
+            # 2. 检测上升沿
+            rise_idx = self.detect_rising_edge(bit31, self.config.edge_search_start)
+            if rise_idx is None:
                 return None
             
-            rise_idx = edge_idx[0] + 1
-            start_capture = rise_idx + self.config.start_index
-            
-            # 检查数据长度
-            if start_capture + self.config.n_points > u32_arr.size:
-                logger.warning("数据长度不足")
+            # 3. 截取数据段
+            segment_adc = self.extract_data_segment(
+                adc_full, rise_idx, self.config.start_index, self.config.n_points
+            )
+            if segment_adc is None:
                 return None
             
-            # 截取数据段
-            segment_adc = adc_full[start_capture : start_capture + self.config.n_points]
+            # 4. 按周期排序
+            y_sorted, _ = self.sort_data_by_period(
+                segment_adc, self.config.t_sample, self.config.t_trig
+            )
             
-            # 按周期时间排序
-            t_within_period = (np.arange(self.config.n_points, dtype=np.float64) * self.config.t_sample) % self.config.t_trig
-            sort_idx = np.argsort(t_within_period)
-            y_sorted = segment_adc[sort_idx]
+            # 5. 搜索上升沿位置
+            rise_pos = self.find_rise_position(
+                y_sorted, self.config.search_method, np.mean(adc_full)
+            )
             
-            # 搜索上升沿位置
-            if self.config.search_method == SearchMethod.RISING:
-                adc_full_mean = np.mean(adc_full)
-                rise_candidates = np.flatnonzero((y_sorted[10:] > adc_full_mean) & (y_sorted[:-10] <= adc_full_mean))
-                if rise_candidates.size == 0:
-                    dy = np.diff(y_sorted.astype(np.float64))
-                    rise_pos = int(np.argmax(dy)) + 1
-                else:
-                    rise_pos = int(rise_candidates[0])
-            else:
-                rise_pos = int(np.argmax(y_sorted))
-            
-            # 对齐数据
+            # 6. 数据对齐
             target_idx = self.config.n_points // 4
-            shift = (target_idx - rise_pos) % self.config.n_points
-            y_full = np.roll(y_sorted, shift)
+            y_full = self.align_data(y_sorted, rise_pos, target_idx)
             
-            # 提取ROI
-            y_roi = y_full[self.config.roi_start:self.config.roi_end]
+            # 7. 提取ROI
+            y_roi = self.extract_roi(y_full, self.config.roi_start, self.config.roi_end)
             
-            # ROI频谱分析
-            y0 = y_roi.astype(np.float64)
-            y0 -= np.mean(y0)
-            win0 = np.hanning(self.config.l_roi)
-            X0 = np.fft.rfft(y0 * win0)
-            freq = np.fft.rfftfreq(self.config.l_roi, d=self.config.ts_eff)
-            scale0 = (np.sum(win0) / self.config.l_roi) * self.config.l_roi
-            mag_linear = np.abs(X0) / (scale0 + 1e-12)
+            # 8. ROI频谱分析
+            freq, mag_linear, _ = self.compute_spectrum(y_roi, self.config.ts_eff)
             
-            # 差分处理
+            # 9. 差分处理
             if self.config.l_roi <= self.config.diff_points:
                 return None
                 
-            y_diff = y_roi[self.config.diff_points:] - y_roi[:-self.config.diff_points]
-            nd = y_diff.size
-            y_d = y_diff.astype(np.float64)
-            y_d -= np.mean(y_d)
-            win_d = np.hanning(nd)
-            Xd = np.fft.rfft(y_d * win_d)
-            freq_d = np.fft.rfftfreq(nd, d=self.config.ts_eff)
-            scale_d = (np.sum(win_d) / nd) * nd
-            Xd_norm = Xd / (scale_d + 1e-12)
-            mag_linear_d = np.abs(Xd_norm)
+            y_diff = self.compute_difference(y_roi, self.config.diff_points)
+            
+            # 10. 差分频谱分析
+            freq_d, mag_linear_d, Xd_norm = self.compute_spectrum(y_diff, self.config.ts_eff)
             
             return y_roi, freq, mag_linear, y_diff, freq_d, mag_linear_d, Xd_norm
             
         except Exception as e:
             logger.error(f"处理文件时出错: {e}")
             return None
-    
+
     def batch_process_files(self, file_list: List[str]) -> Dict[str, Any]:
         """
         批量处理文件列表
@@ -275,19 +657,21 @@ class DataAnalyzer:
         # 边缘位置
         edge_in_roi = (self.config.n_points // 4 - self.config.roi_start)
         
-        # 原始ROI图
+        # 原始ROI图 - 添加校准模式到标题
         fig, (ax_t, ax_f) = plt.subplots(2, 1, figsize=(12, 8))
         if 0 <= edge_in_roi < self.config.l_roi:
-            ax_t.axvline(t_roi_us[edge_in_roi], linestyle="--", linewidth=0.8, color='red', alpha=0.7, label='Edge Position')
+            ax_t.axvline(t_roi_us[edge_in_roi], linestyle="--", linewidth=0.8, 
+                        color='red', alpha=0.7, label='Edge Position')
         ax_t.plot(t_roi_us, averages['y_avg'], label='Average Signal')
-        ax_t.set_title(f"Average Time-Domain ROI (across {results['success_count']} files)")
+        ax_t.set_title(f"{self.config.cal_mode} - Average Time-Domain ROI "
+                      f"(across {results['success_count']} files)")
         ax_t.set_xlabel('Time (μs)')
         ax_t.set_ylabel('Amplitude')
         ax_t.legend()
         ax_t.grid(True, alpha=0.3)
         
         ax_f.plot(results['freq_ref'][mask]/1e9, averages['mag_avg_db'][mask])
-        ax_f.set_title("Average Spectrum ROI")
+        ax_f.set_title(f"{self.config.cal_mode} - Average Spectrum ROI")
         ax_f.set_xlabel('Frequency (GHz)')
         ax_f.set_ylabel('Magnitude (dB)')
         ax_f.grid(True, alpha=0.3)
@@ -295,36 +679,55 @@ class DataAnalyzer:
         plt.tight_layout()
         plt.show()
         
-        # 差分ROI图
+        # 差分ROI图 - 添加校准模式到标题
         fig2, (ax_t2, ax_f2) = plt.subplots(2, 1, figsize=(12, 8))
         if (0 <= edge_in_roi < self.config.l_roi and 
             0 <= edge_in_roi - self.config.diff_points < averages['y_d_avg'].size):
             ax_t2.axvline(t_roi_us[max(edge_in_roi - self.config.diff_points, 0)], 
-                         linestyle="--", linewidth=0.8, color='red', alpha=0.7, label='Edge Position')
+                         linestyle="--", linewidth=0.8, color='red', alpha=0.7, 
+                         label='Edge Position')
         ax_t2.plot(t_diff_us, averages['y_d_avg'], label='Differenced Signal')
-        ax_t2.set_title("Differenced Time-Domain Average")
+        ax_t2.set_title(f"{self.config.cal_mode} - Differenced Time-Domain Average")
         ax_t2.set_xlabel('Time (μs)')
         ax_t2.set_ylabel('Amplitude')
         ax_t2.legend()
         ax_t2.grid(True, alpha=0.3)
         
         ax_f2.plot(results['freq_d_ref'][maskd]/1e9, averages['mag_d_avg_db'][maskd])
-        ax_f2.set_title("Differenced Spectrum Average")
+        ax_f2.set_title(f"{self.config.cal_mode} - Differenced Spectrum Average")
         ax_f2.set_xlabel('Frequency (GHz)')
         ax_f2.set_ylabel('Magnitude (dB)')
         ax_f2.grid(True, alpha=0.3)
         
         plt.tight_layout()
         plt.show()
+
+
+    def get_output_filename(self) -> str:
+        """
+        根据校准模式生成输出文件名
+        
+        Returns:
+            格式化的输出文件名
+        """
+        base_name = os.path.splitext(self.config.output_csv)[0]
+        extension = os.path.splitext(self.config.output_csv)[1]
+        
+        # 根据校准模式添加后缀
+        mode_suffix = f"_{self.config.cal_mode.lower()}"
+        return f"{base_name}{mode_suffix}{extension}"
     
     def save_results(self, results: Dict[str, Any], averages: Dict[str, Any]):
         """保存结果到文件"""
+        # 根据校准模式生成输出文件名
+        output_filename = self.get_output_filename()
+        
         # 保存复数FFT结果
         success = self.file_manager.save_complex_fft_results(
             results['freq_d_ref'], 
             np.real(averages['avg_Xd']), 
             np.imag(averages['avg_Xd']), 
-            self.config.output_csv
+            output_filename
         )
         
         if not success:
@@ -335,17 +738,21 @@ class DataAnalyzer:
             'total_files': results['total_files'],
             'successful_files': results['success_count'],
             'success_rate': results['success_count'] / results['total_files'],
+            'calibration_mode': self.config.cal_mode,  # 添加校准模式信息
             'config': {
                 'input_dir': self.config.input_dir,
                 'clock_freq': self.config.clock_freq,
                 'trigger_freq': self.config.trigger_freq,
                 'n_points': self.config.n_points,
-                'roi_range': f"{self.config.roi_start_tenths}%-{self.config.roi_end_tenths}%"
+                'roi_range': f"{self.config.roi_start_tenths}%-{self.config.roi_end_tenths}%",
+                'cal_mode': self.config.cal_mode  # 添加校准模式到配置
             }
         }
         
-        stats_file = os.path.splitext(self.config.output_csv)[0] + '_stats.json'
+        stats_file = os.path.splitext(output_filename)[0] + '_stats.json'
         self.file_manager.save_json_data(stats, stats_file)
+        
+        logger.info(f"结果已保存到: {output_filename}")
     
     def run_analysis(self):
         """运行完整分析流程"""
@@ -369,7 +776,11 @@ class DataAnalyzer:
 def main():
     """主函数"""
     # 创建配置
-    config = AnalysisConfig()
+    # config_open = AnalysisConfig(cal_mode=CalibrationMode.OPEN)
+    # config_short = AnalysisConfig(cal_mode=CalibrationMode.SHORT)
+    config = AnalysisConfig(cal_mode=CalibrationMode.LOAD,input_dir="data\\results\\test\\SHORT")
+    # config_thru = AnalysisConfig(cal_mode=CalibrationMode.THRU)
+    # config = AnalysisConfig()
     
     try:
         # 创建分析器并运行

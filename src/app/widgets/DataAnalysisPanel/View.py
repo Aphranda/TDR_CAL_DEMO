@@ -246,6 +246,13 @@ class DataAnalysisView(QWidget):
         self.search_method_combo.setCurrentIndex(0)
         options_layout.addWidget(self.search_method_combo)
         
+        # 添加CAL下拉栏
+        options_layout.addWidget(QLabel("CAL:"))
+        self.cal_type_combo = QComboBox()
+        self.cal_type_combo.addItems(["SHORT", "OPEN", "LOAD", "THRU"])
+        self.cal_type_combo.setCurrentIndex(0)
+        options_layout.addWidget(self.cal_type_combo)
+        
         layout.addLayout(options_layout)
         
         widget.setLayout(layout)
