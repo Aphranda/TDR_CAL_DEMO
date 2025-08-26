@@ -12,45 +12,79 @@ class EdgeDetector:
         self.config = config
     
     def find_rise_position(self, sorted_data: np.ndarray, search_method: int, 
-                         adc_full_mean: Optional[float] = None,
-                         min_edge_amplitude_ratio: float = 0.5) -> int:
+                        adc_full_mean: Optional[float] = None,
+                        min_edge_amplitude_ratio: float = 0.5) -> int:
         """在排序后的数据中搜索上升沿位置"""
         # 计算信号的整体峰峰值
         signal_p2p = np.max(sorted_data) - np.min(sorted_data)
-      
+        
+        # 预处理：使用移动平均滤波减少毛刺影响
+        window_size = 5  # 可根据实际情况调整
+        smoothed_data = np.convolve(sorted_data, np.ones(window_size)/window_size, mode='same')
+        
         if search_method == 1:  # RISING
             if adc_full_mean is None:
-                adc_full_mean = np.mean(sorted_data)/0.7
-          
-            # 寻找满足基本条件的候选点
+                adc_full_mean = np.mean(sorted_data)
+            
+            # 方法1：使用滤波后的数据进行初步检测
             basic_candidates = np.flatnonzero(
-                (sorted_data[50:] > adc_full_mean) & 
-                (sorted_data[:-50] <= adc_full_mean)
+                (smoothed_data[50:] > adc_full_mean) & 
+                (smoothed_data[:-50] <= adc_full_mean)
             ) + 50  # 补偿偏移
-          
+            
+            # 方法2：使用差分方法找到所有可能的边沿
+            dy = np.diff(smoothed_data)
+            dy_threshold = np.max(dy) * 0.3  # 设置差分阈值
+            diff_candidates = np.flatnonzero(dy > dy_threshold) + 1
+            
+            # 合并候选点
+            all_candidates = np.unique(np.concatenate([basic_candidates, diff_candidates]))
+            
             # 筛选幅度比例满足条件的候选点
             valid_candidates = []
-            for candidate in basic_candidates:
-                if candidate >= 10:  # 确保有足够的点计算基线
-                    baseline = np.mean(sorted_data[candidate-10:candidate])
-                    edge_amplitude = sorted_data[candidate] - baseline
-                  
-                    if edge_amplitude >= min_edge_amplitude_ratio * signal_p2p:
-                        valid_candidates.append((candidate, edge_amplitude))
-          
+            for candidate in all_candidates:
+                if 10 <= candidate < len(sorted_data) - 10:  # 确保有足够的点计算
+                    # 计算基线（使用滤波前数据）
+                    baseline_window = max(0, candidate-20)
+                    baseline = np.median(sorted_data[baseline_window:candidate])  # 使用中值滤波减少毛刺影响
+                    
+                    # 计算峰值（使用滤波前数据）
+                    peak_window = min(candidate + 20, len(sorted_data))
+                    peak_val = np.max(sorted_data[candidate:peak_window])
+                    
+                    edge_amplitude = peak_val - baseline
+                    
+                    # 更严格的筛选条件
+                    if (edge_amplitude >= min_edge_amplitude_ratio * signal_p2p and
+                        edge_amplitude >= signal_p2p * 0.3):  # 确保是主要边沿
+                        valid_candidates.append((candidate, edge_amplitude, peak_val))
+            
             if valid_candidates:
                 # 选择幅度最大的候选点
                 valid_candidates.sort(key=lambda x: x[1], reverse=True)
-                return valid_candidates[0][0]
+                
+                # 进一步验证：确保不是毛刺
+                best_candidate = valid_candidates[0][0]
+                best_amplitude = valid_candidates[0][1]
+                
+                # 检查候选点周围是否有更大的边沿（防止漏检）
+                for candidate, amplitude, _ in valid_candidates[1:]:
+                    if amplitude > best_amplitude * 0.8:  # 如果存在幅度相近的候选点
+                        # 选择更靠前的点（通常是主边沿）
+                        if candidate < best_candidate:
+                            best_candidate = candidate
+                            best_amplitude = amplitude
+                
+                return best_candidate
             else:
                 # 回退到差分方法
-                dy = np.diff(sorted_data)
-                max_dy_idx = np.argmax(dy)
+                max_dy_idx = np.argmax(np.diff(sorted_data))
                 return max_dy_idx + 1
         else:
             # 最大值方法
             max_pos = np.argmax(sorted_data)
             return max_pos
+
     
     def find_second_rise_position(self, sorted_data: np.ndarray, first_rise_pos: int, 
                                 min_second_rise_ratio: float = 0.1) -> Optional[int]:
