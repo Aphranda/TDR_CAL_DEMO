@@ -24,6 +24,8 @@ class ADCConfig:
     roi_end_tenths: int = 30
     output_csv: str = 'analysis_results.csv'
     min_edge_amplitude_ratio:float = 0.3
+    min_second_rise_ratio: float = 0.2    # 第二个上升沿最小幅度比例
+    min_second_fall_ratio: float = 0.2           # 下降沿最小幅度比例
     cal_mode: str = "LOAD"  # 新增CAL_Mode参数
 
     @property

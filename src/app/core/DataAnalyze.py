@@ -48,7 +48,9 @@ class AnalysisConfig:
     roi_start_tenths: int = 0
     roi_end_tenths: int = 100
     output_csv: str = 'data\\raw\\calibration\\S_data.csv'
-    min_edge_amplitude_ratio:float = 0.3
+    min_edge_amplitude_ratio:float = 0.2
+    min_second_rise_ratio: float = 0.2    # 第二个上升沿最小幅度比例
+    min_second_fall_ratio: float = 0.2           # 下降沿最小幅度比例
     cal_mode: str = CalibrationMode.LOAD  # 新增CAL_Mode参数
     
     @property
@@ -133,7 +135,7 @@ class DataAnalyzer:
         
         return bit31, adc_data
     
-    def detect_rising_edge(self,bit31: np.ndarray, edge_search_start: int = 1) -> Optional[int]:
+    def detect_valid_data(self,bit31: np.ndarray, edge_search_start: int = 1) -> Optional[int]:
         """
         检测bit31数组中的上升沿位置
         
@@ -146,7 +148,6 @@ class DataAnalyzer:
         """
         # 检测上升沿 (0->1转换)
         edge_idx = np.flatnonzero((bit31[1:] == 1) & (bit31[:-1] == 0))
-        print(bit31)
         # 过滤起始位置
         edge_idx = edge_idx[edge_idx >= edge_search_start]
         
@@ -201,38 +202,159 @@ class DataAnalyzer:
         
         return sorted_data, sort_idx
     
-    def find_rise_position(self,sorted_data: np.ndarray, search_method: int, adc_full_mean: Optional[float] = None) -> int:
+    def find_rise_position(self, sorted_data: np.ndarray, search_method: int, 
+                        adc_full_mean: Optional[float] = None,
+                        min_edge_amplitude_ratio: float = 0.3) -> int:
         """
         在排序后的数据中搜索上升沿位置
-        
-        Args:
-            sorted_data: 排序后的数据
-            search_method: 搜索方法 (RISING或MAX)
-            adc_full_mean: 完整数据的平均值(可选)
-            
-        Returns:
-            上升沿位置索引
         """
+        # 计算信号的整体峰峰值
+        signal_p2p = np.max(sorted_data) - np.min(sorted_data)
+        
         if search_method == SearchMethod.RISING:
-            # 使用平均值方法检测上升沿
             if adc_full_mean is None:
                 adc_full_mean = np.mean(sorted_data)
             
-            rise_candidates = np.flatnonzero(
-                (sorted_data[10:] > adc_full_mean) & (sorted_data[:-10] <= adc_full_mean)
-            )
+            # 寻找满足基本条件的候选点
+            basic_candidates = np.flatnonzero(
+                (sorted_data[10:] > adc_full_mean) & 
+                (sorted_data[:-10] <= adc_full_mean)
+            ) + 10  # 补偿偏移
             
-            if rise_candidates.size == 0:
-                # 使用差分最大值方法
-                dy = np.diff(sorted_data.astype(np.float64))
-                rise_pos = int(np.argmax(dy)) + 1
+            # 筛选幅度比例满足条件的候选点
+            valid_candidates = []
+            for candidate in basic_candidates:
+                if candidate >= 10:  # 确保有足够的点计算基线
+                    baseline = np.mean(sorted_data[candidate-10:candidate])
+                    edge_amplitude = sorted_data[candidate] - baseline
+                    
+                    if edge_amplitude >= min_edge_amplitude_ratio * signal_p2p:
+                        valid_candidates.append((candidate, edge_amplitude))
+            
+            if valid_candidates:
+                # 选择幅度最大的候选点
+                valid_candidates.sort(key=lambda x: x[1], reverse=True)
+                return valid_candidates[0][0]
             else:
-                rise_pos = int(rise_candidates[0])
+                # 回退到差分方法
+                dy = np.diff(sorted_data)
+                max_dy_idx = np.argmax(dy)
+                return max_dy_idx + 1
         else:
-            # 使用最大值方法
-            rise_pos = int(np.argmax(sorted_data))
+            # 最大值方法
+            max_pos = np.argmax(sorted_data)
+            return max_pos
+
+    def find_second_rise_position(self, sorted_data: np.ndarray, first_rise_pos: int, 
+                                min_second_rise_ratio: float = 0.3) -> Optional[int]:
+        """
+        查找第二个上升沿位置，基于第一个上升沿的幅值百分比
         
-        return rise_pos
+        Args:
+            sorted_data: 排序后的数据
+            first_rise_pos: 第一个上升沿位置
+            min_second_rise_ratio: 第二个上升沿最小幅度与第一个上升沿幅度的比例
+            
+        Returns:
+            第二个上升沿位置索引，如果未找到则返回None
+        """
+        if first_rise_pos >= len(sorted_data) - 10:
+            return None
+        
+        # 计算第一个上升沿的幅度
+        first_baseline = np.mean(sorted_data[max(0, first_rise_pos-10):first_rise_pos])
+        first_rise_amplitude = sorted_data[first_rise_pos] - first_baseline
+        
+        # 计算第二个上升沿的最小幅度阈值
+        min_second_amplitude = first_rise_amplitude * min_second_rise_ratio
+        
+        # 在第一个上升沿之后搜索第二个上升沿
+        search_start = first_rise_pos + 500  # 避免检测到同一个上升沿
+        search_end = len(sorted_data) - 10
+        
+        second_rise_candidates = []
+        
+        for i in range(search_start, search_end):
+            # 检查是否出现新的上升沿
+            if (sorted_data[i] > sorted_data[i-1] + min_second_amplitude * 0.2 and  # 开始上升
+                np.all(sorted_data[i-5:i] < sorted_data[i] - min_second_amplitude * 0.5)):  # 前5点较低
+                
+                # 计算这个潜在上升沿的峰值
+                peak_search_end = min(i + 50, len(sorted_data))
+                peak_val = np.max(sorted_data[i:peak_search_end])
+                peak_pos = i + np.argmax(sorted_data[i:peak_search_end])
+                
+                # 计算上升沿幅度
+                current_baseline = np.mean(sorted_data[i-10:i])
+                rise_amplitude = peak_val - current_baseline
+                
+                if rise_amplitude >= min_second_amplitude:
+                    second_rise_candidates.append((peak_pos, rise_amplitude))
+        
+        if second_rise_candidates:
+            # 选择幅度最大的候选点
+            second_rise_candidates.sort(key=lambda x: x[1], reverse=True)
+            return second_rise_candidates[0][0]
+        
+        return None
+
+    def find_second_fall_position(self, sorted_data: np.ndarray, rise_pos: int, 
+                        min_second_fall_ratio: float = 0.3) -> Optional[int]:
+        """
+        查找下降沿位置，基于上升沿幅值的百分比
+        
+        Args:
+            sorted_data: 排序后的数据
+            rise_pos: 上升沿位置
+            min_second_fall_ratio: 下降沿最小幅度与上升沿幅度的比例
+            
+        Returns:
+            下降沿位置索引，如果未找到则返回None
+        """
+        if rise_pos >= len(sorted_data) - 10:
+            return None
+        
+        # 计算上升沿的峰值和幅度
+        peak_search_end = min(rise_pos + 100, len(sorted_data))
+        peak_val = np.max(sorted_data[rise_pos:peak_search_end])
+        peak_pos = rise_pos + np.argmax(sorted_data[rise_pos:peak_search_end])
+        
+        baseline = np.mean(sorted_data[max(0, rise_pos-10):rise_pos])
+        rise_amplitude = peak_val - baseline
+        
+        # 计算下降沿的最小幅度阈值
+        min_fall_amplitude = rise_amplitude * min_second_fall_ratio
+        
+        # 在峰值之后搜索下降沿
+        search_start = peak_pos + 500  # 从峰值后开始搜索
+        search_end = len(sorted_data) - 10
+        
+        fall_candidates = []
+        
+        for i in range(search_start, search_end):
+            # 检查是否出现显著的下降
+            if (sorted_data[i] < sorted_data[i-1] - min_fall_amplitude * 0.2 and  # 开始下降
+                sorted_data[i] < peak_val - min_fall_amplitude and  # 下降幅度足够
+                np.all(sorted_data[i:i+5] < sorted_data[i-5:i] - min_fall_amplitude * 0.3)):  # 持续下降
+                
+                # 计算下降的谷值
+                valley_search_end = min(i + 50, len(sorted_data))
+                valley_val = np.min(sorted_data[i:valley_search_end])
+                valley_pos = i + np.argmin(sorted_data[i:valley_search_end])
+                
+                # 计算下降幅度
+                fall_amplitude = peak_val - valley_val
+                
+                if fall_amplitude >= min_fall_amplitude:
+                    fall_candidates.append((valley_pos, fall_amplitude))
+        
+        if fall_candidates:
+            # 选择下降幅度最大的候选点
+            fall_candidates.sort(key=lambda x: x[1], reverse=True)
+            return fall_candidates[0][0]
+        
+        return None
+
 
     def align_data(self,sorted_data: np.ndarray, rise_pos: int, target_position: int) -> np.ndarray:
         """
@@ -320,7 +442,7 @@ class DataAnalyzer:
             bit31, adc_full = self.extract_adc_data(u32_arr, self.config.use_signed18)
             
             # 2. 检测上升沿
-            rise_idx = self.detect_rising_edge(bit31, self.config.edge_search_start)
+            rise_idx = self.detect_valid_data(bit31, self.config.edge_search_start)
             if rise_idx is None:
                 return None
             
@@ -338,7 +460,7 @@ class DataAnalyzer:
             
             # 5. 搜索上升沿位置
             rise_pos = self.find_rise_position(
-                y_sorted, self.config.search_method, np.mean(adc_full)
+                y_sorted, self.config.search_method, np.mean(adc_full), self.config.min_edge_amplitude_ratio
             )
             
             # 6. 数据对齐
