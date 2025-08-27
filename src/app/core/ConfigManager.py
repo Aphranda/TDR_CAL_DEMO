@@ -34,9 +34,9 @@ class AnalysisConfig:
     roi_end_tenths: int = 100
     roi_mid_tenths: int = 10
     output_csv: str = 'data\\raw\\calibration\\S_data.csv'
-    min_edge_amplitude_ratio: float = 0.1
-    min_second_rise_ratio: float = 0.05
-    min_second_fall_ratio: float = 0.05
+    min_edge_amplitude_ratio: float = 0.2
+    min_second_rise_ratio: float = 0.1
+    min_second_fall_ratio: float = 0.1
     cal_mode: str = CalibrationMode.LOAD
 
     @property
@@ -73,7 +73,7 @@ class AnalysisConfig:
     
  
     def n_roi(self,n) -> int:
-        return int(self.n_points * n / 100)
+        return int( n * 100/self.n_points)
 
 class ConfigValidator:
     """配置验证器"""

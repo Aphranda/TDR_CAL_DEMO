@@ -60,8 +60,8 @@ class DataAnalyzer:
             )
           
             # 5. 搜索所有边沿位置,第一上升沿，第二上升沿，下降沿
+            
             edges_dict = self.analyze_edges(y_sorted)
-
             rise_pos = edges_dict["first_rise_pos"]
             second_rise_pos = edges_dict["second_rise_pos"]
             fall_pos = edges_dict['fall_pos']
@@ -69,7 +69,8 @@ class DataAnalyzer:
             # 6. 数据对齐
             target_idx = self.config.n_points // 4
             y_full = self.data_processor.align_data(y_sorted, rise_pos, target_idx)
-          
+
+        
             # 7. 提取ROI
             y_roi = self.data_processor.extract_roi(y_full, self.config.roi_start, self.config.roi_end)
           
@@ -340,7 +341,8 @@ class DataAnalyzer:
         """
         完整的边沿分析流程，返回边沿位置和中点位置
         """
-        return self.edge_detector.analyze_edges(sorted_data)
+        edges_dict = self.edge_detector.analyze_edges(sorted_data)
+        return edges_dict
 
     def save_results(self, results: Dict[str, Any], averages: Dict[str, Any]):
         """保存结果到文件"""
@@ -374,7 +376,7 @@ class DataAnalyzer:
             raise RuntimeError(f"在目录 {self.config.input_dir} 中未找到CSV文件")
         
         # 批量处理文件
-        results = self.batch_process_files(files)
+        results = self.batch_process_files(files[:1])
       
         # 计算平均值
         averages = self.result_processor.calculate_averages(results)
@@ -402,7 +404,7 @@ def main():
     logging.basicConfig(level=logging.INFO)
     
     # 创建配置
-    config = AnalysisConfig(cal_mode=CalibrationMode.SHORT, input_dir="data\\results\\test\\SHORT")
+    config = AnalysisConfig(cal_mode=CalibrationMode.LOAD, input_dir="data\\results\\test\\SHORT")
   
     try:
         # 创建分析器并运行
