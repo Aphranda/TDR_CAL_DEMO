@@ -60,20 +60,22 @@ class DataAnalyzer:
             )
           
             # 5. 搜索所有边沿位置,第一上升沿，第二上升沿，下降沿
-            
-            edges_dict = self.analyze_edges(y_sorted)
-            rise_pos = edges_dict["first_rise_pos"]
-            second_rise_pos = edges_dict["second_rise_pos"]
-            fall_pos = edges_dict['fall_pos']
-          
+            rise_pos = self.edge_detector.find_rise_position(
+                y_sorted, self.config.search_method, np.mean(adc_full), self.config.min_edge_amplitude_ratio
+            )
+
             # 6. 数据对齐
             target_idx = self.config.n_points // 4
             y_full = self.data_processor.align_data(y_sorted, rise_pos, target_idx)
 
-        
             # 7. 提取ROI
             y_roi = self.data_processor.extract_roi(y_full, self.config.roi_start, self.config.roi_end)
-          
+
+            
+            edges_dict = self.analyze_edges(y_roi)
+            rise_pos = edges_dict["first_rise_pos"]
+            second_rise_pos = edges_dict["second_rise_pos"]
+            fall_pos = edges_dict['fall_pos']
             # 返回字典格式的结果
             return {
                 'adc_full': adc_full,
@@ -105,7 +107,7 @@ class DataAnalyzer:
             
             # 8. ROI频谱分析
             freq, mag_linear, _ = self.data_processor.compute_spectrum(y_roi, self.config.ts_eff)
-          
+            
             # 9. 差分处理
             if self.config.l_roi <= self.config.diff_points:
                 return None
@@ -114,7 +116,7 @@ class DataAnalyzer:
           
             # 10. 差分频谱分析
             freq_d, mag_linear_d, Xd_norm = self.data_processor.compute_spectrum(y_diff, self.config.ts_eff)
-          
+            
             # 返回字典格式的结果
             return {
                 'y_roi': y_roi,
@@ -143,11 +145,11 @@ class DataAnalyzer:
         try:
             rise_pos = data_dict['rise_pos']          
             fall_pos = data_dict['fall_pos'] or data_dict['second_rise_pos']
-            a_roi = self.config.n_roi(fall_pos) + 5
-            rise_roi = self.config.n_roi(rise_pos) -5
+            a_roi = self.config.roi_n(self.config.n_roi(fall_pos) + 5)
+            rise_roi = self.config.roi_n(self.config.n_roi(rise_pos) -5)
             mid_roi = int((a_roi+rise_roi)/2)
 
-            y_roi = self.data_processor.extract_roi(data_dict['y_full'],rise_roi,mid_roi)
+            y_roi = self.data_processor.extract_roi(data_dict['y_full'],rise_roi,a_roi)
             short_l_roi = self.data_processor.extract_roi(data_dict['y_full'],rise_roi,mid_roi)
             short_r_roi = self.data_processor.extract_roi(data_dict['y_full'],mid_roi,a_roi)
 
@@ -155,18 +157,18 @@ class DataAnalyzer:
             short_l_roi_freq, short_l_roi_mag_linear, short_l_roi_X_norm = self.data_processor.compute_spectrum(short_l_roi, self.config.ts_eff)
             short_r_roi_freq, short_r_roi_mag_linear, short_r_roi_X_norm = self.data_processor.compute_spectrum(short_r_roi, self.config.ts_eff)
             
-            mag_linear = np.divide(short_r_roi_mag_linear, short_l_roi_mag_linear, where=short_l_roi_freq!=0)
-              
+            mag_linear = np.divide(short_r_roi_mag_linear, short_l_roi_mag_linear, where=short_l_roi_mag_linear!=0)
+            
             # 先进行差分处理
-            short_l_roi__diff = self.data_processor.compute_difference(short_l_roi, self.config.diff_points)
-            short_r_roi__diff = self.data_processor.compute_difference(short_r_roi, self.config.diff_points)
+            short_l_roi__diff = self.data_processor.compute_difference(short_l_roi, len(short_l_roi)-2)
+            short_r_roi__diff = self.data_processor.compute_difference(short_r_roi, len(short_l_roi)-2)
             y_diff = self.data_processor.compute_difference(y_roi, self.config.diff_points)
           
             # 对差分数据进行频谱分析
             short_l_roi_freq_d, short_l_roi_mag_linear_d, short_l_roi_Xd_norm = self.data_processor.compute_spectrum(short_l_roi__diff, self.config.ts_eff)
             short_r_roi_freq_d, short_r_roi_mag_linear_d, short_r_roi_Xd_norm = self.data_processor.compute_spectrum(short_r_roi__diff, self.config.ts_eff)
 
-            mag_linear_d = np.divide(short_r_roi_mag_linear_d, short_l_roi_mag_linear_d, where=short_l_roi_freq!=0)
+            mag_linear_d = np.divide(short_r_roi_mag_linear_d, short_l_roi_mag_linear_d, where=short_l_roi_mag_linear_d!=0)
             # 对原始ROI数据也进行频谱分析（可选）
           
             # 返回字典格式的结果
@@ -261,11 +263,11 @@ class DataAnalyzer:
               
             elif self.config.cal_mode == CalibrationMode.SHORT:
                 # SHORT模式特殊处理
-                return self.process_short_mode(basic_result)
+                return self.process_thru_load_mode(basic_result)
               
             elif self.config.cal_mode == CalibrationMode.OPEN:
                 # OPEN模式特殊处理
-                return self.process_open_mode(basic_result)
+                return self.process_thru_load_mode(basic_result)
               
             else:
                 logger.error(f"未知的校准模式: {self.config.cal_mode}")
@@ -376,11 +378,11 @@ class DataAnalyzer:
             raise RuntimeError(f"在目录 {self.config.input_dir} 中未找到CSV文件")
         
         # 批量处理文件
-        results = self.batch_process_files(files[:1])
-      
+        results = self.batch_process_files(files[0:1])
+        
         # 计算平均值
         averages = self.result_processor.calculate_averages(results)
-      
+        
         # 对平均数据进行边沿分析
         edge_analysis = self.analyze_edges(averages['y_avg'])
       

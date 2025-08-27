@@ -1,8 +1,8 @@
 # src/app/core/EdgeDetector.py
+import matplotlib.pyplot as plt
 import numpy as np
 from typing import Optional, Dict, Any, List, Tuple
 import logging
-
 logger = logging.getLogger(__name__)
 
 class EdgeDetector:
@@ -233,3 +233,270 @@ class EdgeDetector:
                     result['second_fall_midpoint_time'] = second_fall_midpoint * self.config.ts_eff * 1e6
         
         return result
+
+    def debug_plot_edges(self, sorted_data: np.ndarray, title: str = "Edge Detection Debug") -> plt.Figure:
+        """
+        调试绘图函数，显示边沿检测的详细过程
+        
+        Args:
+            sorted_data: 输入数据曲线
+            title: 图表标题
+            
+        Returns:
+            matplotlib Figure对象
+        """
+        # 预处理数据
+        smoothed_data = self._preprocess_data(sorted_data)
+        
+        # 创建图表
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8))
+        fig.suptitle(title, fontsize=14)
+        
+        # 绘制原始数据和平滑数据
+        ax1.plot(sorted_data, 'b-', label='原始数据', alpha=0.7, linewidth=1)
+        ax1.plot(smoothed_data, 'r-', label='平滑数据', alpha=0.8, linewidth=1.5)
+        
+        # 检测第一个上升沿
+        first_rise_pos = self.find_rise_position(
+            sorted_data, self.config.search_method, np.mean(sorted_data)
+        )
+        
+        if first_rise_pos is not None:
+            # 标记第一个上升沿
+            ax1.axvline(x=first_rise_pos, color='g', linestyle='--', 
+                       label=f'第一上升沿: {first_rise_pos}')
+            ax1.plot(first_rise_pos, sorted_data[first_rise_pos], 'go', markersize=8)
+            
+            # 计算第一个上升沿的幅度
+            first_baseline = np.median(sorted_data[max(0, first_rise_pos-15):first_rise_pos])
+            first_peak_search_end = min(first_rise_pos + 50, len(sorted_data))
+            first_peak_val = np.max(sorted_data[first_rise_pos:first_peak_search_end])
+            first_amplitude = first_peak_val - first_baseline
+            
+            # 标记基线和峰值
+            ax1.axhline(y=first_baseline, color='orange', linestyle=':', alpha=0.7)
+            ax1.axhline(y=first_peak_val, color='orange', linestyle=':', alpha=0.7)
+            
+            # 检测第二个上升沿
+            second_rise_candidates = self._find_edge_candidates(
+                smoothed_data[first_rise_pos + 50:], True, 0.1
+            )
+            second_rise_candidates = [(pos + first_rise_pos + 50, amp) 
+                                    for pos, amp in second_rise_candidates]
+            
+            if second_rise_candidates:
+                # 筛选合格的候选点
+                valid_second_rise = []
+                for candidate_pos, candidate_amp in second_rise_candidates:
+                    if candidate_amp >= first_amplitude * 0.1:
+                        valid_second_rise.append((candidate_pos, candidate_amp))
+                
+                # 标记所有候选点
+                for pos, amp in second_rise_candidates:
+                    ax1.plot(pos, sorted_data[pos], 'yo', markersize=6, alpha=0.5)
+                
+                # 标记合格的候选点
+                for pos, amp in valid_second_rise:
+                    ax1.plot(pos, sorted_data[pos], 'mo', markersize=6)
+                
+                # 选择最近的合格候选点
+                if valid_second_rise:
+                    valid_second_rise.sort(key=lambda x: abs(x[0] - first_rise_pos))
+                    second_rise_pos = valid_second_rise[0][0]
+                    ax1.axvline(x=second_rise_pos, color='m', linestyle='--',
+                               label=f'第二上升沿: {second_rise_pos}')
+                    ax1.plot(second_rise_pos, sorted_data[second_rise_pos], 'mo', markersize=8)
+            
+            # 检测下降沿
+            fall_candidates = self._find_edge_candidates(
+                smoothed_data[first_rise_pos + 100:], False, 0.1
+            )
+            fall_candidates = [(pos + first_rise_pos + 100, amp) 
+                             for pos, amp in fall_candidates]
+            
+            if fall_candidates:
+                # 筛选合格的候选点
+                valid_fall = []
+                for candidate_pos, candidate_amp in fall_candidates:
+                    if candidate_amp >= first_amplitude * 0.1:
+                        valid_fall.append((candidate_pos, candidate_amp))
+                
+                # 标记所有候选点
+                for pos, amp in fall_candidates:
+                    ax1.plot(pos, sorted_data[pos], 'co', markersize=6, alpha=0.5)
+                
+                # 标记合格的候选点
+                for pos, amp in valid_fall:
+                    ax1.plot(pos, sorted_data[pos], 'co', markersize=6)
+                
+                # 选择最近的合格候选点
+                if valid_fall:
+                    valid_fall.sort(key=lambda x: abs(x[0] - first_rise_pos))
+                    fall_pos = valid_fall[0][0]
+                    ax1.axvline(x=fall_pos, color='c', linestyle='--',
+                               label=f'下降沿: {fall_pos}')
+                    ax1.plot(fall_pos, sorted_data[fall_pos], 'co', markersize=8)
+        
+        ax1.set_xlabel('采样点')
+        ax1.set_ylabel('幅值')
+        ax1.legend()
+        ax1.grid(True, alpha=0.3)
+        
+        # 绘制差分数据
+        dy = np.diff(smoothed_data)
+        ax2.plot(dy, 'g-', label='一阶差分', alpha=0.8)
+        
+        # 标记差分阈值
+        rising_threshold = np.max(dy) * 0.3
+        falling_threshold = np.min(dy) * 0.3
+        ax2.axhline(y=rising_threshold, color='r', linestyle=':', label='上升沿阈值')
+        ax2.axhline(y=falling_threshold, color='b', linestyle=':', label='下降沿阈值')
+        
+        ax2.set_xlabel('采样点')
+        ax2.set_ylabel('差分值')
+        ax2.legend()
+        ax2.grid(True, alpha=0.3)
+        
+        plt.tight_layout()
+        return fig
+    
+    def quick_debug_plot(self, sorted_data: np.ndarray, save_path: Optional[str] = None):
+        """
+        快速调试绘图，显示主要边沿检测结果
+        
+        Args:
+            sorted_data: 输入数据曲线
+            save_path: 可选，保存图片的路径
+        """
+        result = self.analyze_edges(sorted_data)
+        
+        plt.figure(figsize=(10, 6))
+        plt.plot(sorted_data, 'b-', label='原始数据', linewidth=1.5)
+        
+        # 标记检测到的边沿
+        if result['first_rise_pos'] is not None:
+            plt.axvline(x=result['first_rise_pos'], color='g', linestyle='--', 
+                       label=f'第一上升沿: {result["first_rise_pos"]}')
+            plt.plot(result['first_rise_pos'], sorted_data[result['first_rise_pos']], 
+                    'go', markersize=8)
+            
+            if 'stable_high_level' in result:
+                plt.axhline(y=result['stable_high_level'], color='orange', 
+                           linestyle=':', alpha=0.7, label='稳定高电平')
+        
+        if result.get('second_rise_pos') is not None:
+            plt.axvline(x=result['second_rise_pos'], color='m', linestyle='--',
+                       label=f'第二上升沿: {result["second_rise_pos"]}')
+            plt.plot(result['second_rise_pos'], sorted_data[result['second_rise_pos']],
+                    'mo', markersize=8)
+        
+        if result.get('fall_pos') is not None:
+            plt.axvline(x=result['fall_pos'], color='c', linestyle='--',
+                       label=f'下降沿: {result["fall_pos"]}')
+            plt.plot(result['fall_pos'], sorted_data[result['fall_pos']],
+                    'co', markersize=8)
+        
+        plt.xlabel('采样点')
+        plt.ylabel('幅值')
+        plt.title('边沿检测结果')
+        plt.legend()
+        plt.grid(True, alpha=0.3)
+        
+        if save_path:
+            plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        
+        plt.show()
+    
+    def plot_comparison(self, data_list: List[np.ndarray], titles: List[str] = None):
+        """
+        比较多个数据曲线的边沿检测结果
+        
+        Args:
+            data_list: 多个数据曲线的列表
+            titles: 每个曲线的标题列表
+        """
+        if titles is None:
+            titles = [f'曲线 {i+1}' for i in range(len(data_list))]
+        
+        n_plots = len(data_list)
+        fig, axes = plt.subplots(n_plots, 1, figsize=(12, 4 * n_plots))
+        
+        if n_plots == 1:
+            axes = [axes]
+        
+        for i, (data, title) in enumerate(zip(data_list, titles)):
+            result = self.analyze_edges(data)
+            
+            axes[i].plot(data, 'b-', label='数据', linewidth=1.5)
+            
+            # 标记检测到的边沿
+            if result['first_rise_pos'] is not None:
+                axes[i].axvline(x=result['first_rise_pos'], color='g', linestyle='--')
+                axes[i].plot(result['first_rise_pos'], data[result['first_rise_pos']], 
+                           'go', markersize=6)
+            
+            if result.get('second_rise_pos') is not None:
+                axes[i].axvline(x=result['second_rise_pos'], color='m', linestyle='--')
+                axes[i].plot(result['second_rise_pos'], data[result['second_rise_pos']],
+                           'mo', markersize=6)
+            
+            if result.get('fall_pos') is not None:
+                axes[i].axvline(x=result['fall_pos'], color='c', linestyle='--')
+                axes[i].plot(result['fall_pos'], data[result['fall_pos']],
+                           'co', markersize=6)
+            
+            axes[i].set_title(f'{title} - 边沿检测')
+            axes[i].set_xlabel('采样点')
+            axes[i].set_ylabel('幅值')
+            axes[i].grid(True, alpha=0.3)
+        
+        plt.tight_layout()
+        plt.show()
+
+    def simple_plot_data(self, data: np.ndarray, 
+                        title: str = "Data Plot", 
+                        xlabel: str = "Sample Points", 
+                        ylabel: str = "Amplitude",
+                        show_grid: bool = True,
+                        figsize: Tuple[int, int] = (10, 6),
+                        line_style: str = 'b-',
+                        line_width: float = 1.5,
+                        alpha: float = 1.0,
+                        save_path: Optional[str] = None,
+                        dpi: int = 100) -> plt.Figure:
+        """
+        单纯的数据绘图函数，不进行任何检测
+        
+        Args:
+            data: 输入数据数组
+            title: 图表标题
+            xlabel: x轴标签
+            ylabel: y轴标签
+            show_grid: 是否显示网格
+            figsize: 图表尺寸
+            line_style: 线条样式
+            line_width: 线条宽度
+            alpha: 透明度
+            save_path: 保存路径（可选）
+            dpi: 图片分辨率
+            
+        Returns:
+            matplotlib Figure对象
+        """
+        fig, ax = plt.subplots(figsize=figsize)
+        
+        # 绘制数据
+        ax.plot(data, line_style, linewidth=line_width, alpha=alpha)
+        
+        # 设置标题和标签
+        ax.set_title(title, fontsize=14)
+        ax.set_xlabel(xlabel, fontsize=12)
+        ax.set_ylabel(ylabel, fontsize=12)
+        
+        # 显示网格
+        if show_grid:
+            ax.grid(True, alpha=0.3)
+        
+        # 自动调整布局
+        plt.tight_layout()
+        plt.show()

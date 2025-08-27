@@ -60,6 +60,12 @@ class ADCConfig:
     @property
     def l_roi(self) -> int:
         return self.roi_end - self.roi_start
+    
+    def roi_n(self,n) -> int:
+        return int(self.n_points * n / 100)
+
+    def n_roi(self,n) -> int:
+        return int( n * 100/self.n_points)
 
 class DataAnalysisModel:
     def __init__(self):

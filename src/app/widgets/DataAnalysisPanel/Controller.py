@@ -62,7 +62,13 @@ class ADCProcessWorker(QObject):
                         self.log_message.emit(f"文件 {os.path.basename(file_path)} 处理失败，跳过", "WARNING")
                         continue
                         
-                    y_roi, freq, mag_linear, y_diff, freq_d, mag_linear_d, Xd_norm = res
+                    y_roi = res['y_roi']
+                    freq = res['freq']
+                    mag_linear = res['mag_linear']
+                    y_diff = res['y_diff']
+                    freq_d = res['freq_d']
+                    mag_linear_d = res['mag_linear_d']
+                    Xd_norm = res['Xd_norm']
                     
                     # 初始化参考频率
                     if results['freq_ref'] is None:
