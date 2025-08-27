@@ -36,8 +36,8 @@ class DataAnalyzer:
         # 验证配置
         ConfigValidator.validate_config(config)
   
-    def extract_basic_segment(self, u32_arr: np.ndarray) -> Optional[Tuple[np.ndarray, np.ndarray, np.ndarray]]:
-        """提取基本数据段"""
+    def extract_basic_segment(self, u32_arr: np.ndarray) -> Optional[Dict[str, Any]]:
+        """提取基本数据段，返回字典格式的结果"""
         try:
             # 1. 提取ADC数据
             bit31, adc_full = self.data_processor.extract_adc_data(u32_arr, self.config.use_signed18)
@@ -59,10 +59,12 @@ class DataAnalyzer:
                 segment_adc, self.config.t_sample, self.config.t_trig
             )
           
-            # 5. 搜索上升沿位置
-            rise_pos = self.edge_detector.find_rise_position(
-                y_sorted, self.config.search_method, np.mean(adc_full), self.config.min_edge_amplitude_ratio
-            )
+            # 5. 搜索所有边沿位置,第一上升沿，第二上升沿，下降沿
+            edges_dict = self.analyze_edges(y_sorted)
+
+            rise_pos = edges_dict["first_rise_pos"]
+            second_rise_pos = edges_dict["second_rise_pos"]
+            fall_pos = edges_dict['fall_pos']
           
             # 6. 数据对齐
             target_idx = self.config.n_points // 4
@@ -71,23 +73,35 @@ class DataAnalyzer:
             # 7. 提取ROI
             y_roi = self.data_processor.extract_roi(y_full, self.config.roi_start, self.config.roi_end)
           
-            return adc_full, y_roi, np.mean(adc_full)
+            # 返回字典格式的结果
+            return {
+                'adc_full': adc_full,
+                'y_roi': y_roi,
+                'adc_full_mean': np.mean(adc_full),
+                'rise_pos': rise_pos,
+                'second_rise_pos': second_rise_pos,
+                'fall_pos': fall_pos,
+                'y_sorted': y_sorted,
+                'y_full': y_full
+            }
           
         except Exception as e:
             logger.error(f"提取基本数据段时出错: {e}")
             return None
 
-    def process_thru_load_mode(self, y_roi: np.ndarray) -> Optional[Tuple]:
+    def process_thru_load_mode(self, data_dict: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """
         处理THRU和LOAD模式的数据
-      
+        
         Args:
-            y_roi: ROI数据
-          
+            data_dict: 包含处理数据的字典，必须包含 'y_roi' 键
+            
         Returns:
-            处理结果元组或None
+            处理结果字典或None
         """
         try:
+            y_roi = data_dict['y_roi']
+            
             # 8. ROI频谱分析
             freq, mag_linear, _ = self.data_processor.compute_spectrum(y_roi, self.config.ts_eff)
           
@@ -100,55 +114,89 @@ class DataAnalyzer:
             # 10. 差分频谱分析
             freq_d, mag_linear_d, Xd_norm = self.data_processor.compute_spectrum(y_diff, self.config.ts_eff)
           
-            return y_roi, freq, mag_linear, y_diff, freq_d, mag_linear_d, Xd_norm
+            # 返回字典格式的结果
+            return {
+                'y_roi': y_roi,
+                'freq': freq,
+                'mag_linear': mag_linear,
+                'y_diff': y_diff,
+                'freq_d': freq_d,
+                'mag_linear_d': mag_linear_d,
+                'Xd_norm': Xd_norm
+            }
           
         except Exception as e:
             logger.error(f"处理THRU/LOAD模式时出错: {e}")
             return None
 
-    def process_short_mode(self, y_roi: np.ndarray, adc_full_mean: float) -> Optional[Tuple]:
+    def process_short_mode(self, data_dict: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """
         处理SHORT模式的数据
-      
+        
         Args:
-            y_roi: ROI数据
-            adc_full_mean: 完整数据的平均值
-          
+            data_dict: 包含处理数据的字典，必须包含 'y_roi' 和 'adc_full_mean' 键
+            
         Returns:
-            处理结果元组或None
+            处理结果字典或None
         """
         try:
-            # SHORT模式特殊处理：使用差分后的数据进行频谱分析
-            if self.config.l_roi <= self.config.diff_points:
-                return None
+            rise_pos = data_dict['rise_pos']          
+            fall_pos = data_dict['fall_pos'] or data_dict['second_rise_pos']
+            a_roi = self.config.n_roi(fall_pos) + 5
+            rise_roi = self.config.n_roi(rise_pos) -5
+            mid_roi = int((a_roi+rise_roi)/2)
+
+            y_roi = self.data_processor.extract_roi(data_dict['y_full'],rise_roi,mid_roi)
+            short_l_roi = self.data_processor.extract_roi(data_dict['y_full'],rise_roi,mid_roi)
+            short_r_roi = self.data_processor.extract_roi(data_dict['y_full'],mid_roi,a_roi)
+
+            # 8. ROI频谱分析
+            short_l_roi_freq, short_l_roi_mag_linear, short_l_roi_X_norm = self.data_processor.compute_spectrum(short_l_roi, self.config.ts_eff)
+            short_r_roi_freq, short_r_roi_mag_linear, short_r_roi_X_norm = self.data_processor.compute_spectrum(short_r_roi, self.config.ts_eff)
+            
+            mag_linear = np.divide(short_r_roi_mag_linear, short_l_roi_mag_linear, where=short_l_roi_freq!=0)
               
             # 先进行差分处理
+            short_l_roi__diff = self.data_processor.compute_difference(short_l_roi, self.config.diff_points)
+            short_r_roi__diff = self.data_processor.compute_difference(short_r_roi, self.config.diff_points)
             y_diff = self.data_processor.compute_difference(y_roi, self.config.diff_points)
           
             # 对差分数据进行频谱分析
-            freq_d, mag_linear_d, Xd_norm = self.data_processor.compute_spectrum(y_diff, self.config.ts_eff)
-          
+            short_l_roi_freq_d, short_l_roi_mag_linear_d, short_l_roi_Xd_norm = self.data_processor.compute_spectrum(short_l_roi__diff, self.config.ts_eff)
+            short_r_roi_freq_d, short_r_roi_mag_linear_d, short_r_roi_Xd_norm = self.data_processor.compute_spectrum(short_r_roi__diff, self.config.ts_eff)
+
+            mag_linear_d = np.divide(short_r_roi_mag_linear_d, short_l_roi_mag_linear_d, where=short_l_roi_freq!=0)
             # 对原始ROI数据也进行频谱分析（可选）
-            freq, mag_linear, _ = self.data_processor.compute_spectrum(y_roi, self.config.ts_eff)
           
-            return y_roi, freq, mag_linear, y_diff, freq_d, mag_linear_d, Xd_norm
+            # 返回字典格式的结果
+            return {
+                'y_roi': y_roi,
+                'freq': short_l_roi_freq,
+                'mag_linear': mag_linear,
+                'y_diff': y_diff,
+                'freq_d': short_l_roi_freq_d,
+                'mag_linear_d': mag_linear_d,
+                'Xd_norm': short_l_roi_Xd_norm
+            }
           
         except Exception as e:
             logger.error(f"处理SHORT模式时出错: {e}")
             return None
 
-    def process_open_mode(self, y_roi: np.ndarray, adc_full_mean: float) -> Optional[Tuple]:
+    def process_open_mode(self, data_dict: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """
         处理OPEN模式的数据
-      
+        
         Args:
-            y_roi: ROI数据
-            adc_full_mean: 完整数据的平均值
-          
+            data_dict: 包含处理数据的字典，必须包含 'y_roi' 和 'adc_full_mean' 键
+            
         Returns:
-            处理结果元组或None
+            处理结果字典或None
         """
         try:
+            y_roi = data_dict['y_roi']
+            adc_full_mean = data_dict['adc_full_mean']
+            
             # OPEN模式特殊处理：可能需要不同的窗口函数或预处理
             # 去均值处理
             y_roi_centered = y_roi.astype(np.float64) - np.mean(y_roi)
@@ -174,21 +222,30 @@ class DataAnalyzer:
             # 差分频谱分析
             freq_d, mag_linear_d, Xd_norm = self.data_processor.compute_spectrum(y_diff, self.config.ts_eff)
           
-            return y_roi, freq, magnitude_linear, y_diff, freq_d, mag_linear_d, Xd_norm
+            # 返回字典格式的结果
+            return {
+                'y_roi': y_roi,
+                'freq': freq,
+                'mag_linear': magnitude_linear,
+                'y_diff': y_diff,
+                'freq_d': freq_d,
+                'mag_linear_d': mag_linear_d,
+                'Xd_norm': Xd_norm
+            }
           
         except Exception as e:
             logger.error(f"处理OPEN模式时出错: {e}")
             return None
 
-    def process_single_file(self, u32_arr: np.ndarray) -> Optional[Tuple]:
+    def process_single_file(self, u32_arr: np.ndarray) -> Optional[Dict[str, Any]]:
         """
         处理单个文件的方法
-      
+        
         Args:
             u32_arr: uint32数据数组
-          
+            
         Returns:
-            处理结果元组或None
+            处理结果字典或None
         """
         try:
             # 提取基本数据段（步骤1-7）
@@ -196,20 +253,18 @@ class DataAnalyzer:
             if basic_result is None:
                 return None
               
-            adc_full, y_roi, adc_full_mean = basic_result
-          
             # 根据校准模式选择不同的处理方法
             if self.config.cal_mode in [CalibrationMode.THRU, CalibrationMode.LOAD]:
                 # THRU和LOAD模式使用标准处理
-                return self.process_thru_load_mode(y_roi)
+                return self.process_thru_load_mode(basic_result)
               
             elif self.config.cal_mode == CalibrationMode.SHORT:
                 # SHORT模式特殊处理
-                return self.process_short_mode(y_roi, adc_full_mean)
+                return self.process_short_mode(basic_result)
               
             elif self.config.cal_mode == CalibrationMode.OPEN:
                 # OPEN模式特殊处理
-                return self.process_open_mode(y_roi, adc_full_mean)
+                return self.process_open_mode(basic_result)
               
             else:
                 logger.error(f"未知的校准模式: {self.config.cal_mode}")
@@ -222,10 +277,10 @@ class DataAnalyzer:
     def batch_process_files(self, file_list: List[str]) -> Dict[str, Any]:
         """
         批量处理文件列表
-      
+        
         Args:
             file_list: 要处理的文件路径列表
-          
+            
         Returns:
             处理结果字典
         """
@@ -247,7 +302,14 @@ class DataAnalyzer:
                 if res is None:
                     continue
                   
-                y_roi, freq, mag_linear, y_diff, freq_d, mag_linear_d, Xd_norm = res
+                # 从字典中提取数据
+                y_roi = res['y_roi']
+                freq = res['freq']
+                mag_linear = res['mag_linear']
+                y_diff = res['y_diff']
+                freq_d = res['freq_d']
+                mag_linear_d = res['mag_linear_d']
+                Xd_norm = res['Xd_norm']
               
                 # 初始化参考频率
                 if results['freq_ref'] is None:
@@ -340,7 +402,7 @@ def main():
     logging.basicConfig(level=logging.INFO)
     
     # 创建配置
-    config = AnalysisConfig(cal_mode=CalibrationMode.LOAD, input_dir="data\\results\\test\\SHORT")
+    config = AnalysisConfig(cal_mode=CalibrationMode.SHORT, input_dir="data\\results\\test\\SHORT")
   
     try:
         # 创建分析器并运行
