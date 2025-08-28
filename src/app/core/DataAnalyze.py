@@ -328,7 +328,6 @@ class DataAnalyzer:
                 results['mags_d'].append(mag_linear_d.astype(np.float64))
                 results['sum_Xd'] += Xd_norm
                 results['success_count'] += 1
-              
             except Exception as e:
                 logger.warning(f"处理文件 {f} 失败: {e}")
                 continue
@@ -378,7 +377,7 @@ class DataAnalyzer:
             raise RuntimeError(f"在目录 {self.config.input_dir} 中未找到CSV文件")
         
         # 批量处理文件
-        results = self.batch_process_files(files[0:1])
+        results = self.batch_process_files(files)
         
         # 计算平均值
         averages = self.result_processor.calculate_averages(results)
@@ -406,7 +405,7 @@ def main():
     logging.basicConfig(level=logging.INFO)
     
     # 创建配置
-    config = AnalysisConfig(cal_mode=CalibrationMode.LOAD, input_dir="data\\results\\test\\SHORT")
+    config = AnalysisConfig(cal_mode=CalibrationMode.LOAD, input_dir="data\\results\\test\\OPEN")
   
     try:
         # 创建分析器并运行

@@ -34,7 +34,7 @@ class AnalysisConfig:
     roi_end_tenths: int = 100
     roi_mid_tenths: int = 10
     output_csv: str = 'data\\raw\\calibration\\S_data.csv'
-    min_edge_amplitude_ratio: float = 0.2
+    min_edge_amplitude_ratio: float = 0.3
     min_second_rise_ratio: float = 0.2
     min_second_fall_ratio: float = 0.2
     cal_mode: str = CalibrationMode.LOAD

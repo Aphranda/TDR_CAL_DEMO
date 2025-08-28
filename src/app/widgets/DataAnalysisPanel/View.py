@@ -196,7 +196,7 @@ class DataAnalysisView(QWidget):
         self.adc_clock_freq.setRange(1.0, 1000.0*1e6)
         self.adc_clock_freq.setValue(39538587.77)
         self.adc_clock_freq.setSuffix(" Hz")
-        self.adc_clock_freq.setMaximumWidth(120)
+        self.adc_clock_freq.setMaximumWidth(250)
         clock_layout.addWidget(self.adc_clock_freq)
         layout.addLayout(clock_layout)
         
@@ -207,14 +207,14 @@ class DataAnalysisView(QWidget):
         self.adc_trigger_freq.setRange(0.1, 100.0*1e6)
         self.adc_trigger_freq.setValue(10000000.0)
         self.adc_trigger_freq.setSuffix(" Hz")
-        self.adc_trigger_freq.setMaximumWidth(120)
+        self.adc_trigger_freq.setMaximumWidth(250)
         trigger_layout.addWidget(self.adc_trigger_freq)
         layout.addLayout(trigger_layout)
         
         # ROI设置
         roi_layout = QHBoxLayout()
         roi_layout.setSpacing(4)
-        roi_layout.addWidget(QLabel("ROI范围:"))
+        roi_layout.addWidget(QLabel("ROI:"))
         self.adc_roi_start = QSpinBox()
         self.adc_roi_start.setRange(0, 100)
         self.adc_roi_start.setValue(0)
@@ -223,7 +223,14 @@ class DataAnalysisView(QWidget):
         self.adc_roi_start.setMaximumWidth(120)
         roi_layout.addWidget(self.adc_roi_start)
         
-        roi_layout.addWidget(QLabel("-"))
+
+        self.adc_roi_mid = QSpinBox()
+        self.adc_roi_mid.setRange(0, 100)
+        self.adc_roi_mid.setValue(27)
+        self.adc_roi_mid.setSuffix(" %")
+        self.adc_roi_mid.setMinimumWidth(100)
+        self.adc_roi_mid.setMaximumWidth(120)
+        roi_layout.addWidget(self.adc_roi_mid)
         
         self.adc_roi_end = QSpinBox()
         self.adc_roi_end.setRange(0, 100)
@@ -233,6 +240,9 @@ class DataAnalysisView(QWidget):
         self.adc_roi_end.setMaximumWidth(120)
         roi_layout.addWidget(self.adc_roi_end)
         layout.addLayout(roi_layout)
+        
+
+
         
         # 选项
         options_layout = QHBoxLayout()

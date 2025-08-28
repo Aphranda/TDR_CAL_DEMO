@@ -22,9 +22,9 @@ class ADCConfig:
     search_method: int = 1  # SearchMethod.RISING
     roi_start_tenths: int = 20
     roi_end_tenths: int = 30
-    roi_mid_tenths: int = 10
+    roi_mid_tenths: int = 27
     output_csv: str = 'analysis_results.csv'
-    min_edge_amplitude_ratio:float = 0.2
+    min_edge_amplitude_ratio:float = 0.1
     min_second_rise_ratio: float = 0.2    # 第二个上升沿最小幅度比例
     min_second_fall_ratio: float = 0.2           # 下降沿最小幅度比例
     cal_mode: str = "LOAD"  # 新增CAL_Mode参数

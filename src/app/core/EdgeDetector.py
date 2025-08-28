@@ -19,42 +19,94 @@ class EdgeDetector:
     def _find_edge_candidates(self, smoothed_data: np.ndarray, 
                             is_rising: bool = True, 
                             min_amplitude_ratio: float = 0.3) -> List[Tuple[int, float]]:
-        """使用差分方法找到所有可能的边沿候选点"""
-        # 计算差分
-        dy = np.diff(smoothed_data)
+        """
+        使用窗口移动方法找到所有可能的边沿候选区间，然后对候选区间做平均值处理，
+        去掉平均值最小的异常点，最后再用差分法搜索上升沿位置
         
-        # 设置差分阈值
-        if is_rising:
-            dy_threshold = np.max(dy) * 0.3
-            candidate_indices = np.flatnonzero(dy > dy_threshold) + 1
-        else:
-            dy_threshold = np.min(dy) * 0.3
-            candidate_indices = np.flatnonzero(dy < dy_threshold) + 1
+        Args:
+            smoothed_data: 平滑后的数据
+            is_rising: True为上升沿，False为下降沿
+            min_amplitude_ratio: 最小幅度比例阈值
+            
+        Returns:
+            候选点列表，每个元素为(位置, 幅度)
+        """
+        # 第一步：窗口移动检测候选区间
+        window_size = int(len(smoothed_data) * 0.1)  # 10%的窗口大小
+        step_size = int(len(smoothed_data) * 0.05)   # 5%的步进大小
+        threshold = np.ptp(smoothed_data) * min_amplitude_ratio  # 峰峰值阈值
         
-        # 计算信号的整体峰峰值用于幅度筛选
-        signal_p2p = np.max(smoothed_data) - np.min(smoothed_data)
-        min_amplitude = signal_p2p * min_amplitude_ratio
+        candidate_windows = []
         
-        # 筛选候选点
+        # 滑动窗口检测
+        for start in range(0, len(smoothed_data) - window_size, step_size):
+            end = start + window_size
+            window_data = smoothed_data[start:end]
+            window_p2p = np.ptp(window_data)  # 计算窗口内的峰峰值
+            
+            if window_p2p > threshold:
+                candidate_windows.append((start, end, window_p2p))
+        
+        if not candidate_windows:
+            return []
+        
+        # 第二步：对候选区间做平均值处理，去掉平均值最小的异常点
+        valid_windows = []
+        window_means = []
+        
+        for start, end, p2p in candidate_windows:
+            window_mean = np.mean(smoothed_data[start:end])
+            window_means.append(window_mean)
+        
+        # 计算平均值的均值和标准差
+        mean_of_means = np.mean(window_means)
+        std_of_means = np.std(window_means)
+        
+        # 筛选有效的窗口（去掉平均值异常的点）
+        for i, (start, end, p2p) in enumerate(candidate_windows):
+            if abs(window_means[i] - mean_of_means) < 2 * std_of_means:
+                valid_windows.append((start, end, p2p))
+        
+        if not valid_windows:
+            return []
+        
+        # 第三步：在有效窗口内使用差分法搜索精确的边沿位置
         valid_candidates = []
-        for candidate in candidate_indices:
-            if 20 <= candidate < len(smoothed_data) - 20:  # 确保有足够的点计算
-                # 计算边沿前后的幅度变化
-                if is_rising:
-                    pre_window = max(0, candidate-15)
-                    post_window = min(candidate + 15, len(smoothed_data))
-                    baseline = np.median(smoothed_data[pre_window:candidate])
-                    peak = np.max(smoothed_data[candidate:post_window])
-                    amplitude = peak - baseline
-                else:
-                    pre_window = max(0, candidate-15)
-                    post_window = min(candidate + 15, len(smoothed_data))
-                    baseline = np.median(smoothed_data[pre_window:candidate])
-                    valley = np.min(smoothed_data[candidate:post_window])
-                    amplitude = baseline - valley
-                
-                if amplitude >= min_amplitude:
-                    valid_candidates.append((candidate, amplitude))
+        
+        for start, end, p2p in valid_windows:
+            window_data = smoothed_data[start:end]
+            
+            # 计算差分
+            dy = np.diff(window_data)
+            
+            # 设置差分阈值
+            if is_rising:
+                dy_threshold = np.max(dy) * 0.3
+                candidate_indices = np.flatnonzero(dy > dy_threshold) + 1
+            else:
+                dy_threshold = np.min(dy) * 0.3
+                candidate_indices = np.flatnonzero(dy < dy_threshold) + 1
+            
+            # 转换回全局坐标并计算幅度
+            for candidate in candidate_indices:
+                global_pos = start + candidate
+                if 20 <= global_pos < len(smoothed_data) - 20:
+                    # 计算边沿前后的幅度变化
+                    if is_rising:
+                        pre_window = max(0, global_pos-15)
+                        post_window = min(global_pos + 15, len(smoothed_data))
+                        baseline = np.median(smoothed_data[pre_window:global_pos])
+                        peak = np.max(smoothed_data[global_pos:post_window])
+                        amplitude = peak - baseline
+                    else:
+                        pre_window = max(0, global_pos-15)
+                        post_window = min(global_pos + 15, len(smoothed_data))
+                        baseline = np.median(smoothed_data[pre_window:global_pos])
+                        valley = np.min(smoothed_data[global_pos:post_window])
+                        amplitude = baseline - valley
+                    
+                    if amplitude >= threshold:
+                        valid_candidates.append((global_pos, amplitude))
         
         return valid_candidates
     
@@ -63,14 +115,13 @@ class EdgeDetector:
                          min_edge_amplitude_ratio: float = 0.5) -> int:
         """在排序后的数据中搜索上升沿位置"""
         # 预处理数据
-        smoothed_data = self._preprocess_data(sorted_data)
-        
+ 
         if search_method == 1:  # RISING
             if adc_full_mean is None:
                 adc_full_mean = np.mean(sorted_data)
             
             # 找到所有上升沿候选点
-            candidates = self._find_edge_candidates(smoothed_data, True, min_edge_amplitude_ratio)
+            candidates = self._find_edge_candidates(sorted_data, True, min_edge_amplitude_ratio)
             
             if candidates:
                 # 选择幅度最大的候选点
