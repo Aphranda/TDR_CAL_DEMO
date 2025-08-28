@@ -16,11 +16,13 @@ class ResultProcessor:
         averages = {}
       
         # ROI平均值
+        averages['y_full_avg'] = np.mean(np.vstack(results['ys_full']), axis=0)
         averages['y_avg'] = np.mean(np.vstack(results['ys']), axis=0)
         averages['mag_avg_linear'] = np.mean(np.vstack(results['mags']), axis=0)
         averages['mag_avg_db'] = 20 * np.log10(averages['mag_avg_linear'])
       
         # 差分平均值
+        averages['y_d_full_avg'] = np.mean(np.vstack(results['ys_d_full']), axis=0)
         averages['y_d_avg'] = np.mean(np.vstack(results['ys_d']), axis=0)
         averages['mag_d_avg_linear'] = np.mean(np.vstack(results['mags_d']), axis=0)
         averages['mag_d_avg_db'] = 20 * np.log10(averages['mag_d_avg_linear'])

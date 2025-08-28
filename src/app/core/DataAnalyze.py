@@ -71,7 +71,7 @@ class DataAnalyzer:
             # 7. 提取ROI
             y_roi = self.data_processor.extract_roi(y_full, self.config.roi_start, self.config.roi_end)
 
-            
+            # 搜索所有上升沿位置
             edges_dict = self.analyze_edges(y_roi)
             rise_pos = edges_dict["first_rise_pos"]
             second_rise_pos = edges_dict["second_rise_pos"]
@@ -103,7 +103,9 @@ class DataAnalyzer:
             处理结果字典或None
         """
         try:
+            y_full = data_dict['y_full']
             y_roi = data_dict['y_roi']
+            
             
             # 8. ROI频谱分析
             freq, mag_linear, _ = self.data_processor.compute_spectrum(y_roi, self.config.ts_eff)
@@ -111,7 +113,8 @@ class DataAnalyzer:
             # 9. 差分处理
             if self.config.l_roi <= self.config.diff_points:
                 return None
-              
+            
+            y_full_diff = self.data_processor.compute_difference(y_full, self.config.diff_points)
             y_diff = self.data_processor.compute_difference(y_roi, self.config.diff_points)
           
             # 10. 差分频谱分析
@@ -119,13 +122,16 @@ class DataAnalyzer:
             
             # 返回字典格式的结果
             return {
+                'y_full' : y_full,
                 'y_roi': y_roi,
                 'freq': freq,
                 'mag_linear': mag_linear,
                 'y_diff': y_diff,
+                'y_full_diff': y_full_diff,
                 'freq_d': freq_d,
                 'mag_linear_d': mag_linear_d,
-                'Xd_norm': Xd_norm
+                'Xd_norm': Xd_norm,
+                'data_dict':data_dict
             }
           
         except Exception as e:
@@ -160,8 +166,8 @@ class DataAnalyzer:
             mag_linear = np.divide(short_r_roi_mag_linear, short_l_roi_mag_linear, where=short_l_roi_mag_linear!=0)
             
             # 先进行差分处理
-            short_l_roi__diff = self.data_processor.compute_difference(short_l_roi, len(short_l_roi)-2)
-            short_r_roi__diff = self.data_processor.compute_difference(short_r_roi, len(short_l_roi)-2)
+            short_l_roi__diff = self.data_processor.compute_difference(short_l_roi, 10)
+            short_r_roi__diff = self.data_processor.compute_difference(short_r_roi, 10)
             y_diff = self.data_processor.compute_difference(y_roi, self.config.diff_points)
           
             # 对差分数据进行频谱分析
@@ -173,13 +179,15 @@ class DataAnalyzer:
           
             # 返回字典格式的结果
             return {
+                'y_full' : data_dict['y_full'],
                 'y_roi': y_roi,
                 'freq': short_l_roi_freq,
                 'mag_linear': mag_linear,
                 'y_diff': y_diff,
                 'freq_d': short_l_roi_freq_d,
                 'mag_linear_d': mag_linear_d,
-                'Xd_norm': short_l_roi_Xd_norm
+                'Xd_norm': short_l_roi_Xd_norm,
+                'data_dict':data_dict
             }
           
         except Exception as e:
@@ -227,13 +235,15 @@ class DataAnalyzer:
           
             # 返回字典格式的结果
             return {
+                'y_full' : data_dict['y_full'],
                 'y_roi': y_roi,
                 'freq': freq,
                 'mag_linear': magnitude_linear,
                 'y_diff': y_diff,
                 'freq_d': freq_d,
                 'mag_linear_d': mag_linear_d,
-                'Xd_norm': Xd_norm
+                'Xd_norm': Xd_norm,
+                'data_dict':data_dict
             }
           
         except Exception as e:
@@ -291,7 +301,7 @@ class DataAnalyzer:
       
         # 初始化结果存储
         results = {
-            'ys': [], 'mags': [], 'ys_d': [], 'mags_d': [],
+             'ys_full':[],'ys': [], 'mags': [], 'ys_d_full':[],'ys_d': [], 'mags_d': [],
             'freq_ref': None, 'freq_d_ref': None, 'sum_Xd': None,
             'success_count': 0, 'total_files': len(file_list)
         }
@@ -306,9 +316,11 @@ class DataAnalyzer:
                     continue
                   
                 # 从字典中提取数据
+                y_full = res['y_full']
                 y_roi = res['y_roi']
                 freq = res['freq']
                 mag_linear = res['mag_linear']
+                y_full_diff = res['y_full_diff']
                 y_diff = res['y_diff']
                 freq_d = res['freq_d']
                 mag_linear_d = res['mag_linear_d']
@@ -322,8 +334,10 @@ class DataAnalyzer:
                     results['sum_Xd'] = np.zeros_like(Xd_norm, dtype=np.complex128)
               
                 # 存储结果
+                results['ys_full'].append(y_full.astype(np.float64))
                 results['ys'].append(y_roi.astype(np.float64))
                 results['mags'].append(mag_linear.astype(np.float64))
+                results['ys_d_full'].append(y_full_diff.astype(np.float64))
                 results['ys_d'].append(y_diff.astype(np.float64))
                 results['mags_d'].append(mag_linear_d.astype(np.float64))
                 results['sum_Xd'] += Xd_norm
@@ -383,7 +397,7 @@ class DataAnalyzer:
         averages = self.result_processor.calculate_averages(results)
         
         # 对平均数据进行边沿分析
-        edge_analysis = self.analyze_edges(averages['y_avg'])
+        edge_analysis = self.analyze_edges(averages['y_full_avg'])
       
         # 使用绘图器绘制图表（如果提供了绘图器）
         if self.plotter:

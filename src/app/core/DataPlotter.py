@@ -17,7 +17,9 @@ class DataPlotter:
         """绘制结果图表，包含边沿检测标记和中点标记"""
         # 时间轴
         t_roi_us = (np.arange(self.config.l_roi) * self.config.ts_eff) * 1e6
+        t_full_us = ((np.arange(self.config.roi_n(100)) * self.config.ts_eff) * 1e6)
         t_diff_us = t_roi_us[self.config.diff_points:]
+        t_full_diff_us = t_full_us[self.config.diff_points:]
         
         # 频率掩码
         mask = results['freq_ref'] <= (self.config.show_up_to_GHz * 1e9)
@@ -30,15 +32,18 @@ class DataPlotter:
         fig, (ax_t, ax_f) = plt.subplots(2, 1, figsize=(16, 12))
         
         # 绘制时域信号
-        ax_t.plot(t_roi_us, averages['y_avg'], label='Average Signal', linewidth=2, color='blue')
+        ax_t.plot(t_full_us, averages['y_full_avg'], label='Average Signal', linewidth=2, color='blue')
+        
+        # 标记ROI区域边界
+        self._plot_roi_boundaries(ax_t, t_full_us)
         
         # 标记边沿（如果提供了边沿分析结果）
         if edge_analysis:
-            self._plot_edges(ax_t, t_roi_us, averages['y_avg'], edge_analysis)
+            self._plot_edges(ax_t, t_full_us, averages['y_avg'], edge_analysis)
         
         # 标记原始边缘位置
         if 0 <= edge_in_roi < self.config.l_roi:
-            ax_t.axvline(t_roi_us[edge_in_roi], linestyle="-.", linewidth=1.5, 
+            ax_t.axvline(t_full_us[edge_in_roi], linestyle="-.", linewidth=1.5, 
                         color='gray', alpha=0.6, label='Original Edge')
         
         ax_t.set_title(f"{self.config.cal_mode} - Average Time-Domain ROI with Edge Detection\n"
@@ -63,17 +68,20 @@ class DataPlotter:
         fig2, (ax_t2, ax_f2) = plt.subplots(2, 1, figsize=(16, 12))
         
         # 绘制差分时域信号
-        ax_t2.plot(t_diff_us, averages['y_d_avg'], label='Differenced Signal', 
+        ax_t2.plot(t_full_diff_us, averages['y_d_full_avg'], label='Differenced Signal', 
                 linewidth=2, color='darkblue')
+        
+        # 标记ROI区域边界（差分数据）
+        self._plot_roi_boundaries_diff(ax_t2, t_full_us)
         
         # 在差分数据上也标记边沿和中点
         if edge_analysis:
-            self._plot_diff_edges(ax_t2, t_roi_us, edge_analysis)
+            self._plot_diff_edges(ax_t2, t_full_us, edge_analysis)
         
         # 标记原始边缘位置
         if (0 <= edge_in_roi < self.config.l_roi and 
             0 <= edge_in_roi - self.config.diff_points < averages['y_d_avg'].size):
-            ax_t2.axvline(t_roi_us[max(edge_in_roi - self.config.diff_points, 0)], 
+            ax_t2.axvline(t_full_us[max(edge_in_roi - self.config.diff_points, 0)], 
                         linestyle="-.", linewidth=1.5, color='gray', alpha=0.6, 
                         label='Original Edge (Diff)')
         
@@ -93,6 +101,61 @@ class DataPlotter:
         
         plt.tight_layout()
         plt.show()
+    
+    def _plot_roi_boundaries(self, ax, t_full_us):
+        """在时域图上绘制ROI区域边界线"""
+        # 绘制roi_start竖线
+        roi_start_time = t_full_us[self.config.roi_start]
+        ax.axvline(roi_start_time, linestyle='--', linewidth=2, 
+                  color='orange', alpha=0.7, label='ROI Start')
+        
+        # 绘制roi_mid竖线
+        roi_mid_time = t_full_us[self.config.roi_mid]
+        ax.axvline(roi_mid_time, linestyle='--', linewidth=2, 
+                  color='purple', alpha=0.7, label='ROI Mid')
+        
+        # 绘制roi_end竖线
+        roi_end_time = t_full_us[self.config.roi_end]
+        ax.axvline(roi_end_time, linestyle='--', linewidth=2, 
+                  color='brown', alpha=0.7, label='ROI End')
+        
+        # 添加文本标注
+        ax.text(roi_start_time, ax.get_ylim()[1] * 0.95, 
+               f'Start\n{roi_start_time:.2f}μs', 
+               ha='center', va='top', fontsize=8, color='orange',
+               bbox=dict(boxstyle="round,pad=0.2", facecolor="peachpuff", alpha=0.7))
+        
+        ax.text(roi_mid_time, ax.get_ylim()[1] * 0.9, 
+               f'Mid\n{roi_mid_time:.2f}μs', 
+               ha='center', va='top', fontsize=8, color='purple',
+               bbox=dict(boxstyle="round,pad=0.2", facecolor="lavender", alpha=0.7))
+        
+        ax.text(roi_end_time, ax.get_ylim()[1] * 0.85, 
+               f'End\n{roi_end_time:.2f}μs', 
+               ha='center', va='top', fontsize=8, color='brown',
+               bbox=dict(boxstyle="round,pad=0.2", facecolor="wheat", alpha=0.7))
+    
+    def _plot_roi_boundaries_diff(self, ax, t_full_us):
+        """在差分时域图上绘制ROI区域边界线"""
+        # 计算差分后的ROI边界位置
+        roi_start_diff = max(self.config.roi_start - self.config.diff_points, 0)
+        roi_mid_diff = max(self.config.roi_mid - self.config.diff_points, 0)
+        roi_end_diff = max(self.config.roi_end - self.config.diff_points, 0)
+        
+        # 绘制roi_start竖线
+        roi_start_time = t_full_us[roi_start_diff]
+        ax.axvline(roi_start_time, linestyle='--', linewidth=1.5, 
+                  color='orange', alpha=0.5, label='ROI Start (Diff)')
+        
+        # 绘制roi_mid竖线
+        roi_mid_time = t_full_us[roi_mid_diff]
+        ax.axvline(roi_mid_time, linestyle='--', linewidth=1.5, 
+                  color='purple', alpha=0.5, label='ROI Mid (Diff)')
+        
+        # 绘制roi_end竖线
+        roi_end_time = t_full_us[roi_end_diff]
+        ax.axvline(roi_end_time, linestyle='--', linewidth=1.5, 
+                  color='brown', alpha=0.5, label='ROI End (Diff)')
     
     def _plot_edges(self, ax, t_roi_us, y_data, edge_analysis):
         """在时域图上绘制边沿标记"""

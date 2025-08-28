@@ -30,9 +30,9 @@ class AnalysisConfig:
     edge_search_start: int = 1
     diff_points: int = 10
     search_method: int = SearchMethod.RISING
-    roi_start_tenths: int = 0
-    roi_end_tenths: int = 100
-    roi_mid_tenths: int = 10
+    roi_start_tenths: int = 20
+    roi_end_tenths: int = 30
+    roi_mid_tenths: int = 27
     output_csv: str = 'data\\raw\\calibration\\S_data.csv'
     min_edge_amplitude_ratio: float = 0.3
     min_second_rise_ratio: float = 0.2
