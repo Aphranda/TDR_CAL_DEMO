@@ -310,7 +310,7 @@ class DataAnalysisController(QObject):
             self.errorOccurred.emit(error_msg)
             self.log_message(error_msg, "WARNING")
             return
-      
+        
         try:
             # 更新配置
             config = self.model.adc_config
@@ -318,26 +318,28 @@ class DataAnalysisController(QObject):
             config.trigger_freq = self.view.adc_trigger_freq.value()
             config.roi_start_tenths = self.view.adc_roi_start.value()
             config.roi_end_tenths = self.view.adc_roi_end.value()
+            config.diff_points = self.view.adc_diff_points.value()  # 新增：获取差分点数
+            config.average_points = self.view.adc_average_points.value()
             config.recursive = True
             config.use_signed18 = True
             config.cal_mode = self.view.cal_type_combo.currentText()
             self.log_message(f"校准模式:{config.cal_mode}", "DEBUG")
             # 获取SearchMethod的值
             config.search_method = self.view.search_method_combo.currentData()
-          
+        
             self.analysisStarted.emit("ADC数据分析")
             self.log_message("开始ADC数据分析", "INFO")
-          
+        
             # 显示进度条
             self.view.progress_bar.setVisible(True)
             self.view.progress_bar.setMaximum(len(self.model.data_files))
             self.view.progress_bar.setValue(0)
-          
+        
             # 创建工作线程
             self.adc_process_thread = QThread()
             self.adc_process_worker = ADCProcessWorker(self.model.data_files, config)
             self.adc_process_worker.moveToThread(self.adc_process_thread)
-          
+        
             # 连接信号
             self.adc_process_thread.started.connect(self.adc_process_worker.run)
             self.adc_process_worker.progress.connect(self.on_adc_process_progress)
@@ -347,10 +349,10 @@ class DataAnalysisController(QObject):
             self.adc_process_thread.finished.connect(self.adc_process_thread.deleteLater)
             self.adc_process_worker.error.connect(self.on_adc_process_error)
             self.adc_process_worker.log_message.connect(self.log_message)
-          
+        
             # 启动线程
             self.adc_process_thread.start()
-          
+        
         except Exception as e:
             error_msg = f"ADC数据分析失败: {str(e)}"
             self.errorOccurred.emit(error_msg)
@@ -519,24 +521,27 @@ class DataAnalysisController(QObject):
             if first_rise_time is not None:
                 # 找到对应时间点的Y坐标值
                 time_idx = np.argmin(np.abs(t_full_us - first_rise_time))
-                y_position = y_avg_voltage[time_idx] if time_idx < len(y_avg_voltage) else np.mean(y_avg_voltage)
-                all_markers.append((first_rise_time, y_position, '#FF0000', 'solid', f'Rise\n({first_amplitude:.3f}V{first_rise_ratio:.2%})', 3))
+                x_idx = config.n_roi(time_idx)
+                y_position = y_avg_voltage[time_idx+10] if time_idx < len(y_avg_voltage) else np.mean(y_avg_voltage)
+                all_markers.append((first_rise_time, y_position, '#FF0000', 'solid', f'Rise\n({y_position:.3f}V {x_idx}%)', 3))
             
             if second_rise_time is not None:
                 time_idx = np.argmin(np.abs(t_full_us - second_rise_time))
-                y_position = y_avg_voltage[time_idx] if time_idx < len(y_avg_voltage) else np.mean(y_avg_voltage)
-                all_markers.append((second_rise_time, y_position, '#0000FF', 'solid', f'2nd Rise\n({second_amplitude:.3f}V,{rise_ratio:.2%})', 3))
+                x_idx = config.n_roi(time_idx)
+                y_position = y_avg_voltage[time_idx+10] if time_idx < len(y_avg_voltage) else np.mean(y_avg_voltage)
+                all_markers.append((second_rise_time, y_position, '#0000FF', 'solid', f'2nd Rise\n({y_position:.3f}V,{x_idx}%)', 3))
             
             if fall_time is not None:
                 time_idx = np.argmin(np.abs(t_full_us - fall_time))
-                y_position = y_avg_voltage[time_idx] if time_idx < len(y_avg_voltage) else np.mean(y_avg_voltage)
-                all_markers.append((fall_time, y_position, '#00AA00', 'solid', f'Fall\n({fall_amplitude:.3f}V,{fall_ratio:.2%})', 3))
+                x_idx = config.n_roi(time_idx)
+                y_position = y_avg_voltage[time_idx+10] if time_idx < len(y_avg_voltage) else np.mean(y_avg_voltage)
+                all_markers.append((fall_time, y_position, '#00AA00', 'solid', f'Fall\n({y_position:.3f}V,{x_idx}%)', 3))
             
             # 中点标记线
             if rise_midpoint_time is not None:
                 time_idx = np.argmin(np.abs(t_full_us - rise_midpoint_time))
                 y_position = y_avg_voltage[time_idx] if time_idx < len(y_avg_voltage) else np.mean(y_avg_voltage)
-                all_markers.append((rise_midpoint_time, y_position, '#FFA500', 'dashed', 'Rise-2ndRise Mid', 2))
+                all_markers.append((rise_midpoint_time, y_position, '#FFA500', 'dashed', 'Rise-2nd\nRise Mid', 2))
             
             if fall_midpoint_time is not None:
                 time_idx = np.argmin(np.abs(t_full_us - fall_midpoint_time))
@@ -556,7 +561,7 @@ class DataAnalysisController(QObject):
             # 添加ROI标记线，使用平均Y值作为位置
             avg_y = np.mean(y_avg_voltage)
             all_markers.append((roi_start_time, avg_y, '#FF00FF', 'dashdot', f'ROI Start\n({config.roi_start_tenths}%)', 2))
-            all_markers.append((roi_mid_time, avg_y, '#FFFF00', 'dashdot', f'ROI Mid\n({config.roi_mid_tenths}%)', 2))
+            all_markers.append((roi_mid_time, avg_y, "#94B814", 'dashdot', f'ROI Mid\n({config.roi_mid_tenths}%)', 2))
             all_markers.append((roi_end_time, avg_y, '#00FFFF', 'dashdot', f'ROI End\n({config.roi_end_tenths}%)', 2))
             
             # 按时间排序标记线

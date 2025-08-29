@@ -3,6 +3,7 @@ import numpy as np
 from typing import Dict, Any, List, Optional, Tuple
 import logging
 from tqdm import tqdm
+
 try:
     from .ConfigManager import AnalysisConfig, ConfigValidator, CalibrationMode
     from .DataProcessor import DataProcessor
@@ -115,7 +116,12 @@ class DataAnalyzer:
                 return None
             
             y_full_diff = self.data_processor.compute_difference(y_full, self.config.diff_points)
+            
+            y_full_diff = self.data_processor.smooth_data(y_full_diff,self.config.average_points)
+
             y_diff = self.data_processor.compute_difference(y_roi, self.config.diff_points)
+
+            y_diff = self.data_processor.smooth_data(y_diff,self.config.average_points)
           
             # 10. 差分频谱分析
             freq_d, mag_linear_d, Xd_norm = self.data_processor.compute_spectrum(y_diff, self.config.ts_eff)
@@ -402,8 +408,8 @@ class DataAnalyzer:
         # 使用绘图器绘制图表（如果提供了绘图器）
         if self.plotter:
             self.plotter.plot_results(results, averages, edge_analysis)
-            t_roi_us = (np.arange(self.config.l_roi) * self.config.ts_eff) * 1e6
-            self.plotter.print_edge_analysis_results(edge_analysis, t_roi_us)
+            t_full_us = (np.arange(100) * self.config.ts_eff) * 1e6
+            self.plotter.print_edge_analysis_results(edge_analysis, t_full_us)
         else:
             logger.warning("未提供绘图器，跳过绘图步骤")
       

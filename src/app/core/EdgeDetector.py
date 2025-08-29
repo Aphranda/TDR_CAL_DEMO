@@ -11,9 +11,8 @@ class EdgeDetector:
     def __init__(self, config):
         self.config = config
     
-    def _preprocess_data(self, data: np.ndarray) -> np.ndarray:
+    def _preprocess_data(self, data: np.ndarray,window_size:int = 5) -> np.ndarray:
         """数据预处理：移动平均滤波"""
-        window_size = 5
         return np.convolve(data, np.ones(window_size)/window_size, mode='same')
     
     def _find_edge_candidates(self, smoothed_data: np.ndarray, 
@@ -213,14 +212,14 @@ class EdgeDetector:
                                 min_second_rise_ratio: float = 0.1) -> Optional[int]:
         """查找第二个上升沿位置"""
         return self.find_second_edge_position(
-            sorted_data, first_rise_pos, True, min_second_rise_ratio, 50, 0.5
+            sorted_data, first_rise_pos, True, min_second_rise_ratio, 30, 0.5
         )
     
     def find_second_fall_position(self, sorted_data: np.ndarray, first_rise_pos: int, 
                                 min_second_fall_ratio: float = 0.1) -> Optional[int]:
         """查找下降沿位置"""
         return self.find_second_edge_position(
-            sorted_data, first_rise_pos, False, min_second_fall_ratio, 100, 0.7
+            sorted_data, first_rise_pos, False, min_second_fall_ratio, 30, 0.7
         )
     
     def analyze_edges(self, sorted_data: np.ndarray) -> Dict[str, Any]:

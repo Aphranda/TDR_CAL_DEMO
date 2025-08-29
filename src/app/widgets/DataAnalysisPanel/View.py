@@ -181,6 +181,7 @@ class DataAnalysisView(QWidget):
         widget.setLayout(layout)
         return widget
     
+
     def create_adc_analysis_options(self):
         """创建ADC数据分析选项"""
         widget = QWidget()
@@ -210,6 +211,27 @@ class DataAnalysisView(QWidget):
         self.adc_trigger_freq.setMaximumWidth(250)
         trigger_layout.addWidget(self.adc_trigger_freq)
         layout.addLayout(trigger_layout)
+
+        diff_avg_layout = QHBoxLayout()
+        diff_avg_layout.setSpacing(4)
+        
+        # 差分点数
+        diff_avg_layout.addWidget(QLabel("DIFFP:"))
+        self.adc_diff_points = QSpinBox()
+        self.adc_diff_points.setRange(1, 1000)
+        self.adc_diff_points.setValue(10)
+        self.adc_diff_points.setMaximumWidth(120)
+        diff_avg_layout.addWidget(self.adc_diff_points)
+        
+        # 平均点数
+        diff_avg_layout.addWidget(QLabel("SMOTP:"))
+        self.adc_average_points = QSpinBox()
+        self.adc_average_points.setRange(1, 1000)
+        self.adc_average_points.setValue(1)
+        self.adc_average_points.setMaximumWidth(120)
+        diff_avg_layout.addWidget(self.adc_average_points)
+        
+        layout.addLayout(diff_avg_layout)
         
         # ROI设置
         roi_layout = QHBoxLayout()
@@ -223,7 +245,6 @@ class DataAnalysisView(QWidget):
         self.adc_roi_start.setMaximumWidth(120)
         roi_layout.addWidget(self.adc_roi_start)
         
-
         self.adc_roi_mid = QSpinBox()
         self.adc_roi_mid.setRange(0, 100)
         self.adc_roi_mid.setValue(27)
@@ -241,7 +262,6 @@ class DataAnalysisView(QWidget):
         roi_layout.addWidget(self.adc_roi_end)
         layout.addLayout(roi_layout)
         
-
 
         
         # 选项
@@ -267,6 +287,7 @@ class DataAnalysisView(QWidget):
         
         widget.setLayout(layout)
         return widget
+
     
     def show_s_parameter_options(self):
         """显示S参数选项"""

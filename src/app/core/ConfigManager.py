@@ -3,6 +3,8 @@ from dataclasses import dataclass
 from typing import Optional
 import logging
 
+from numpy import average
+
 logger = logging.getLogger(__name__)
 
 class SearchMethod:
@@ -29,10 +31,11 @@ class AnalysisConfig:
     skip_first_value: bool = True
     edge_search_start: int = 1
     diff_points: int = 10
+    average_points: int = 3
     search_method: int = SearchMethod.RISING
-    roi_start_tenths: int = 20
-    roi_end_tenths: int = 30
-    roi_mid_tenths: int = 27
+    roi_start_tenths: float = 20
+    roi_end_tenths: float = 30
+    roi_mid_tenths: float = 27
     output_csv: str = 'data\\raw\\calibration\\S_data.csv'
     min_edge_amplitude_ratio: float = 0.3
     min_second_rise_ratio: float = 0.2
@@ -68,14 +71,14 @@ class AnalysisConfig:
         return int(self.n_points * self.roi_mid_tenths / 100)
   
     @property
-    def l_roi(self) -> int:
+    def l_roi(self) -> float:
         return self.roi_end - self.roi_start
     
     def roi_n(self,n) -> int:
         return int(self.n_points * n / 100)
     
-    def n_roi(self,n) -> int:
-        return int( n * 100/self.n_points)
+    def n_roi(self,n) -> float:
+        return n * 100/self.n_points
 
 class ConfigValidator:
     """配置验证器"""

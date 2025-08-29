@@ -10,6 +10,147 @@ class DataProcessor:
     
     def __init__(self, config):
         self.config = config
+
+    
+    def smooth_data(self, 
+                    data: np.ndarray, 
+                    window_size: int = 5, 
+                    window_type: str = 'uniform',
+                    mode: str = 'same',
+                    sigma: Optional[float] = None,
+                    handle_nan: bool = True) -> np.ndarray:
+        """
+        数据预处理：移动平均滤波
+        
+        Parameters:
+        -----------
+        data : np.ndarray
+            输入的一维数据数组
+        window_size : int, optional
+            窗口大小，默认为5。必须是奇数，如果不是奇数会自动调整为奇数
+        window_type : str, optional
+            窗口类型，可选 'uniform'(均匀), 'gaussian'(高斯), 'triangular'(三角)
+        mode : str, optional
+            卷积模式，可选 'full', 'same', 'valid'，默认为'same'
+        sigma : float, optional
+            高斯窗口的标准差，仅当window_type='gaussian'时有效
+        handle_nan : bool, optional
+            是否处理NaN值，默认为True
+        
+        Returns:
+        --------
+        np.ndarray
+            平滑后的数据
+        
+        Raises:
+        -------
+        ValueError
+            如果输入参数无效
+        """
+        # 参数验证
+        if not isinstance(data, np.ndarray):
+            data = np.array(data)
+        
+        if data.ndim != 1:
+            raise ValueError("输入数据必须是一维数组")
+        
+        if len(data) == 0:
+            raise ValueError("输入数据不能为空")
+        
+        if window_size < 1:
+            raise ValueError("窗口大小必须大于0")
+        
+        if window_size > len(data):
+            raise ValueError("窗口大小不能大于数据长度")
+        
+        # 确保窗口大小为奇数
+        if window_size % 2 == 0:
+            window_size += 1
+            print(f"警告：窗口大小调整为奇数 {window_size}")
+        
+        # 处理NaN值
+        if handle_nan and np.any(np.isnan(data)):
+            data = self._handle_nan_values(data.copy())
+        
+        # 创建卷积核
+        kernel = self._create_kernel(window_size, window_type, sigma)
+        
+        try:
+            # 执行卷积
+            smoothed = np.convolve(data, kernel, mode=mode)
+            
+            # 对于'same'模式，确保输出长度与输入相同
+            if mode == 'same' and len(smoothed) != len(data):
+                # 调整输出长度
+                if len(smoothed) > len(data):
+                    start = (len(smoothed) - len(data)) // 2
+                    smoothed = smoothed[start:start + len(data)]
+                else:
+                    # 填充边界
+                    pad_size = (len(data) - len(smoothed)) // 2
+                    smoothed = np.pad(smoothed, (pad_size, len(data) - len(smoothed) - pad_size), 
+                                    mode='edge')
+            
+            return smoothed
+            
+        except Exception as e:
+            raise RuntimeError(f"卷积计算失败: {str(e)}")
+    def _create_kernel(self, window_size: int, window_type: str, sigma: Optional[float]) -> np.ndarray:
+        """创建卷积核"""
+        if window_type == 'uniform':
+            # 均匀窗口
+            kernel = np.ones(window_size) / window_size
+            
+        elif window_type == 'gaussian':
+            # 高斯窗口
+            if sigma is None:
+                sigma = window_size / 6.0  # 默认标准差
+            
+            x = np.linspace(-window_size//2, window_size//2, window_size)
+            kernel = np.exp(-x**2 / (2 * sigma**2))
+            kernel /= np.sum(kernel)  # 归一化
+            
+        elif window_type == 'triangular':
+            # 三角窗口
+            kernel = np.concatenate([
+                np.linspace(1, window_size//2 + 1, window_size//2 + 1),
+                np.linspace(window_size//2, 1, window_size//2)
+            ])
+            kernel = kernel[:window_size]  # 确保长度正确
+            kernel /= np.sum(kernel)
+            
+        elif window_type == 'hanning':
+            # 汉宁窗口
+            kernel = np.hanning(window_size)
+            kernel /= np.sum(kernel)
+            
+        else:
+            raise ValueError(f"不支持的窗口类型: {window_type}")
+        
+        return kernel
+    def _handle_nan_values(self, data: np.ndarray) -> np.ndarray:
+        """处理NaN值"""
+        nan_mask = np.isnan(data)
+        
+        if np.all(nan_mask):
+            raise ValueError("所有数据都是NaN")
+        
+        # 线性插值填充NaN
+        if np.any(nan_mask):
+            indices = np.arange(len(data))
+            data[nan_mask] = np.interp(indices[nan_mask], indices[~nan_mask], data[~nan_mask])
+        
+        return data
+    # 添加一些便捷的包装函数
+    def smooth_uniform(self, data: np.ndarray, window_size: int = 5) -> np.ndarray:
+        """均匀移动平均"""
+        return self.smooth_data(data, window_size, 'uniform')
+    def smooth_gaussian(self, data: np.ndarray, window_size: int = 5, sigma: float = None) -> np.ndarray:
+        """高斯平滑"""
+        return self.smooth_data(data, window_size, 'gaussian', sigma=sigma)
+    def smooth_triangular(self, data: np.ndarray, window_size: int = 5) -> np.ndarray:
+        """三角平滑"""
+        return self.smooth_data(data, window_size, 'triangular')
     
     def extract_adc_data(self, u32_arr: np.ndarray, use_signed18: bool = True) -> Tuple[np.ndarray, np.ndarray]:
         """从uint32数组中提取bit31和ADC数据"""
