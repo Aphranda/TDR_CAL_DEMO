@@ -32,6 +32,12 @@ class PlotWidgetController(QObject):
     
     def setup_connections(self):
         """设置信号连接"""
+        # 连接鼠标移动信号到坐标显示
+        self.view.plot_widget.scene().sigMouseMoved.connect(self.on_mouse_moved)
+    
+    def on_mouse_moved(self, pos):
+        """处理鼠标移动事件"""
+        # 这个函数现在由View自己处理，这里保持空实现或移除
         pass
     
     def update_plot(self, x_data, y_data, clear_existing=True):
@@ -252,6 +258,3 @@ class PlotWidgetController(QObject):
         self.clear_roi_markers()
         self.roi_start = None
         self.roi_end = None
-    
-
-    

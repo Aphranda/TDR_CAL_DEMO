@@ -1,5 +1,5 @@
 # src/app/widgets/PlotWidget/View.py
-from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout
+from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel
 from PyQt5.QtCore import Qt
 import pyqtgraph as pg
 import platform
@@ -14,8 +14,8 @@ class PlotWidgetView(QWidget):
         self.setup_ui()
     
     def setup_ui(self):
-        layout = QHBoxLayout()
-        self.setLayout(layout)
+        main_layout = QVBoxLayout()
+        self.setLayout(main_layout)
         
         # 创建绘图部件
         self.plot_widget = pg.PlotWidget()
@@ -39,11 +39,45 @@ class PlotWidgetView(QWidget):
         # 设置坐标轴对齐方式
         self.set_axis_alignment()
         
-        layout.addWidget(self.plot_widget)
+        main_layout.addWidget(self.plot_widget)
+        
+        # 创建坐标显示标签
+        self.coord_label = QLabel("X: -, Y: -")
+        self.coord_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self.coord_label.setStyleSheet("color: gray; font-size: 16px; padding: 2px;")
+        main_layout.addWidget(self.coord_label)
         
         # 初始化绘图曲线
         self.plot_curve = self.plot_widget.plot(pen=pg.mkPen('b', width=2))
         
+        # 连接鼠标移动信号
+        self.proxy = pg.SignalProxy(self.plot_widget.scene().sigMouseMoved, 
+                                  rateLimit=60, slot=self.mouse_moved)
+    
+
+    def mouse_moved(self, event):
+        """处理鼠标移动事件，显示坐标"""
+        try:
+            pos = event[0]  # 获取鼠标位置
+            if self.plot_widget.sceneBoundingRect().contains(pos):
+                mouse_point = self.plot_widget.getViewBox().mapSceneToView(pos)
+                x, y = mouse_point.x(), mouse_point.y()
+                
+                # 获取坐标轴的完整标签信息
+                bottom_axis = self.plot_widget.getAxis('bottom')
+                left_axis = self.plot_widget.getAxis('left')
+                
+                # 获取坐标轴的单位前缀（如果有的话）
+                x_label = bottom_axis.labelText
+                y_label = left_axis.labelText
+                
+                # 直接显示原始值，让用户根据坐标轴标签理解单位
+                self.coord_label.setText(f"{x_label}: {x:.6f}, {y_label}: {y:.3f}")
+            else:
+                self.coord_label.setText("X: -, Y: -")
+        except:
+            self.coord_label.setText("X: -, Y: -")
+
     
     def key_press_event(self, event):
         """处理键盘事件"""
