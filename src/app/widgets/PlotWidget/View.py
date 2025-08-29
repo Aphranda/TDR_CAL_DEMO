@@ -1,5 +1,5 @@
 # src/app/widgets/PlotWidget/View.py
-from PyQt5.QtWidgets import QWidget, QVBoxLayout,QHBoxLayout
+from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout
 from PyQt5.QtCore import Qt
 import pyqtgraph as pg
 import platform
@@ -19,12 +19,22 @@ class PlotWidgetView(QWidget):
         
         # 创建绘图部件
         self.plot_widget = pg.PlotWidget()
-        self.plot_widget.setMouseEnabled(x=True, y=False)
+        self.plot_widget.setMouseEnabled(x=True, y=True)  # 启用X和Y方向的鼠标操作
         self.plot_widget.setBackground('w')
         self.plot_widget.setTitle(self.title, color='b', size='12pt')
         self.plot_widget.showGrid(x=True, y=True)
         self.plot_widget.setLabel('left', '幅度', units='V')
         self.plot_widget.setLabel('bottom', '时间', units='s')
+        
+        # 启用框选放大功能
+        self.plot_widget.getViewBox().setMouseMode(pg.ViewBox.RectMode)  # 设置为矩形选择模式
+        
+        # 设置鼠标操作模式
+        self.plot_widget.setMenuEnabled(True)  # 启用右键菜单
+        self.plot_widget.enableAutoRange()  # 启用自动范围
+        
+        # 添加快捷键支持
+        self.plot_widget.getViewBox().keyPressEvent = self.key_press_event
         
         # 设置坐标轴对齐方式
         self.set_axis_alignment()
@@ -33,6 +43,35 @@ class PlotWidgetView(QWidget):
         
         # 初始化绘图曲线
         self.plot_curve = self.plot_widget.plot(pen=pg.mkPen('b', width=2))
+        
+        # 添加状态提示
+        self.status_label = pg.TextItem(text="按住鼠标左键拖动进行框选放大", color=(100, 100, 100), anchor=(0, 1))
+        self.status_label.setPos(0, 0)
+        self.plot_widget.addItem(self.status_label)
+    
+    def key_press_event(self, event):
+        """处理键盘事件"""
+        key = event.key()
+        
+        # 重置视图 (Home键或R键)
+        if key in [pg.QtCore.Qt.Key_Home, pg.QtCore.Qt.Key_R]:
+            self.plot_widget.autoRange()
+            event.accept()
+        
+        # 平移模式 (P键)
+        elif key == pg.QtCore.Qt.Key_P:
+            self.plot_widget.getViewBox().setMouseMode(pg.ViewBox.PanMode)
+            self.status_label.setText("平移模式: 按住鼠标左键拖动")
+            event.accept()
+        
+        # 框选模式 (Z键)
+        elif key == pg.QtCore.Qt.Key_Z:
+            self.plot_widget.getViewBox().setMouseMode(pg.ViewBox.RectMode)
+            self.status_label.setText("框选模式: 按住鼠标左键拖动进行放大")
+            event.accept()
+        
+        else:
+            event.ignore()
     
     def set_axis_alignment(self):
         """设置坐标轴对齐方式"""
@@ -98,9 +137,6 @@ class PlotWidgetView(QWidget):
             horizontal: 水平对齐 ('left', 'center', 'right')
             vertical: 垂直对齐 ('top', 'center', 'bottom')
         """
-        # 在 PyQtGraph 中，坐标轴标签的对齐是通过 setLabel 方法的参数控制的
-        # 而不是直接操作 label 对象的对齐方式
-        
         # 设置底部坐标轴标签对齐
         if horizontal == 'left':
             self.plot_widget.setLabel('bottom', self.plot_widget.getAxis('bottom').labelText, 
@@ -131,6 +167,10 @@ class PlotWidgetView(QWidget):
         """清除绘图"""
         self.plot_widget.clear()
         self.plot_curve = self.plot_widget.plot(pen=pg.mkPen('b', width=2))
+        # 重新添加状态提示
+        self.status_label = pg.TextItem(text="按住鼠标左键拖动进行框选放大", color=(100, 100, 100), anchor=(0, 1))
+        self.status_label.setPos(0, 0)
+        self.plot_widget.addItem(self.status_label)
     
     def set_labels(self, x_label, y_label, units_x="", units_y=""):
         """设置坐标轴标签和单位"""
@@ -154,4 +194,3 @@ class PlotWidgetView(QWidget):
         except Exception as e:
             print(f"导出图片失败: {e}")
             return False
-

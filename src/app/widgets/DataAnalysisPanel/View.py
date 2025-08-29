@@ -263,7 +263,6 @@ class DataAnalysisView(QWidget):
         layout.addLayout(roi_layout)
         
 
-        
         # 选项
         options_layout = QHBoxLayout()
         options_layout.setSpacing(4)

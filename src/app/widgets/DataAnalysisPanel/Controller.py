@@ -456,10 +456,7 @@ class DataAnalysisController(QObject):
             t_full_diff_us = t_full_us[config.diff_points:]
             y_d_avg_voltage = (averages['y_d_full_avg'] / adc_max_value) * 3.0
           
-            # 获取或创建差分时域绘图控制器
-            diff_time_controller = self.get_plot_controller('plot_diff_time')
-            if not diff_time_controller:
-                self.create_additional_plot_tabs()
+
             # 获取或创建差分时域绘图控制器
             diff_time_controller = self.get_plot_controller('plot_diff_time')
             if not diff_time_controller:
@@ -471,6 +468,8 @@ class DataAnalysisController(QObject):
                 diff_time_controller.view.clear_plot()
               
                 diff_time_controller.plot_diff_time_domain(t_full_diff_us, y_d_avg_voltage, "时间", "差分电压", "ns", "V")
+                # 添加边缘位置标记线到差分时域图
+                self.add_edge_markers(diff_time_controller, results, config, t_full_diff_us, y_d_avg_voltage)
               
           
             # 差分频域数据
@@ -523,19 +522,19 @@ class DataAnalysisController(QObject):
                 time_idx = np.argmin(np.abs(t_full_us - first_rise_time))
                 x_idx = config.n_roi(time_idx)
                 y_position = y_avg_voltage[time_idx+10] if time_idx < len(y_avg_voltage) else np.mean(y_avg_voltage)
-                all_markers.append((first_rise_time, y_position, '#FF0000', 'solid', f'Rise\n({y_position:.3f}V {x_idx}%)', 3))
+                all_markers.append((first_rise_time, y_position, '#FF0000', 'dashed', f'Rise\n({y_position:.3f}V {x_idx}%)', 3))
             
             if second_rise_time is not None:
                 time_idx = np.argmin(np.abs(t_full_us - second_rise_time))
                 x_idx = config.n_roi(time_idx)
                 y_position = y_avg_voltage[time_idx+10] if time_idx < len(y_avg_voltage) else np.mean(y_avg_voltage)
-                all_markers.append((second_rise_time, y_position, '#0000FF', 'solid', f'2nd Rise\n({y_position:.3f}V,{x_idx}%)', 3))
+                all_markers.append((second_rise_time, y_position, '#0000FF', 'dashed', f'2nd Rise\n({y_position:.3f}V,{x_idx}%)', 3))
             
             if fall_time is not None:
                 time_idx = np.argmin(np.abs(t_full_us - fall_time))
                 x_idx = config.n_roi(time_idx)
                 y_position = y_avg_voltage[time_idx+10] if time_idx < len(y_avg_voltage) else np.mean(y_avg_voltage)
-                all_markers.append((fall_time, y_position, '#00AA00', 'solid', f'Fall\n({y_position:.3f}V,{x_idx}%)', 3))
+                all_markers.append((fall_time, y_position, '#00AA00', 'dashed', f'Fall\n({y_position:.3f}V,{x_idx}%)', 3))
             
             # 中点标记线
             if rise_midpoint_time is not None:
@@ -601,7 +600,7 @@ class DataAnalysisController(QObject):
 
 
     def add_vertical_line_at_position(self, plot_controller, x_position, color, style, label, width, y_position):
-        """在指定位置添加垂直标记线"""
+        """在指定位置添加垂直标记线 - 设置较低的Z值确保在背景层"""
         try:
             plot_widget = plot_controller.view.plot_widget
             pen_style = pg.QtCore.Qt.DashLine if style == 'dashed' else \
@@ -609,15 +608,18 @@ class DataAnalysisController(QObject):
                     pg.QtCore.Qt.DashDotLine if style == 'dashdot' else \
                     pg.QtCore.Qt.SolidLine
             
-            # 创建无限线
+            # 创建无限线，设置较低的Z值确保在背景层
             line = pg.InfiniteLine(pos=x_position, angle=90, 
                                 pen=pg.mkPen(color, width=width, style=pen_style))
+            line.setZValue(-10)  # 设置较低的Z值，确保在背景层
+            
             plot_widget.addItem(line)
             
             if label:
-                # 添加文本标签
+                # 添加文本标签，也设置较低的Z值
                 text = pg.TextItem(text=label, color=color, anchor=(0.5, 1))
                 text.setPos(x_position, y_position)
+                text.setZValue(-5)  # 文本也设置较低的Z值，但比线稍高
                 
                 # 设置字体样式
                 font = text.textItem.font()
@@ -632,6 +634,7 @@ class DataAnalysisController(QObject):
         except Exception as e:
             print(f"添加标记线失败: {e}")
             return None
+
 
 
 
