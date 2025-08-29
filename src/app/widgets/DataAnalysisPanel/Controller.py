@@ -4,6 +4,8 @@ import numpy as np
 import pyqtgraph as pg
 from PyQt5.QtWidgets import QFileDialog, QMessageBox
 from PyQt5.QtCore import QObject, pyqtSignal, QThread, pyqtSlot
+
+import config
 from ...core.DataAnalyze import DataAnalyzer, AnalysisConfig
 from ...core.FileManager import FileManager
 from ...widgets.PlotWidget import create_plot_widget
@@ -636,8 +638,6 @@ class DataAnalysisController(QObject):
             return None
 
 
-
-
     def clear_all_markers(self):
         """清除所有绘图标记"""
         try:
@@ -841,8 +841,18 @@ class DataAnalysisController(QObject):
             # 创建基础文件名（不带扩展名）
             base_path = os.path.splitext(file_path)[0]
           
-            # 保存时域数据
+            # 保存全部时域数据
             time_domain_file = f"{base_path}_time_domain.csv"
+            if 'y_full_avg' in averages:
+                t_full_us = (np.arange(len(averages['y_full_avg'])) * self.model.adc_config.ts_eff * 1e6)
+                time_data = np.column_stack((t_full_us, averages['y_full_avg']))
+                np.savetxt(time_domain_file, time_data, delimiter=',', 
+                        header='Time(us),Amplitude', comments='')
+                self.dataLoaded.emit(f"全部时域数据已保存到: {os.path.basename(time_domain_file)}")
+                self.log_message(f"全部时域数据已保存到: {os.path.basename(time_domain_file)}", "INFO")
+            
+            # 保存ROI时域数据
+            time_domain_file = f"{base_path}_{self.view.adc_roi_start.value()}_{self.view.adc_roi_end.value()}_time_domain.csv"
             if 'y_avg' in averages:
                 t_roi_us = (np.arange(len(averages['y_avg'])) * self.model.adc_config.ts_eff * 1e6)
                 time_data = np.column_stack((t_roi_us, averages['y_avg']))
@@ -862,8 +872,18 @@ class DataAnalysisController(QObject):
                 self.dataLoaded.emit(f"频域数据已保存到: {os.path.basename(freq_domain_file)}")
                 self.log_message(f"频域数据已保存到: {os.path.basename(freq_domain_file)}", "INFO")
           
-            # 保存差分时域数据
+            # 保存全部差分时域数据
             diff_time_file = f"{base_path}_diff_time_domain.csv"
+            if 'y_d_full_avg' in averages:
+                t_full_diff_us = (np.arange(len(averages['y_d_full_avg'])) * self.model.adc_config.ts_eff * 1e6)
+                diff_time_data = np.column_stack((t_full_diff_us, averages['y_d_full_avg']))
+                np.savetxt(diff_time_file, diff_time_data, delimiter=',', 
+                        header='Time(us),Differential_Amplitude', comments='')
+                self.dataLoaded.emit(f"全部差分时域数据已保存到: {os.path.basename(diff_time_file)}")
+                self.log_message(f"全部差分时域数据已保存到: {os.path.basename(diff_time_file)}", "INFO")
+
+            # 保存ROI差分时域
+            diff_time_file = f"{base_path}_{self.view.adc_roi_start.value()}_{self.view.adc_roi_end.value()}_diff_time_domain.csv"
             if 'y_d_avg' in averages:
                 t_diff_us = (np.arange(len(averages['y_d_avg'])) * self.model.adc_config.ts_eff * 1e6)
                 diff_time_data = np.column_stack((t_diff_us, averages['y_d_avg']))
@@ -871,7 +891,7 @@ class DataAnalysisController(QObject):
                         header='Time(us),Differential_Amplitude', comments='')
                 self.dataLoaded.emit(f"差分时域数据已保存到: {os.path.basename(diff_time_file)}")
                 self.log_message(f"差分时域数据已保存到: {os.path.basename(diff_time_file)}", "INFO")
-          
+
             # 保存差分频域数据
             diff_freq_file = f"{base_path}_diff_frequency_domain.csv"
             if 'freq_d_ref' in results and 'mag_d_avg_db' in averages:

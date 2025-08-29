@@ -44,10 +44,6 @@ class PlotWidgetView(QWidget):
         # 初始化绘图曲线
         self.plot_curve = self.plot_widget.plot(pen=pg.mkPen('b', width=2))
         
-        # 添加状态提示
-        self.status_label = pg.TextItem(text="按住鼠标左键拖动进行框选放大", color=(100, 100, 100), anchor=(0, 1))
-        self.status_label.setPos(0, 0)
-        self.plot_widget.addItem(self.status_label)
     
     def key_press_event(self, event):
         """处理键盘事件"""
@@ -61,13 +57,11 @@ class PlotWidgetView(QWidget):
         # 平移模式 (P键)
         elif key == pg.QtCore.Qt.Key_P:
             self.plot_widget.getViewBox().setMouseMode(pg.ViewBox.PanMode)
-            self.status_label.setText("平移模式: 按住鼠标左键拖动")
             event.accept()
         
         # 框选模式 (Z键)
         elif key == pg.QtCore.Qt.Key_Z:
             self.plot_widget.getViewBox().setMouseMode(pg.ViewBox.RectMode)
-            self.status_label.setText("框选模式: 按住鼠标左键拖动进行放大")
             event.accept()
         
         else:
@@ -167,10 +161,7 @@ class PlotWidgetView(QWidget):
         """清除绘图"""
         self.plot_widget.clear()
         self.plot_curve = self.plot_widget.plot(pen=pg.mkPen('b', width=2))
-        # 重新添加状态提示
-        self.status_label = pg.TextItem(text="按住鼠标左键拖动进行框选放大", color=(100, 100, 100), anchor=(0, 1))
-        self.status_label.setPos(0, 0)
-        self.plot_widget.addItem(self.status_label)
+
     
     def set_labels(self, x_label, y_label, units_x="", units_y=""):
         """设置坐标轴标签和单位"""
