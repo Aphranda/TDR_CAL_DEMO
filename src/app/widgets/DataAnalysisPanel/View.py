@@ -299,3 +299,5 @@ class DataAnalysisView(QWidget):
     def show_adc_analysis_options(self):
         """显示ADC数据分析选项"""
         self.options_stack.setCurrentIndex(2)
+
+    

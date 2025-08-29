@@ -19,7 +19,7 @@ class PlotWidgetView(QWidget):
         
         # 创建绘图部件
         self.plot_widget = pg.PlotWidget()
-        self.plot_widget.setMouseEnabled(x=True, y=True)  # 启用X和Y方向的鼠标操作
+        self.plot_widget.setMouseEnabled(x=True, y=False)  # 启用X和Y方向的鼠标操作
         self.plot_widget.setBackground('w')
         self.plot_widget.setTitle(self.title, color='b', size='12pt')
         self.plot_widget.showGrid(x=True, y=True)
@@ -185,3 +185,17 @@ class PlotWidgetView(QWidget):
         except Exception as e:
             print(f"导出图片失败: {e}")
             return False
+
+    def set_view_range(self, x_min, x_max, y_min=None, y_max=None):
+        """设置视图显示范围"""
+        view_box = self.plot_widget.getViewBox()
+        if y_min is not None and y_max is not None:
+            view_box.setRange(xRange=(x_min, x_max), yRange=(y_min, y_max), padding=0)
+        else:
+            # 保持Y轴范围不变
+            current_y_range = view_box.viewRange()[1]
+            view_box.setRange(xRange=(x_min, x_max), yRange=current_y_range, padding=0)
+    
+    def auto_range(self):
+        """自动调整视图范围"""
+        self.plot_widget.autoRange()

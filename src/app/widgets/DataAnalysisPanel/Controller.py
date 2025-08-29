@@ -419,6 +419,10 @@ class DataAnalysisController(QObject):
             # 将ADC数据转换为电压值 (±3V范围，带符号19位)
             adc_max_value = 2**19  # 262144
             y_avg_voltage = (averages['y_full_avg'] / adc_max_value) * 3.0
+
+            # 计算ROI时间范围
+            roi_start_time = config.roi_start * config.ts_eff * 1e6
+            roi_end_time = config.roi_end * config.ts_eff * 1e6
           
             # 边缘位置计算
             edge_in_roi = (config.n_points // 4 - config.roi_start)
@@ -430,7 +434,7 @@ class DataAnalysisController(QObject):
                 time_controller.view.clear_plot()
               
                 # 绘制时域信号 (使用电压值)
-                time_controller.plot_time_domain(t_full_us, y_avg_voltage, "时间", "电压", "ns", "V")
+                time_controller.plot_time_domain(t_full_us, y_avg_voltage, "时间", "电压", "ns", "V",roi_start_time, roi_end_time)
               
                 # 添加边缘位置标记线
                 self.add_edge_markers(time_controller, results, config, t_full_us, y_avg_voltage)
@@ -523,20 +527,20 @@ class DataAnalysisController(QObject):
                 # 找到对应时间点的Y坐标值
                 time_idx = np.argmin(np.abs(t_full_us - first_rise_time))
                 x_idx = config.n_roi(time_idx)
-                y_position = y_avg_voltage[time_idx+10] if time_idx < len(y_avg_voltage) else np.mean(y_avg_voltage)
-                all_markers.append((first_rise_time, y_position, '#FF0000', 'dashed', f'Rise\n({y_position:.3f}V {x_idx}%)', 3))
+                y_position = y_avg_voltage[time_idx+15] if time_idx < len(y_avg_voltage) else np.mean(y_avg_voltage)
+                all_markers.append((first_rise_time, y_position, '#FF0000', 'dashed', f'Rise\n({y_position:.3f}V {round(x_idx,2)}%)', 3))
             
             if second_rise_time is not None:
                 time_idx = np.argmin(np.abs(t_full_us - second_rise_time))
                 x_idx = config.n_roi(time_idx)
-                y_position = y_avg_voltage[time_idx+10] if time_idx < len(y_avg_voltage) else np.mean(y_avg_voltage)
-                all_markers.append((second_rise_time, y_position, '#0000FF', 'dashed', f'2nd Rise\n({y_position:.3f}V,{x_idx}%)', 3))
+                y_position = y_avg_voltage[time_idx+25] if time_idx < len(y_avg_voltage) else np.mean(y_avg_voltage)
+                all_markers.append((second_rise_time, y_position, '#0000FF', 'dashed', f'2nd Rise\n({y_position:.3f}V,{round(x_idx,2)}%)', 3))
             
             if fall_time is not None:
                 time_idx = np.argmin(np.abs(t_full_us - fall_time))
                 x_idx = config.n_roi(time_idx)
-                y_position = y_avg_voltage[time_idx+10] if time_idx < len(y_avg_voltage) else np.mean(y_avg_voltage)
-                all_markers.append((fall_time, y_position, '#00AA00', 'dashed', f'Fall\n({y_position:.3f}V,{x_idx}%)', 3))
+                y_position = y_avg_voltage[time_idx+25] if time_idx < len(y_avg_voltage) else np.mean(y_avg_voltage)
+                all_markers.append((fall_time, y_position, '#00AA00', 'dashed', f'Fall\n({y_position:.3f}V,{round(x_idx,2)}%)', 3))
             
             # 中点标记线
             if rise_midpoint_time is not None:
@@ -636,7 +640,6 @@ class DataAnalysisController(QObject):
         except Exception as e:
             print(f"添加标记线失败: {e}")
             return None
-
 
     def clear_all_markers(self):
         """清除所有绘图标记"""

@@ -10,6 +10,10 @@ class PlotWidgetController(QObject):
         self.view = view
         self.setup_default_alignment()  # 设置默认对齐方式
         self.setup_connections()
+
+        self.roi_start = None
+        self.roi_end = None
+        self.roi_lines = []  # 存储ROI标记线
     
     def setup_default_alignment(self):
         """设置默认的坐标轴对齐方式"""
@@ -37,11 +41,15 @@ class PlotWidgetController(QObject):
         
         self.view.plot_data(x_data, y_data)
     
-    def update_time_domain_plot(self, time_data, amplitude_data):
-        """更新时域绘图"""
+    def update_time_domain_plot(self, time_data, amplitude_data, roi_start=None, roi_end=None):
+        """更新时域绘图，支持ROI参数"""
         self.update_plot(time_data, amplitude_data)
         # 设置时域坐标轴标签
         self.view.set_labels("时间", "幅度")
+        
+        # 如果有ROI参数，设置ROI范围
+        if roi_start is not None and roi_end is not None:
+            self.set_roi_range(roi_start, roi_end)
     
     def update_frequency_domain_plot(self, freq_data, magnitude_data, phase_data=None):
         """更新频域绘图"""
@@ -53,11 +61,16 @@ class PlotWidgetController(QObject):
             # 如果有相位数据，可以添加到第二个Y轴
             pass
 
-    def plot_time_domain(self, time_data, amplitude_data, x_label="时间", y_label="幅度", units_x="s", units_y="V"):
-        """绘制时域数据"""
+    def plot_time_domain(self, time_data, amplitude_data, x_label="时间", y_label="幅度", 
+                        units_x="s", units_y="V", roi_start=None, roi_end=None):
+        """绘制时域数据，支持ROI参数"""
         self.update_plot(time_data, amplitude_data)
         self.view.set_labels(x_label, y_label, units_x, units_y)
         self.view.plot_widget.setTitle("时域信号", color='b', size='12pt')
+        
+        # 如果有ROI参数，设置ROI范围
+        if roi_start is not None and roi_end is not None:
+            self.set_roi_range(roi_start, roi_end)
 
     def plot_frequency_domain(self, freq_data, magnitude_data, x_label="频率", y_label="幅度", units_x="Hz", units_y="dB"):
         """绘制频域数据"""
@@ -185,3 +198,60 @@ class PlotWidgetController(QObject):
     def export_plot(self, file_path):
         """导出绘图到文件"""
         return self.view.export_plot(file_path)
+
+    def set_roi_range(self, roi_start, roi_end):
+        """设置ROI范围"""
+        self.roi_start = roi_start
+        self.roi_end = roi_end
+        self.update_roi_display()
+    
+    def update_roi_display(self):
+        """更新ROI显示"""
+        self.clear_roi_markers()
+        
+        if self.roi_start is not None and self.roi_end is not None:
+            # 添加ROI开始和结束的垂直标记线
+            start_line = self.add_vertical_line(self.roi_start, color='green', style='dashed', label='ROI Start')
+            end_line = self.add_vertical_line(self.roi_end, color='red', style='dashed', label='ROI End')
+            
+            if start_line:
+                self.roi_lines.append(start_line)
+            if end_line:
+                self.roi_lines.append(end_line)
+            
+            # 设置视图范围以显示ROI区域
+            self.set_view_to_roi()
+    
+    def set_view_to_roi(self, padding=0.1):
+        """调整视图以显示ROI区域"""
+        if self.roi_start is not None and self.roi_end is not None:
+            # 计算带padding的显示范围
+            roi_range = abs(self.roi_end - self.roi_start)
+            x_min = self.roi_start - roi_range * padding
+            x_max = self.roi_end + roi_range * padding
+            
+            # 获取Y轴数据范围
+            view_box = self.view.plot_widget.getViewBox()
+            y_range = view_box.viewRange()[1]
+            
+            # 设置视图范围
+            view_box.setRange(xRange=(x_min, x_max), yRange=y_range, padding=0)
+    
+    def clear_roi_markers(self):
+        """清除ROI标记线"""
+        for line in self.roi_lines:
+            try:
+                self.view.plot_widget.removeItem(line)
+            except:
+                pass
+        self.roi_lines = []
+    
+    def reset_view(self):
+        """重置视图到完整数据范围"""
+        self.view.plot_widget.autoRange()
+        self.clear_roi_markers()
+        self.roi_start = None
+        self.roi_end = None
+    
+
+    
