@@ -14,6 +14,38 @@ class EdgeDetector:
         """数据预处理：移动平均滤波"""
         return np.convolve(data, np.ones(window_size)/window_size, mode='same')
     
+    def _is_spike_noise(self, data: np.ndarray, candidate_pos: int, window_size: int = 3) -> bool:
+        """
+        检测是否为毛刺噪声（中间高两边低的异常点）
+        
+        Args:
+            data: 原始数据
+            candidate_pos: 候选点位置
+            window_size: 检测窗口大小
+            
+        Returns:
+            True如果是毛刺噪声，False如果不是
+        """
+        if candidate_pos < window_size or candidate_pos >= len(data) - window_size:
+            return False
+        
+        # 获取候选点前后窗口的数据
+        left_window = data[candidate_pos - window_size:candidate_pos]
+        right_window = data[candidate_pos + 1:candidate_pos + window_size + 1]
+        candidate_value = data[candidate_pos]
+        
+        # 计算左右窗口的平均值
+        left_avg = np.mean(left_window)
+        right_avg = np.mean(right_window)
+        
+        # 如果候选点值远高于左右平均值，且左右平均值相近，则认为是毛刺
+        if (candidate_value > left_avg * 1.5 and 
+            candidate_value > right_avg * 1.5 and
+            abs(left_avg - right_avg) < (left_avg + right_avg) * 0.2):
+            return True
+        
+        return False
+    
     def _find_edge_candidates(self, smoothed_data: np.ndarray, 
                             is_rising: bool = True, 
                             min_amplitude_ratio: float = 0.3) -> List[Tuple[int, float]]:
@@ -94,6 +126,10 @@ class EdgeDetector:
             for candidate in candidate_indices:
                 global_pos = start + candidate
                 if 20 <= global_pos < len(smoothed_data) - 20:
+                    # 新增：过滤毛刺噪声点
+                    if self._is_spike_noise(smoothed_data, 3):
+                        continue  # 跳过毛刺噪声点
+                    
                     # 计算候选点前后±5%窗口的平均值
                     window_size_5pct = max(5, int(len(smoothed_data) * 0.02))
                     pre_window_start = max(0, global_pos - window_size_5pct)
