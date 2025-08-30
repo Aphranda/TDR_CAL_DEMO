@@ -92,14 +92,14 @@ class EdgeDetector:
                 if 20 <= global_pos < len(smoothed_data) - 20:
                     # 计算边沿前后的幅度变化
                     if is_rising:
-                        pre_window = max(0, global_pos-15)
-                        post_window = min(global_pos + 15, len(smoothed_data))
+                        pre_window = max(0, global_pos-25)
+                        post_window = min(global_pos + 25, len(smoothed_data))
                         baseline = np.median(smoothed_data[pre_window:global_pos])
                         peak = np.max(smoothed_data[global_pos:post_window])
                         amplitude = peak - baseline
                     else:
-                        pre_window = max(0, global_pos-15)
-                        post_window = min(global_pos + 15, len(smoothed_data))
+                        pre_window = max(0, global_pos-25)
+                        post_window = min(global_pos + 25, len(smoothed_data))
                         baseline = np.median(smoothed_data[pre_window:global_pos])
                         valley = np.min(smoothed_data[global_pos:post_window])
                         amplitude = baseline - valley

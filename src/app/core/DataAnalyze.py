@@ -59,7 +59,8 @@ class DataAnalyzer:
             y_sorted, _ = self.data_processor.sort_data_by_period(
                 segment_adc, self.config.t_sample, self.config.t_trig
             )
-          
+
+            
             # 5. 搜索所有边沿位置,第一上升沿，第二上升沿，下降沿
             rise_pos = self.edge_detector.find_rise_position(
                 y_sorted, self.config.search_method, np.mean(adc_full), self.config.min_edge_amplitude_ratio
@@ -69,6 +70,7 @@ class DataAnalyzer:
             target_idx = self.config.n_points // 4
             y_full = self.data_processor.align_data(y_sorted, rise_pos, target_idx)
 
+            
             # 7. 提取ROI
             y_roi = self.data_processor.extract_roi(y_full, self.config.roi_start, self.config.roi_end)
 
@@ -408,7 +410,7 @@ class DataAnalyzer:
         # 使用绘图器绘制图表（如果提供了绘图器）
         if self.plotter:
             self.plotter.plot_results(results, averages, edge_analysis)
-            t_full_us = (np.arange(100) * self.config.ts_eff) * 1e6
+            t_full_us = (np.arange(len(averages['y_full_avg'])) * self.config.ts_eff) * 1e6
             self.plotter.print_edge_analysis_results(edge_analysis, t_full_us)
         else:
             logger.warning("未提供绘图器，跳过绘图步骤")
@@ -425,7 +427,7 @@ def main():
     logging.basicConfig(level=logging.INFO)
     
     # 创建配置
-    config = AnalysisConfig(cal_mode=CalibrationMode.LOAD, input_dir="data\\results\\test\\OPEN")
+    config = AnalysisConfig(cal_mode=CalibrationMode.LOAD, input_dir="data\\results\\test\\TT")
   
     try:
         # 创建分析器并运行

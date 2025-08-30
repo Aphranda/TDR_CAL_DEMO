@@ -131,8 +131,8 @@ class MainWindowView(QMainWindow):
         LOG_PANEL_RATIO = 0.8         # 日志面板占比
         
         # 配置数据处理分割器比例
-        ADC_SAMPLING_RATIO = 0.4      # ADC采样面板占比
-        DATA_ANALYSIS_RATIO = 0.6     # 数据分析面板占比
+        ADC_SAMPLING_RATIO = 0.3      # ADC采样面板占比
+        DATA_ANALYSIS_RATIO = 0.7     # 数据分析面板占比
         
         # 设置主水平分割器比例
         total_width = self.main_splitter.width()
@@ -161,8 +161,8 @@ class MainWindowView(QMainWindow):
             self.data_processing_splitter.setSizes([adc_height, analysis_height])
         else:
             # 使用默认像素值作为后备方案
-            DEFAULT_ADC_HEIGHT = 300
-            DEFAULT_ANALYSIS_HEIGHT = 400
+            DEFAULT_ADC_HEIGHT = 250
+            DEFAULT_ANALYSIS_HEIGHT = 450
             self.data_processing_splitter.setSizes([DEFAULT_ADC_HEIGHT, DEFAULT_ANALYSIS_HEIGHT])
     
     def resizeEvent(self, event):

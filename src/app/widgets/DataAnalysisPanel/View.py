@@ -186,7 +186,7 @@ class DataAnalysisView(QWidget):
         """创建ADC数据分析选项"""
         widget = QWidget()
         layout = QVBoxLayout()
-        layout.setSpacing(6)
+        layout.setSpacing(5)
         layout.setContentsMargins(0, 0, 0, 0)
         
         # 频率设置
@@ -212,77 +212,82 @@ class DataAnalysisView(QWidget):
         trigger_layout.addWidget(self.adc_trigger_freq)
         layout.addLayout(trigger_layout)
 
-        diff_avg_layout = QHBoxLayout()
-        diff_avg_layout.setSpacing(4)
+
         
-        # 差分点数
-        diff_avg_layout.addWidget(QLabel("DIFFP:"))
-        self.adc_diff_points = QSpinBox()
-        self.adc_diff_points.setRange(1, 1000)
-        self.adc_diff_points.setValue(10)
-        self.adc_diff_points.setMaximumWidth(120)
-        diff_avg_layout.addWidget(self.adc_diff_points)
-        
-        # 平均点数
-        diff_avg_layout.addWidget(QLabel("SMOTP:"))
-        self.adc_average_points = QSpinBox()
-        self.adc_average_points.setRange(1, 1000)
-        self.adc_average_points.setValue(1)
-        self.adc_average_points.setMaximumWidth(120)
-        diff_avg_layout.addWidget(self.adc_average_points)
-        
-        layout.addLayout(diff_avg_layout)
-        
-        # ROI设置
+        # ROI设置 - 修改为QDoubleSpinBox以支持0.1%步进
         roi_layout = QHBoxLayout()
         roi_layout.setSpacing(4)
         roi_layout.addWidget(QLabel("ROI:"))
-        self.adc_roi_start = QSpinBox()
-        self.adc_roi_start.setRange(0, 100)
-        self.adc_roi_start.setValue(0)
+        
+        self.adc_roi_start = QDoubleSpinBox()
+        self.adc_roi_start.setRange(0.0, 100.0)
+        self.adc_roi_start.setValue(0.0)
+        self.adc_roi_start.setSingleStep(0.1)  # 设置最小步进为0.1%
+        self.adc_roi_start.setDecimals(1)      # 设置小数位数为1位
         self.adc_roi_start.setSuffix(" %")
         self.adc_roi_start.setMinimumWidth(100)
         self.adc_roi_start.setMaximumWidth(120)
         roi_layout.addWidget(self.adc_roi_start)
         
-        self.adc_roi_mid = QSpinBox()
-        self.adc_roi_mid.setRange(0, 100)
-        self.adc_roi_mid.setValue(27)
+        self.adc_roi_mid = QDoubleSpinBox()
+        self.adc_roi_mid.setRange(0.0, 100.0)
+        self.adc_roi_mid.setValue(27.0)
+        self.adc_roi_mid.setSingleStep(0.1)    # 设置最小步进为0.1%
+        self.adc_roi_mid.setDecimals(1)        # 设置小数位数为1位
         self.adc_roi_mid.setSuffix(" %")
         self.adc_roi_mid.setMinimumWidth(100)
         self.adc_roi_mid.setMaximumWidth(120)
         roi_layout.addWidget(self.adc_roi_mid)
         
-        self.adc_roi_end = QSpinBox()
-        self.adc_roi_end.setRange(0, 100)
-        self.adc_roi_end.setValue(100)
+        self.adc_roi_end = QDoubleSpinBox()
+        self.adc_roi_end.setRange(0.0, 100.0)
+        self.adc_roi_end.setValue(100.0)
+        self.adc_roi_end.setSingleStep(0.1)    # 设置最小步进为0.1%
+        self.adc_roi_end.setDecimals(1)        # 设置小数位数为1位
         self.adc_roi_end.setSuffix(" %")
         self.adc_roi_end.setMinimumWidth(100)
         self.adc_roi_end.setMaximumWidth(120)
         roi_layout.addWidget(self.adc_roi_end)
         layout.addLayout(roi_layout)
         
-
-        # 选项
-        options_layout = QHBoxLayout()
-        options_layout.setSpacing(4)
-
-        # 添加SearchMethod下拉框
-        options_layout.addWidget(QLabel("Mode:"))
+        # 创建两行网格布局来放置四个控件
+        grid_layout = QGridLayout()
+        grid_layout.setSpacing(4)
+        
+        # 第一行：DIFFP 和 SMOTP
+        grid_layout.addWidget(QLabel("DIFFP:"), 0, 0)
+        self.adc_diff_points = QSpinBox()
+        self.adc_diff_points.setRange(1, 1000)
+        self.adc_diff_points.setValue(10)
+        grid_layout.addWidget(self.adc_diff_points, 0, 1)
+        
+        grid_layout.addWidget(QLabel("SMOTP:"), 0, 2)
+        self.adc_average_points = QSpinBox()
+        self.adc_average_points.setRange(1, 1000)
+        self.adc_average_points.setValue(1)
+        grid_layout.addWidget(self.adc_average_points, 0, 3)
+        
+        # 第二行：Mode 和 CAL
+        grid_layout.addWidget(QLabel("Mode:"), 1, 0)
         self.search_method_combo = QComboBox()
         self.search_method_combo.addItem("Raise", 1)
         self.search_method_combo.addItem("MAX", 2)
         self.search_method_combo.setCurrentIndex(0)
-        options_layout.addWidget(self.search_method_combo)
+        grid_layout.addWidget(self.search_method_combo, 1, 1)
         
-        # 添加CAL下拉栏
-        options_layout.addWidget(QLabel("CAL:"))
+        grid_layout.addWidget(QLabel("CAL:"), 1, 2)
         self.cal_type_combo = QComboBox()
         self.cal_type_combo.addItems(["SHORT", "OPEN", "LOAD", "THRU"])
         self.cal_type_combo.setCurrentIndex(0)
-        options_layout.addWidget(self.cal_type_combo)
+        grid_layout.addWidget(self.cal_type_combo, 1, 3)
         
-        layout.addLayout(options_layout)
+        # 添加拉伸因子使控件均匀分布
+        grid_layout.setColumnStretch(0, 1)
+        grid_layout.setColumnStretch(1, 2)
+        grid_layout.setColumnStretch(2, 1)
+        grid_layout.setColumnStretch(3, 2)
+        
+        layout.addLayout(grid_layout)
         
         widget.setLayout(layout)
         return widget

@@ -319,6 +319,7 @@ class DataAnalysisController(QObject):
             config.clock_freq = self.view.adc_clock_freq.value()
             config.trigger_freq = self.view.adc_trigger_freq.value()
             config.roi_start_tenths = self.view.adc_roi_start.value()
+            config.roi_mid_tenths = self.view.adc_roi_mid.value()
             config.roi_end_tenths = self.view.adc_roi_end.value()
             config.diff_points = self.view.adc_diff_points.value()  # 新增：获取差分点数
             config.average_points = self.view.adc_average_points.value()
@@ -545,18 +546,21 @@ class DataAnalysisController(QObject):
             # 中点标记线
             if rise_midpoint_time is not None:
                 time_idx = np.argmin(np.abs(t_full_us - rise_midpoint_time))
+                x_idx = config.n_roi(time_idx)
                 y_position = y_avg_voltage[time_idx] if time_idx < len(y_avg_voltage) else np.mean(y_avg_voltage)
-                all_markers.append((rise_midpoint_time, y_position, '#FFA500', 'dashed', 'Rise-2nd\nRise Mid', 2))
+                all_markers.append((rise_midpoint_time, y_position, '#FFA500', 'dashed', f'Rise-2nd\n({y_position:.3f}V {round(x_idx,2)}%)', 2))
             
             if fall_midpoint_time is not None:
                 time_idx = np.argmin(np.abs(t_full_us - fall_midpoint_time))
+                x_idx = config.n_roi(time_idx)
                 y_position = y_avg_voltage[time_idx] if time_idx < len(y_avg_voltage) else np.mean(y_avg_voltage)
-                all_markers.append((fall_midpoint_time, y_position, '#800080', 'dashed', 'Rise-Fall Mid', 2))
+                all_markers.append((fall_midpoint_time, y_position, '#800080', 'dashed', f'Rise-Fall\n({y_position:.3f}V{round(x_idx,2)}%)', 2))
             
             if second_fall_midpoint_time is not None:
                 time_idx = np.argmin(np.abs(t_full_us - second_fall_midpoint_time))
+                x_idx = config.n_roi(time_idx)
                 y_position = y_avg_voltage[time_idx] if time_idx < len(y_avg_voltage) else np.mean(y_avg_voltage)
-                all_markers.append((second_fall_midpoint_time, y_position, '#00FFFF', 'dashed', '2ndRise-Fall Mid', 2))
+                all_markers.append((second_fall_midpoint_time, y_position, '#00FFFF', 'dashed', f'2ndRise\n({y_position:.3f}V {round(x_idx,2)}%)', 2))
             
             # ROI标记线
             roi_start_time = config.roi_start * config.ts_eff * 1e6
