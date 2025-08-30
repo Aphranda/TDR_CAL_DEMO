@@ -94,25 +94,30 @@ class EdgeDetector:
             for candidate in candidate_indices:
                 global_pos = start + candidate
                 if 20 <= global_pos < len(smoothed_data) - 20:
-                    # 计算边沿前后的幅度变化
-                    if is_rising:
-                        pre_window = max(0, global_pos-25)
-                        post_window = min(global_pos + 25, len(smoothed_data))
-                        baseline = np.median(smoothed_data[pre_window:global_pos])
-                        peak = np.max(smoothed_data[global_pos:post_window])
-                        amplitude = peak - baseline
-                    else:
-                        pre_window = max(0, global_pos-25)
-                        post_window = min(global_pos + 25, len(smoothed_data))
-                        baseline = np.median(smoothed_data[pre_window:global_pos])
-                        valley = np.min(smoothed_data[global_pos:post_window])
-                        amplitude = baseline - valley
+                    # 计算候选点前后±5%窗口的平均值
+                    window_size_5pct = max(5, int(len(smoothed_data) * 0.02))
+                    pre_window_start = max(0, global_pos - window_size_5pct)
+                    pre_window_end = global_pos
+                    post_window_start = global_pos
+                    post_window_end = min(len(smoothed_data), global_pos + window_size_5pct)
                     
-                    if amplitude >= threshold:
+                    pre_avg = np.mean(smoothed_data[pre_window_start:pre_window_end])
+                    post_avg = np.mean(smoothed_data[post_window_start:post_window_end])
+                    
+                    # 判断是否为毛刺信号：如果两边平均值差距很小，说明是毛刺
+                    if abs(pre_avg - post_avg) < threshold * 0.1:
+                        continue  # 跳过毛刺信号
+                    
+                    # 通过两边大小判断边沿类型
+                    if is_rising and post_avg > pre_avg:
+                        amplitude = post_avg - pre_avg
+                        valid_candidates.append((global_pos, amplitude))
+                    elif not is_rising and post_avg < pre_avg:
+                        amplitude = pre_avg - post_avg
                         valid_candidates.append((global_pos, amplitude))
         
         return valid_candidates
-    
+
     def find_rise_position(self, sorted_data: np.ndarray, search_method: int, 
                          adc_full_mean: Optional[float] = None,
                          min_edge_amplitude_ratio: float = 0.5) -> int:
