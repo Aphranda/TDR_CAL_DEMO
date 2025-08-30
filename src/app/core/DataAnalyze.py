@@ -37,24 +37,34 @@ class DataAnalyzer:
         # 验证配置
         ConfigValidator.validate_config(config)
   
-    def extract_basic_segment(self, u32_arr: np.ndarray) -> Optional[Dict[str, Any]]:
-        """提取基本数据段，返回字典格式的结果"""
+    def extract_basic_segment(self, u32_arr: np.ndarray, data_index: int = -1) -> Optional[Dict[str, Any]]:
+        """提取基本数据段，返回字典格式的结果
+        
+        Args:
+            u32_arr: uint32数据数组
+            data_index: 数据索引，用于错误追踪
+            
+        Returns:
+            处理结果字典或None
+        """
         try:
             # 1. 提取ADC数据
             bit31, adc_full = self.data_processor.extract_adc_data(u32_arr, self.config.use_signed18)
-          
+        
             # 2. 检测有效数据
             rise_idx = self.data_processor.detect_valid_data(bit31, self.config.edge_search_start)
             if rise_idx is None:
+                logger.warning(f"数据索引 {data_index}: 未检测到有效数据")
                 return None
-          
+        
             # 3. 截取数据段
             segment_adc = self.data_processor.extract_data_segment(
                 adc_full, rise_idx, self.config.start_index, self.config.n_points
             )
             if segment_adc is None:
+                logger.warning(f"数据索引 {data_index}: 数据段截取失败")
                 return None
-          
+        
             # 4. 按周期排序
             y_sorted, _ = self.data_processor.sort_data_by_period(
                 segment_adc, self.config.t_sample, self.config.t_trig
@@ -90,10 +100,11 @@ class DataAnalyzer:
                 'y_sorted': y_sorted,
                 'y_full': y_full
             }
-          
+        
         except Exception as e:
-            logger.error(f"提取基本数据段时出错: {e}")
+            logger.error(f"数据索引 {data_index}: 提取基本数据段时出错: {e}")
             return None
+
 
     def process_thru_load_mode(self, data_dict: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """
@@ -258,42 +269,44 @@ class DataAnalyzer:
             logger.error(f"处理OPEN模式时出错: {e}")
             return None
 
-    def process_single_file(self, u32_arr: np.ndarray) -> Optional[Dict[str, Any]]:
+    def process_single_file(self, u32_arr: np.ndarray, file_index: int = -1) -> Optional[Dict[str, Any]]:
         """
         处理单个文件的方法
         
         Args:
             u32_arr: uint32数据数组
+            file_index: 文件索引，用于错误追踪
             
         Returns:
             处理结果字典或None
         """
         try:
             # 提取基本数据段（步骤1-7）
-            basic_result = self.extract_basic_segment(u32_arr)
+            basic_result = self.extract_basic_segment(u32_arr, file_index)
             if basic_result is None:
                 return None
-              
+            
             # 根据校准模式选择不同的处理方法
             if self.config.cal_mode in [CalibrationMode.THRU, CalibrationMode.LOAD]:
                 # THRU和LOAD模式使用标准处理
                 return self.process_thru_load_mode(basic_result)
-              
+            
             elif self.config.cal_mode == CalibrationMode.SHORT:
                 # SHORT模式特殊处理
                 return self.process_thru_load_mode(basic_result)
-              
+            
             elif self.config.cal_mode == CalibrationMode.OPEN:
                 # OPEN模式特殊处理
                 return self.process_thru_load_mode(basic_result)
-              
+            
             else:
                 logger.error(f"未知的校准模式: {self.config.cal_mode}")
                 return None
-              
+            
         except Exception as e:
-            logger.error(f"处理文件时出错: {e}")
+            logger.error(f"处理文件索引 {file_index} 时出错: {e}")
             return None
+
 
     def batch_process_files(self, file_list: List[str]) -> Dict[str, Any]:
         """
@@ -306,23 +319,23 @@ class DataAnalyzer:
             处理结果字典
         """
         logger.info(f"开始处理 {len(file_list)} 个文件")
-      
+    
         # 初始化结果存储
         results = {
-             'ys_full':[],'ys': [], 'mags': [], 'ys_d_full':[],'ys_d': [], 'mags_d': [],
+            'ys_full':[],'ys': [], 'mags': [], 'ys_d_full':[],'ys_d': [], 'mags_d': [],
             'freq_ref': None, 'freq_d_ref': None, 'sum_Xd': None,
             'success_count': 0, 'total_files': len(file_list)
         }
-      
+    
         # 处理每个文件
-        for f in tqdm(file_list, desc="处理文件", unit="file"):
+        for i, f in enumerate(tqdm(file_list, desc="处理文件", unit="file")):
             try:
                 raw = self.file_manager.load_u32_text_first_col(f, skip_first=self.config.skip_first_value)
-                res = self.process_single_file(raw)
-              
+                res = self.process_single_file(raw, i)  # 传递文件索引
+                
                 if res is None:
                     continue
-                  
+                
                 # 从字典中提取数据
                 y_full = res['y_full']
                 y_roi = res['y_roi']
@@ -333,14 +346,14 @@ class DataAnalyzer:
                 freq_d = res['freq_d']
                 mag_linear_d = res['mag_linear_d']
                 Xd_norm = res['Xd_norm']
-              
+            
                 # 初始化参考频率
                 if results['freq_ref'] is None:
                     results['freq_ref'] = freq
                 if results['freq_d_ref'] is None:
                     results['freq_d_ref'] = freq_d
                     results['sum_Xd'] = np.zeros_like(Xd_norm, dtype=np.complex128)
-              
+            
                 # 存储结果
                 results['ys_full'].append(y_full.astype(np.float64))
                 results['ys'].append(y_roi.astype(np.float64))
@@ -351,14 +364,15 @@ class DataAnalyzer:
                 results['sum_Xd'] += Xd_norm
                 results['success_count'] += 1
             except Exception as e:
-                logger.warning(f"处理文件 {f} 失败: {e}")
+                logger.warning(f"处理文件 {f} (索引 {i}) 失败: {e}")
                 continue
-      
+    
         if results['success_count'] == 0:
             raise RuntimeError("没有文件成功处理")
-      
+    
         logger.info(f"成功处理 {results['success_count']}/{len(file_list)} 个文件")
         return results
+
 
     def analyze_edges(self, sorted_data: np.ndarray) -> Dict[str, Any]:
         """

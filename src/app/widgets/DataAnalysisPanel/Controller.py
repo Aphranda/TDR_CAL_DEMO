@@ -59,7 +59,7 @@ class ADCProcessWorker(QObject):
                     raw_data = self.load_u32_data(file_path)
                   
                     # 使用分析器处理单个文件的数据
-                    res = self.analyzer.process_single_file(raw_data)
+                    res = self.analyzer.process_single_file(raw_data,i)
                   
                     if res is None:
                         self.log_message.emit(f"文件 {os.path.basename(file_path)} 处理失败，跳过", "WARNING")

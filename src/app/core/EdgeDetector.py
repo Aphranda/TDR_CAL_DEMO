@@ -4,14 +4,13 @@ import numpy as np
 from typing import Optional, Dict, Any, List, Tuple
 import logging
 logger = logging.getLogger(__name__)
-
 class EdgeDetector:
     """边沿检测器类"""
     
     def __init__(self, config):
         self.config = config
     
-    def _preprocess_data(self, data: np.ndarray,window_size:int = 5) -> np.ndarray:
+    def _preprocess_data(self, data: np.ndarray, window_size: int = 5) -> np.ndarray:
         """数据预处理：移动平均滤波"""
         return np.convolve(data, np.ones(window_size)/window_size, mode='same')
     
@@ -31,8 +30,13 @@ class EdgeDetector:
             候选点列表，每个元素为(位置, 幅度)
         """
         # 第一步：窗口移动检测候选区间
-        window_size = int(len(smoothed_data) * 0.1)  # 10%的窗口大小
-        step_size = int(len(smoothed_data) * 0.05)   # 5%的步进大小
+        window_size = max(10, int(len(smoothed_data) * 0.05))  # 5%的窗口大小，最小10个点
+        step_size = max(5, int(len(smoothed_data) * 0.03))    # 3%的步进大小，最小5个点
+        
+        # 确保步长不为0
+        if step_size == 0:
+            step_size = 1
+            
         threshold = np.ptp(smoothed_data) * min_amplitude_ratio  # 峰峰值阈值
         
         candidate_windows = []
@@ -80,10 +84,10 @@ class EdgeDetector:
             
             # 设置差分阈值
             if is_rising:
-                dy_threshold = np.max(dy) * 0.3
+                dy_threshold = np.max(dy) * 0.3 if len(dy) > 0 else 0
                 candidate_indices = np.flatnonzero(dy > dy_threshold) + 1
             else:
-                dy_threshold = np.min(dy) * 0.3
+                dy_threshold = np.min(dy) * 0.3 if len(dy) > 0 else 0
                 candidate_indices = np.flatnonzero(dy < dy_threshold) + 1
             
             # 转换回全局坐标并计算幅度
@@ -128,8 +132,11 @@ class EdgeDetector:
                 return candidates[0][0]
             else:
                 # 回退到差分方法
-                max_dy_idx = np.argmax(np.diff(sorted_data))
-                return max_dy_idx + 1
+                if len(sorted_data) > 1:
+                    max_dy_idx = np.argmax(np.diff(sorted_data))
+                    return max_dy_idx + 1
+                else:
+                    return 0
         else:
             # 最大值方法
             return np.argmax(sorted_data)
@@ -224,6 +231,10 @@ class EdgeDetector:
     
     def analyze_edges(self, sorted_data: np.ndarray) -> Dict[str, Any]:
         """完整的边沿分析流程"""
+        # 确保数据长度足够
+        if len(sorted_data) < 100:
+            return {'first_rise_pos': None, 'second_rise_pos': None, 'fall_pos': None}
+        
         first_rise_pos = self.find_rise_position(
             sorted_data, 
             self.config.search_method, 
@@ -252,7 +263,7 @@ class EdgeDetector:
                 second_peak_val = np.max(sorted_data[second_rise_pos:second_peak_search_end])
                 second_amplitude = second_peak_val - first_peak_val
                 result['second_rise_amplitude'] = second_amplitude
-                result['rise_ratio'] = second_amplitude / first_amplitude
+                result['rise_ratio'] = second_amplitude / first_amplitude if first_amplitude != 0 else 0
                 
                 # 计算中点位置
                 rise_midpoint = (first_rise_pos + second_rise_pos) // 2
@@ -270,7 +281,7 @@ class EdgeDetector:
                 fall_valley = np.min(sorted_data[fall_pos:fall_valley_search_end])
                 fall_amplitude = first_peak_val - fall_valley
                 result['fall_amplitude'] = fall_amplitude
-                result['fall_ratio'] = fall_amplitude / first_amplitude
+                result['fall_ratio'] = fall_amplitude / first_amplitude if first_amplitude != 0 else 0
                 
                 # 计算中点位置
                 fall_midpoint = (first_rise_pos + fall_pos) // 2

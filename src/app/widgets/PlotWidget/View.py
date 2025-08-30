@@ -26,15 +26,21 @@ class PlotWidgetView(QWidget):
         self.plot_widget.setLabel('left', '幅度', units='V')
         self.plot_widget.setLabel('bottom', '时间', units='s')
         
-        # 启用框选放大功能
-        self.plot_widget.getViewBox().setMouseMode(pg.ViewBox.RectMode)  # 设置为矩形选择模式
+        # 获取ViewBox并设置默认模式为平移模式
+        self.view_box = self.plot_widget.getViewBox()
+        self.view_box.setMouseMode(pg.ViewBox.PanMode)  # 默认设置为平移模式
         
         # 设置鼠标操作模式
         self.plot_widget.setMenuEnabled(True)  # 启用右键菜单
         self.plot_widget.enableAutoRange()  # 启用自动范围
         
+        # 重写鼠标事件处理
+        self.view_box.mouseClickEvent = self.mouse_click_event
+        self.view_box.mouseDragEvent = self.mouse_drag_event
+        self.view_box.mouseReleaseEvent = self.mouse_release_event
+        
         # 添加快捷键支持
-        self.plot_widget.getViewBox().keyPressEvent = self.key_press_event
+        self.view_box.keyPressEvent = self.key_press_event
         
         # 设置坐标轴对齐方式
         self.set_axis_alignment()
@@ -53,8 +59,53 @@ class PlotWidgetView(QWidget):
         # 连接鼠标移动信号
         self.proxy = pg.SignalProxy(self.plot_widget.scene().sigMouseMoved, 
                                   rateLimit=60, slot=self.mouse_moved)
+        
+        # 跟踪当前鼠标按钮状态
+        self.current_button = None
     
-
+    def mouse_click_event(self, event):
+        """处理鼠标点击事件"""
+        # 记录按下的鼠标按钮
+        self.current_button = event.button()
+        # 调用父类方法处理基本功能
+        pg.ViewBox.mouseClickEvent(self.view_box, event)
+    
+    def mouse_drag_event(self, event, axis=None):
+        """处理鼠标拖拽事件"""
+        # 根据按下的鼠标按钮设置不同的模式
+        if event.buttons() & Qt.MiddleButton:
+            # 中键按下，设置为框选模式
+            self.view_box.setMouseMode(pg.ViewBox.RectMode)
+            # 调用父类方法处理拖拽
+            pg.ViewBox.mouseDragEvent(self.view_box, event, axis)
+        elif event.buttons() & Qt.LeftButton:
+            # 左键按下，设置为平移模式
+            self.view_box.setMouseMode(pg.ViewBox.PanMode)
+            # 调用父类方法处理拖拽
+            pg.ViewBox.mouseDragEvent(self.view_box, event, axis)
+        else:
+            # 其他按钮，调用父类方法
+            pg.ViewBox.mouseDragEvent(self.view_box, event, axis)
+    
+    def mouse_release_event(self, event):
+        """处理鼠标释放事件"""
+        # 先调用父类方法完成框选操作
+        pg.ViewBox.mouseReleaseEvent(self.view_box, event)
+        
+        # 只有在完成框选操作后才恢复默认模式
+        # 如果是中键释放（框选模式），让父类方法先处理缩放
+        if self.current_button == Qt.MiddleButton:
+            # 延迟一小段时间再恢复模式，确保缩放操作完成
+            pg.QtCore.QTimer.singleShot(50, self.restore_default_mode)
+        else:
+            # 其他按钮立即恢复默认模式
+            self.restore_default_mode()
+    
+    def restore_default_mode(self):
+        """恢复默认的平移模式"""
+        self.view_box.setMouseMode(pg.ViewBox.PanMode)
+        self.current_button = None
+    
     def mouse_moved(self, event):
         """处理鼠标移动事件，显示坐标"""
         try:
@@ -72,12 +123,11 @@ class PlotWidgetView(QWidget):
                 y_label = left_axis.labelText
                 
                 # 直接显示原始值，让用户根据坐标轴标签理解单位
-                self.coord_label.setText(f"{x_label}: {x:.6f}, {y_label}: {y:.3f}")
+                self.coord_label.setText(f"{x_label}: {(x*1000):.3f}, {y_label}: {y:.3f}")
             else:
                 self.coord_label.setText("X: -, Y: -")
         except:
             self.coord_label.setText("X: -, Y: -")
-
     
     def key_press_event(self, event):
         """处理键盘事件"""
@@ -90,12 +140,12 @@ class PlotWidgetView(QWidget):
         
         # 平移模式 (P键)
         elif key == pg.QtCore.Qt.Key_P:
-            self.plot_widget.getViewBox().setMouseMode(pg.ViewBox.PanMode)
+            self.view_box.setMouseMode(pg.ViewBox.PanMode)
             event.accept()
         
         # 框选模式 (Z键)
         elif key == pg.QtCore.Qt.Key_Z:
-            self.plot_widget.getViewBox().setMouseMode(pg.ViewBox.RectMode)
+            self.view_box.setMouseMode(pg.ViewBox.RectMode)
             event.accept()
         
         else:

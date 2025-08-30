@@ -84,7 +84,7 @@ class PlotWidgetController(QObject):
         self.view.set_labels(x_label, y_label, units_x, units_y)
         self.view.plot_widget.setTitle("频域信号", color='b', size='12pt')
 
-    def plot_diff_time_domain(self, time_data, diff_data, x_label="时间", y_label="差分幅度", units_x="s", units_y="V"):
+    def plot_diff_time_domain(self, time_data, diff_data, x_label="时间", y_label="差分幅度", units_x="ns", units_y="V"):
         """绘制差分时域数据"""
         self.update_plot(time_data, diff_data)
         self.view.set_labels(x_label, y_label, units_x, units_y)
