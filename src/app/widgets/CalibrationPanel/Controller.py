@@ -22,6 +22,7 @@ class CalibrationWorker(QThread):
         self.confirmation_result_received = False
         self.last_confirmation_result = False
         
+
     def run(self):
         self._is_running = True
         self.log_message.emit("开始校准流程", "INFO")
@@ -51,6 +52,9 @@ class CalibrationWorker(QThread):
             # 判断是否有测量字段
             has_measurement = "测量" in step
             
+            # 判断是否是底噪测试
+            is_noise_test = "底噪" in step
+            
             # 更新进度
             self.progress_updated.emit(step, progress, False, has_measurement)
             self.log_message.emit(f"执行步骤: {step}", "INFO")
@@ -71,8 +75,16 @@ class CalibrationWorker(QThread):
                 # 设置ADC采样参数
                 adc_controller.view.output_dir_edit.setText(raw_data_dir)
                 adc_controller.view.filename_edit.setText(f"step_{i+1}_{folder_name}")
-                # adc_controller.view.sample_count_spin.setValue(10)  # 多次采样
-                # adc_controller.view.sample_interval_spin.setValue(0.1)  # 短间隔
+                
+                # # 如果是底噪测试，设置特殊的采样参数
+                # if is_noise_test:
+                #     # 底噪测试可能需要更多的采样次数和不同的参数
+                #     adc_controller.view.sample_count_spin.setValue(20)  # 更多采样次数
+                #     adc_controller.view.sample_interval_spin.setValue(0.05)  # 更短的间隔
+                # else:
+                #     # 正常校准测量的参数
+                #     adc_controller.view.sample_count_spin.setValue(10)
+                #     adc_controller.view.sample_interval_spin.setValue(0.1)
                 
                 # 执行ADC采样
                 self.log_message.emit(f"开始ADC采样: {step}", "INFO")
@@ -116,22 +128,6 @@ class CalibrationWorker(QThread):
                 # 保存分析结果
                 if data_analysis_controller.model.results:
                     # 保存处理后的数据
-                    processed_filename = f"step_{i+1}_{folder_name}_processed.csv"
-                    processed_filepath = os.path.join(processed_data_dir, processed_filename)
-                    
-                    # 这里应该根据实际分析结果保存数据
-                    # 简化处理：保存分析结果的统计信息
-                    with open(processed_filepath, 'w') as f:
-                        f.write("Analysis Results\n")
-                        f.write("=" * 50 + "\n")
-                        for key, value in data_analysis_controller.model.results.items():
-                            f.write(f"{key}: {value}\n")
-                    
-                    self.log_message.emit(f"分析结果已保存: {processed_filename}", "INFO")
-                # 替换为：
-                # 保存分析结果
-                if data_analysis_controller.model.results:
-                    # 保存处理后的数据
                     processed_filename = f"step_{i+1}_{folder_name}_processed"
                     processed_filepath = os.path.join(processed_data_dir, processed_filename)
                     
@@ -139,6 +135,16 @@ class CalibrationWorker(QThread):
                     try:
                         # 导出CSV结果
                         data_analysis_controller.export_csv_results(processed_filepath + ".csv")
+                        
+                        # 如果是底噪测试，可以额外保存一些统计信息
+                        if is_noise_test:
+                            noise_stats_file = os.path.join(processed_data_dir, f"noise_statistics_{folder_name}.txt")
+                            with open(noise_stats_file, 'w') as f:
+                                f.write(f"Noise Test Results - {folder_name}\n")
+                                f.write("=" * 50 + "\n")
+                                f.write(f"Timestamp: {datetime.datetime.now()}\n")
+                                f.write(f"Step: {step}\n")
+                                # 可以添加更多的底噪统计信息
                         
                         self.log_message.emit(f"分析结果已保存: {processed_filename}*.csv", "INFO")
                     except Exception as e:
@@ -162,7 +168,8 @@ class CalibrationWorker(QThread):
         if self._is_running:
             self.log_message.emit("校准流程完成", "INFO")
         self.finished.emit()
-        
+
+
     def request_user_confirmation(self, step_description, has_measurement):
         """请求用户确认（在工作线程中调用）"""
         # 重置确认状态
@@ -200,6 +207,8 @@ class CalibrationController(QObject):
     user_confirmation_requested = pyqtSignal(str, bool)  # 修改：添加第二个参数表示是否有测量字段
     retest_requested = pyqtSignal()  # 新增：重测请求信号
     retest_finished = pyqtSignal()  # 新增：重测完成信号
+    adc_progress_updated = pyqtSignal(int, int, str)  # 新增：ADC进度更新信号
+    analysis_progress_updated = pyqtSignal(int, int, str)  # 新增：分析进度更新信号
     
     def __init__(self, view, model):
         super().__init__()
@@ -235,6 +244,10 @@ class CalibrationController(QObject):
         self.view.retest_requested.connect(self.on_retest_requested)
         self.retest_requested.connect(self.on_retest_requested)
         self.retest_finished.connect(self.view.retest_finished)  # 连接重测完成信号
+
+        # 连接进度信号
+        self.adc_progress_updated.connect(self.view.update_adc_progress)
+        self.analysis_progress_updated.connect(self.view.update_analysis_progress)
         
     def update_view_from_model(self):
         """从模型更新视图"""

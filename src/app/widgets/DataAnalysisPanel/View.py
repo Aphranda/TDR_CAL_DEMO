@@ -16,6 +16,10 @@ class DataAnalysisView(QWidget):
         main_layout = QVBoxLayout()
         main_layout.setSpacing(8)
         main_layout.setContentsMargins(6, 6, 6, 6)
+
+        # # 设置窗口属性以避免递归重绘
+        # self.setAttribute(Qt.WA_OpaquePaintEvent)
+        # self.setAttribute(Qt.WA_PaintOnScreen)
         
         # 数据文件选择
         file_group = QGroupBox("数据分析")

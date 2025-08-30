@@ -19,7 +19,7 @@ class PlotWidgetView(QWidget):
         
         # 创建绘图部件
         self.plot_widget = pg.PlotWidget()
-        self.plot_widget.setMouseEnabled(x=True, y=False)  # 启用X和Y方向的鼠标操作
+        self.plot_widget.setMouseEnabled(x=True, y=True)  # 启用X和Y方向的鼠标操作
         self.plot_widget.setBackground('w')
         self.plot_widget.setTitle(self.title, color='b', size='12pt')
         self.plot_widget.showGrid(x=True, y=True)

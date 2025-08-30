@@ -378,8 +378,22 @@ class DataAnalyzer:
         """
         完整的边沿分析流程，返回边沿位置和中点位置
         """
-        edges_dict = self.edge_detector.analyze_edges(sorted_data)
-        return edges_dict
+        try:
+            edges_dict = self.edge_detector.analyze_edges(sorted_data)
+            return edges_dict
+        except Exception as e:
+            logger.error(f"边沿分析失败: {e}")
+            # 返回空的边沿分析结果，避免中断整个流程
+            return {
+                'first_rise_pos': None,
+                'second_rise_pos': None, 
+                'fall_pos': None,
+                'first_rise_amplitude': 0,
+                'second_rise_amplitude': 0,
+                'fall_amplitude': 0,
+                'rise_ratio': 0,
+                'fall_ratio': 0
+            }
 
     def save_results(self, results: Dict[str, Any], averages: Dict[str, Any]):
         """保存结果到文件"""

@@ -36,38 +36,43 @@ class CalibrationModel:
         self.progress = 0
         self.base_calibration_path = None
         
+
     def generate_calibration_steps(self):
-        """改进的校准步骤生成"""
+        """改进的校准步骤生成，添加底噪测试"""
         self.steps = []
+        
+        # 添加底噪测试步骤
+        self.steps.append("1. 测试端口1底噪")
         
         if self.params.cal_type == CalibrationType.SOLT:
             # 单端口或双端口的SOL测量
-            self.steps.append("1. 连接短路器到端口1")
-            self.steps.append("2. 测量端口1短路标准件")
-            self.steps.append("3. 连接开路器到端口1")
-            self.steps.append("4. 测量端口1开路标准件")
-            self.steps.append("5. 连接负载到端口1")
-            self.steps.append("6. 测量端口1负载标准件")
+            self.steps.append("2. 连接短路器到端口1")
+            self.steps.append("3. 测量端口1短路标准件")
+            self.steps.append("4. 连接开路器到端口1")
+            self.steps.append("5. 测量端口1开路标准件")
+            self.steps.append("6. 连接负载到端口1")
+            self.steps.append("7. 测量端口1负载标准件")
             
             if self.params.port_config == PortConfig.DUAL:
-                self.steps.append("7. 连接短路器到端口2")
-                self.steps.append("8. 测量端口2短路标准件")
-                self.steps.append("9. 连接开路器到端口2")
-                self.steps.append("10. 测量端口2开路标准件")
-                self.steps.append("11. 连接负载到端口2")
-                self.steps.append("12. 测量端口2负载标准件")
-                self.steps.append("13. 连接直通件到端口1-2")
-                self.steps.append("14. 测量直通标准件")
+                self.steps.append("8. 测试端口2底噪")
+                self.steps.append("9. 连接短路器到端口2")
+                self.steps.append("10. 测量端口2短路标准件")
+                self.steps.append("11. 连接开路器到端口2")
+                self.steps.append("12. 测量端口2开路标准件")
+                self.steps.append("13. 连接负载到端口2")
+                self.steps.append("14. 测量端口2负载标准件")
+                self.steps.append("15. 连接直通件到端口1-2")
+                self.steps.append("16. 测量直通标准件")
                 
         elif self.params.cal_type == CalibrationType.TRL:
-            self.steps.append("1. 连接直通件到端口1-2")
-            self.steps.append("2. 测量直通标准件")
-            self.steps.append("3. 连接反射件到端口1")
-            self.steps.append("4. 测量端口1反射标准件")
-            self.steps.append("5. 连接反射件到端口2")
-            self.steps.append("6. 测量端口2反射标准件")
-            self.steps.append("7. 连接延迟线到端口1-2")
-            self.steps.append("8. 测量延迟线标准件")
+            self.steps.append("2. 连接直通件到端口1-2")
+            self.steps.append("3. 测量直通标准件")
+            self.steps.append("4. 连接反射件到端口1")
+            self.steps.append("5. 测量端口1反射标准件")
+            self.steps.append("6. 连接反射件到端口2")
+            self.steps.append("7. 测量端口2反射标准件")
+            self.steps.append("8. 连接延迟线到端口1-2")
+            self.steps.append("9. 测量延迟线标准件")
             
         self.steps.append("计算误差系数")
         self.steps.append("验证校准质量")
@@ -75,8 +80,10 @@ class CalibrationModel:
         
         return self.steps
 
+
+
     def create_calibration_folders(self):
-        """创建校准文件夹结构，每个测量步骤下包含Raw_ADC_Data和Processed_Data子文件夹"""
+        """创建校准文件夹结构，包含底噪测试文件夹"""
         # 确保data/calibration目录存在
         calibration_base_dir = os.path.join("data", "calibration")
         os.makedirs(calibration_base_dir, exist_ok=True)
@@ -92,43 +99,35 @@ class CalibrationModel:
         # 创建基础目录
         os.makedirs(self.base_calibration_path, exist_ok=True)
         
-        # 根据校准类型创建子文件夹
+        # 添加底噪测试文件夹
+        measurement_folders = ["Noise_Port1"]
+        analysis_folders = ["ErrorCoefficients", "Verification"]
+        
         if self.params.cal_type == CalibrationType.SOLT:
             if self.params.port_config == PortConfig.SINGLE:
-                measurement_folders = [
+                measurement_folders.extend([
                     "Short_Port1",
                     "Open_Port1", 
                     "Load_Port1"
-                ]
-                analysis_folders = [
-                    "ErrorCoefficients",
-                    "Verification"
-                ]
+                ])
             else:  # DUAL port
-                measurement_folders = [
+                measurement_folders.extend([
                     "Short_Port1",
                     "Open_Port1",
                     "Load_Port1",
+                    "Noise_Port2",  # 添加端口2底噪测试
                     "Short_Port2",
                     "Open_Port2",
                     "Load_Port2",
                     "Thru"
-                ]
-                analysis_folders = [
-                    "ErrorCoefficients",
-                    "Verification"
-                ]
+                ])
         else:  # TRL calibration
-            measurement_folders = [
+            measurement_folders.extend([
                 "Thru",
                 "Reflect_Port1",
                 "Reflect_Port2",
                 "Line"
-            ]
-            analysis_folders = [
-                "ErrorCoefficients",
-                "Verification"
-            ]
+            ])
         
         # 为每个测量文件夹创建Raw_ADC_Data和Processed_Data子文件夹
         for folder in measurement_folders:
@@ -161,10 +160,17 @@ class CalibrationModel:
         # 返回基础路径
         return self.base_calibration_path
 
-    # 修改 get_folder_name_from_step 方法，添加更多步骤识别
+
     def get_folder_name_from_step(self, step):
         """根据步骤描述获取文件夹名称"""
-        if "短路" in step:
+        if "底噪" in step:
+            if "端口1" in step:
+                return "Noise_Port1"
+            elif "端口2" in step:
+                return "Noise_Port2"
+            else:
+                return "Noise"
+        elif "短路" in step:
             base = "Short"
         elif "开路" in step:
             base = "Open"

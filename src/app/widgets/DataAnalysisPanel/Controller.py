@@ -12,6 +12,9 @@ from ...widgets.PlotWidget import create_plot_widget
 import time
 from typing import Optional, Tuple, Dict, Any
 
+from PyQt5.QtCore import QObject, pyqtSignal, QThread, pyqtSlot, QEventLoop
+from PyQt5.QtGui import QTextCursor
+
 
 # 搜索方法枚举
 class SearchMethod:
@@ -105,24 +108,37 @@ class ADCProcessWorker(QObject):
             self.log_message.emit("计算平均值...", "INFO")
             averages = self.calculate_averages(results)
             
-            # 直接对平均值进行边沿分析
+            # 直接对平均值进行边沿分析 - 添加异常处理
             self.progress.emit(len(self.file_list), len(self.file_list), "进行边沿分析...")
             self.log_message.emit("进行边沿分析...", "INFO")
 
-
-            # 对平均后的数据进行边沿分析
-            edge_results = self.analyzer.analyze_edges(averages['y_full_avg'])
-            
-
-            if 'first_rise_pos' in edge_results and edge_results['first_rise_pos'] is not None:
-                edge_results['first_rise_pos_time'] = edge_results['first_rise_pos'] * self.config.ts_eff * 1e6
-            if 'second_rise_pos' in edge_results and edge_results['second_rise_pos'] is not None:
-                edge_results['second_rise_pos_time'] = edge_results['second_rise_pos'] * self.config.ts_eff * 1e6
-            if 'fall_pos' in edge_results and edge_results['fall_pos'] is not None:
-                edge_results['fall_pos_time'] = edge_results['fall_pos'] * self.config.ts_eff * 1e6
-
-            # 将边沿分析结果添加到results中
-            results.update(edge_results)
+            try:
+                # 对平均后的数据进行边沿分析，添加异常处理
+                edge_results = self.analyzer.analyze_edges(averages['y_full_avg'])
+                
+                if 'first_rise_pos' in edge_results and edge_results['first_rise_pos'] is not None:
+                    edge_results['first_rise_pos_time'] = edge_results['first_rise_pos'] * self.config.ts_eff * 1e6
+                if 'second_rise_pos' in edge_results and edge_results['second_rise_pos'] is not None:
+                    edge_results['second_rise_pos_time'] = edge_results['second_rise_pos'] * self.config.ts_eff * 1e6
+                if 'fall_pos' in edge_results and edge_results['fall_pos'] is not None:
+                    edge_results['fall_pos_time'] = edge_results['fall_pos'] * self.config.ts_eff * 1e6
+                    
+                # 将边沿分析结果添加到results中
+                results.update(edge_results)
+                
+            except Exception as e:
+                # 边沿分析失败时记录错误，但不中断整个处理流程
+                error_msg = f"边沿分析失败: {str(e)}，将继续处理其他数据"
+                self.log_message.emit(error_msg, "WARNING")
+                # 添加空的边沿分析结果，避免后续代码出错
+                results.update({
+                    'first_rise_pos': None,
+                    'second_rise_pos': None, 
+                    'fall_pos': None,
+                    'first_rise_pos_time': None,
+                    'second_rise_pos_time': None,
+                    'fall_pos_time': None
+                })
           
             self.finished.emit(results, averages)
           
@@ -130,6 +146,10 @@ class ADCProcessWorker(QObject):
             error_msg = f"ADC数据处理失败: {str(e)}"
             self.log_message.emit(error_msg, "ERROR")
             self.error.emit(error_msg)
+        finally:
+            # 确保线程正确清理
+            self.running = False
+
   
     def stop(self):
         """停止处理"""
@@ -437,9 +457,11 @@ class DataAnalysisController(QObject):
                 # 绘制时域信号 (使用电压值)
                 time_controller.plot_time_domain(t_full_us, y_avg_voltage, "时间", "电压", "ns", "V",roi_start_time, roi_end_time)
               
-                # 添加边缘位置标记线
-                self.add_edge_markers(time_controller, results, config, t_full_us, y_avg_voltage)
-              
+                # 只有在边沿分析成功时才添加标记线
+                if results.get('first_rise_pos') is not None:
+                    # 添加边缘位置标记线
+                    self.add_edge_markers(time_controller, results, config, t_full_us, y_avg_voltage)
+                    
             else:
                 self.errorOccurred.emit("时域绘图控制器未找到")
           
@@ -476,7 +498,9 @@ class DataAnalysisController(QObject):
               
                 diff_time_controller.plot_diff_time_domain(t_full_diff_us, y_d_avg_voltage, "时间", "差分电压", "ns", "V")
                 # 添加边缘位置标记线到差分时域图
-                self.add_edge_markers(diff_time_controller, results, config, t_full_diff_us, y_d_avg_voltage)
+                # 只有在边沿分析成功时才添加标记线
+                if results.get('first_rise_pos') is not None:
+                    self.add_edge_markers(diff_time_controller, results, config, t_full_diff_us, y_d_avg_voltage)
               
           
             # 差分频域数据
@@ -529,13 +553,13 @@ class DataAnalysisController(QObject):
                 time_idx = np.argmin(np.abs(t_full_us - first_rise_time))
                 x_idx = config.n_roi(time_idx)
                 y_position = y_avg_voltage[time_idx+15] if time_idx < len(y_avg_voltage) else np.mean(y_avg_voltage)
-                all_markers.append((first_rise_time, y_position, '#FF0000', 'dashed', f'Rise\n({y_position:.3f}V {round(x_idx,2)}%)', 3))
+                all_markers.append((first_rise_time, y_position, "#D2A5A5", 'dashed', f'Rise\n({y_position:.3f}V {round(x_idx,2)}%)', 3))
             
             if second_rise_time is not None:
                 time_idx = np.argmin(np.abs(t_full_us - second_rise_time))
                 x_idx = config.n_roi(time_idx)
                 y_position = y_avg_voltage[time_idx+25] if time_idx < len(y_avg_voltage) else np.mean(y_avg_voltage)
-                all_markers.append((second_rise_time, y_position, '#0000FF', 'dashed', f'2nd Rise\n({y_position:.3f}V,{round(x_idx,2)}%)', 3))
+                all_markers.append((second_rise_time, y_position, "#49A333", 'dashed', f'2nd Rise\n({y_position:.3f}V,{round(x_idx,2)}%)', 3))
             
             if fall_time is not None:
                 time_idx = np.argmin(np.abs(t_full_us - fall_time))
