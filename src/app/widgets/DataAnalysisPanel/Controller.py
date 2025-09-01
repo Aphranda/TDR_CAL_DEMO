@@ -21,6 +21,8 @@ class SearchMethod:
     RISING = 1
     MAX = 2
 
+# src/app/widgets/DataAnalysisPanel/Controller.py
+
 class ADCProcessWorker(QObject):
     """ADC数据处理工作线程 - 使用DataAnalyzer进行分析"""
     progress = pyqtSignal(int, int, str)
@@ -34,11 +36,13 @@ class ADCProcessWorker(QObject):
         self.config = config
         self.analyzer = DataAnalyzer(config)  # 创建分析器实例
         self.running = False
+        self._should_stop = False  # 添加停止标志
   
     @pyqtSlot()
     def run(self):
         """执行ADC数据处理 - 使用分析器进行单次数据分析"""
         self.running = True
+        self._should_stop = False
       
         try:
             # 初始化结果存储
@@ -52,7 +56,8 @@ class ADCProcessWorker(QObject):
           
             # 处理每个文件
             for i, file_path in enumerate(self.file_list):
-                if not self.running:
+                if self._should_stop:  # 使用明确的停止标志
+                    self.log_message.emit("处理被用户中断", "INFO")
                     break
               
                 self.progress.emit(i + 1, len(self.file_list), f"处理文件: {os.path.basename(file_path)}")
@@ -95,6 +100,9 @@ class ADCProcessWorker(QObject):
                     results['mags_d'].append(mag_linear_d.astype(np.float64))
                     results['sum_Xd'] += Xd_norm
                     results['success_count'] += 1
+                      
+                    # 及时释放临时变量内存
+                    del y_full, y_roi, freq, mag_linear, y_full_diff, y_diff, freq_d, mag_linear_d, Xd_norm
                       
                 except Exception as e:
                     self.log_message.emit(f"处理文件 {os.path.basename(file_path)} 失败: {str(e)}", "WARNING")
@@ -149,12 +157,16 @@ class ADCProcessWorker(QObject):
         finally:
             # 确保线程正确清理
             self.running = False
+            self._should_stop = False
+            # 强制垃圾回收
+            import gc
+            gc.collect()
 
-  
     def stop(self):
         """停止处理"""
+        self._should_stop = True
         self.running = False
-  
+
     def load_u32_data(self, path: str) -> np.ndarray:
         """从文件加载uint32数据"""
         file_manager = FileManager()
@@ -260,7 +272,11 @@ class DataAnalysisController(QObject):
         self.model.data_files.clear()
         self.model.current_data = None
         self.view.file_list.clear()
-        msg = "已清除文件列表"
+        
+        # 清理分析数据
+        self.cleanup_analysis()
+        
+        msg = "已清除文件列表和分析数据"
         self.dataLoaded.emit(msg)
         self.log_message(msg, "INFO")
   
@@ -388,29 +404,57 @@ class DataAnalysisController(QObject):
 
     def on_adc_process_finished(self, results, averages):
         """ADC处理完成"""
-        # 隐藏进度条
-        self.view.progress_bar.setVisible(False)
-      
-        # 保存分析结果供导出使用
-        self.last_analysis_results = results
-        self.last_averages = averages
-      
-        # 格式化结果
-        config = self.model.adc_config
-        analysis_results = {
-            "processed_files": f"{results['success_count']}/{results['total_files']}",
-            "clock_frequency": f"{config.clock_freq/1e6:.2f} MHz",
-            "trigger_frequency": f"{config.trigger_freq/1e6:.2f} MHz",
-            "roi_range": f"{config.roi_start_tenths}%-{config.roi_end_tenths}%",
-            "sampling_rate": f"{config.fs_eff/1e6:.2f} MS/s"
-        }
-      
-        # 生成绘图数据
-        self.generate_plot_data(results, averages, config)
-        self.model.results = analysis_results
-        self.analysisCompleted.emit(analysis_results)
-      
-        self.log_message(f"分析完成! 成功处理 {results['success_count']}/{results['total_files']} 个文件", "INFO")
+        try:
+            # 隐藏进度条
+            self.view.progress_bar.setVisible(False)
+          
+            # 保存分析结果供导出使用
+            self.last_analysis_results = results
+            self.last_averages = averages
+          
+            # 格式化结果
+            config = self.model.adc_config
+            analysis_results = {
+                "processed_files": f"{results['success_count']}/{results['total_files']}",
+                "clock_frequency": f"{config.clock_freq/1e6:.2f} MHz",
+                "trigger_frequency": f"{config.trigger_freq/1e6:.2f} MHz",
+                "roi_range": f"{config.roi_start_tenths}%-{config.roi_end_tenths}%",
+                "sampling_rate": f"{config.fs_eff/1e6:.2f} MS/s"
+            }
+          
+            # 生成绘图数据
+            self.generate_plot_data(results, averages, config)
+            self.model.results = analysis_results
+            self.analysisCompleted.emit(analysis_results)
+          
+            self.log_message(f"分析完成! 成功处理 {results['success_count']}/{results['total_files']} 个文件", "INFO")
+            
+        finally:
+            # 清理工作线程引用
+            # self.adc_process_thread = None
+            # self.adc_process_worker = None
+            # 强制垃圾回收
+            import gc
+            gc.collect()
+
+    def cleanup_analysis(self):
+        """清理分析过程中使用的内存"""
+        if hasattr(self, 'last_analysis_results'):
+            del self.last_analysis_results
+        if hasattr(self, 'last_averages'):
+            del self.last_averages
+        
+        # 清理绘图数据
+        for plot_name in ['plot_time', 'plot_freq', 'plot_diff_time', 'plot_diff_freq']:
+            controller = self.get_plot_controller(plot_name)
+            if controller and hasattr(controller, 'clear_plot_data'):
+                controller.clear_plot_data()
+        
+        # 强制垃圾回收
+        import gc
+        gc.collect()
+    
+
 
     def on_adc_process_error(self, error_message):
         """ADC处理错误"""
