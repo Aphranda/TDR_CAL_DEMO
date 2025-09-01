@@ -72,6 +72,13 @@ class ADCWorker(QObject):
             
         except Exception as e:
             self.finished.emit(False, f"采样过程中发生错误: {str(e)}")
+        finally:
+            # 确保线程正确清理
+            self.running = False
+            self._should_stop = False
+            # 强制垃圾回收
+            import gc
+            gc.collect()
     
     def stop(self):
         """停止采样"""
