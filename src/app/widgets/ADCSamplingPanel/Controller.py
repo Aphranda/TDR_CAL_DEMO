@@ -6,6 +6,7 @@ from PyQt5.QtWidgets import QFileDialog, QMessageBox
 from PyQt5.QtCore import QObject, pyqtSignal, QThread, pyqtSlot
 from ...core.ADCSample import ADCSample
 from ...core.FileManager import FileManager
+from ...core.ClockController import ClockController  # 导入时钟控制类
 
 class ADCWorker(QObject):
     """ADC采样工作线程"""
@@ -92,12 +93,14 @@ class ADCSamplingController(QObject):
     adcStatusChanged = pyqtSignal(bool, str)  # ADC连接状态变化信号
     samplingProgress = pyqtSignal(int, int, str)  # 采样进度信号
     dataSaved = pyqtSignal(str, str)  # 数据保存信号
+    clockModeChanged = pyqtSignal(str, str)  # 时钟模式变化信号 (模式, 消息)
     
     def __init__(self, view, model):
         super().__init__()
         self.view = view
         self.model = model
         self.tcp_client = None  # 存储TCP客户端引用
+        self.clock_controller = ClockController()  # 创建时钟控制器实例
         self.adc_worker = None
         self.adc_thread = None
         self.main_window_controller = None
@@ -105,13 +108,20 @@ class ADCSamplingController(QObject):
 
     def setup_connections(self):
         """设置信号槽连接"""
-        # 移除连接和断开按钮的连接
+        # 连接采样控制按钮
         self.view.sample_button.clicked.connect(self.on_sample_adc)
         self.view.browse_dir_button.clicked.connect(self.on_browse_directory)
+        
+        # 连接S参数模式单选按钮
+        self.view.s11_radio.toggled.connect(lambda checked: self.on_s_mode_changed("S11", checked))
+        self.view.s12_radio.toggled.connect(lambda checked: self.on_s_mode_changed("S12", checked))
+        self.view.s21_radio.toggled.connect(lambda checked: self.on_s_mode_changed("S21", checked))
+        self.view.s22_radio.toggled.connect(lambda checked: self.on_s_mode_changed("S22", checked))
         
         # 连接状态信号
         self.adcStatusChanged.connect(self.view.update_adc_connection_status)
         self.samplingProgress.connect(self.view.update_sampling_progress)
+        self.clockModeChanged.connect(self.on_clock_mode_changed)
         
         # 错误和日志信号
         self.errorOccurred.connect(lambda msg: self.log_message(msg, "ERROR"))
@@ -121,16 +131,66 @@ class ADCSamplingController(QObject):
     def set_instrument_connected(self, connected, instrument_controller):
         """设置仪器连接状态，由主窗口调用"""
         if connected and instrument_controller and instrument_controller.tcp_client:
-            # 保存TCP客户端引用，供ADCWorker使用
+            # 保存TCP客户端引用，供ADCWorker和时钟控制器使用
             self.tcp_client = instrument_controller.tcp_client
+            self.clock_controller.set_tcp_client(self.tcp_client)
             self.model.set_adc_connection_status(True)
             self.adcStatusChanged.emit(True, "使用主窗口仪表连接")
             self.log_message("ADC采样使用主窗口仪表连接", "INFO")
+            
+            # 默认设置S11模式
+            self.set_s_mode("S11")
         else:
             self.tcp_client = None
+            self.clock_controller.set_tcp_client(None)
             self.model.set_adc_connection_status(False)
             self.adcStatusChanged.emit(False, "仪表未连接")
             self.log_message("仪表未连接，无法进行ADC采样", "WARNING")
+
+    def on_s_mode_changed(self, mode: str, checked: bool):
+        """S参数模式切换事件"""
+        if checked and self.tcp_client and self.tcp_client.connected:
+            self.set_s_mode(mode)
+
+    def set_s_mode(self, mode: str):
+        """设置S参数模式"""
+        if not self.tcp_client or not self.tcp_client.connected:
+            self.log_message(f"无法设置 {mode} 模式: 仪表未连接", "WARNING")
+            return
+        
+        try:
+            success, message = None, None
+            
+            # 根据模式调用相应的时钟控制方法
+            if mode == "S11":
+                success, message = self.clock_controller.set_s11_mode()
+            elif mode == "S12":
+                success, message = self.clock_controller.set_s12_mode()
+            elif mode == "S21":
+                success, message = self.clock_controller.set_s21_mode()
+            elif mode == "S22":
+                success, message = self.clock_controller.set_s22_mode()
+            else:
+                self.log_message(f"不支持的S参数模式: {mode}", "ERROR")
+                return
+            
+            if success:
+                self.clockModeChanged.emit(mode, message)
+                self.log_message(message, "INFO")
+                
+            else:
+                self.errorOccurred.emit(message)
+                self.log_message(message, "ERROR")
+                
+        except Exception as e:
+            error_msg = f"设置 {mode} 模式时发生错误: {str(e)}"
+            self.errorOccurred.emit(error_msg)
+            self.log_message(error_msg, "ERROR")
+
+    def on_clock_mode_changed(self, mode: str, message: str):
+        """时钟模式变化事件"""
+        # 可以在这里添加额外的处理逻辑
+        pass
 
     def log_message(self, message, level="INFO"):
         """记录消息到日志区域"""
@@ -147,6 +207,10 @@ class ADCSamplingController(QObject):
             self.errorOccurred.emit(error_msg)
             self.log_message(error_msg, "WARNING")
             return
+        
+        # 获取当前选中的S参数模式
+        current_mode = self.view.get_selected_s_mode()
+        
         
         # 获取采样参数
         count = self.view.sample_count_spin.value()
@@ -179,7 +243,7 @@ class ADCSamplingController(QObject):
         
         # 启动线程
         self.adc_thread.start()
-        self.log_message(f"开始ADC采样，次数: {count}, 间隔: {interval}s", "INFO")
+        self.log_message(f"开始ADC采样，模式: {current_mode}, 次数: {count}, 间隔: {interval}s", "INFO")
     
     def on_sampling_finished(self, success, message):
         """采样完成"""
@@ -211,3 +275,25 @@ class ADCSamplingController(QObject):
     def set_main_window_controller(self, main_window_controller):
         """设置主窗口控制器引用"""
         self.main_window_controller = main_window_controller
+    
+    def cleanup(self):
+        """清理控制器资源"""
+        try:
+            # 停止采样线程
+            if hasattr(self, 'adc_worker') and self.adc_worker:
+                self.adc_worker.stop()
+            
+            # 清理时钟控制器
+            if hasattr(self, 'clock_controller'):
+                self.clock_controller.cleanup()
+            
+            # 清理其他资源
+            self.tcp_client = None
+            self.main_window_controller = None
+            
+            # 强制垃圾回收
+            import gc
+            gc.collect()
+            
+        except Exception as e:
+            print(f"清理ADC采样控制器失败: {e}")

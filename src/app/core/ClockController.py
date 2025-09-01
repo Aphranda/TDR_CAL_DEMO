@@ -12,12 +12,12 @@ class ClockController:
             'trigger': {'port1': True, 'port2': False},
             'sample': {'port1': True, 'port2': False}
         },
-        'S12': {
+        'S21': {
             'description': '端口1到端口2传输测量',
             'trigger': {'port1': True, 'port2': False},
             'sample': {'port1': False, 'port2': True}
         },
-        'S21': {
+        'S12': {
             'description': '端口2到端口1传输测量',
             'trigger': {'port1': False, 'port2': True},
             'sample': {'port1': True, 'port2': False}
@@ -68,15 +68,17 @@ class ClockController:
             return False, "使能状态错误，必须是0或1"
         
         # 构建命令: Lmk 1 1 1
-        command = f"Lmk {clock_type} {channel} {enable}"
+        command = f"lmk_state {clock_type} {channel} {enable}\r\n"  # 添加回车换行符
         
         try:
-            # 发送命令
-            success, response = self.tcp_client.send_command(command)
+            # 使用TcpClient的send方法发送命令
+            self.tcp_client.send(command)
+            time.sleep(0.1)
+            success, response = self.tcp_client.send(command)
             if success:
                 # 更新状态
                 self._update_clock_state(clock_type, channel, enable)
-                return True, f"时钟控制成功: {command}"
+                return True, f"时钟控制成功: {command.strip()}"
             else:
                 return False, f"时钟控制失败: {response}"
         except Exception as e:
@@ -135,29 +137,32 @@ class ClockController:
         
         mode_config = self.S_MODES[mode]
         
-        # 首先禁用所有时钟
-        self.disable_all_clocks()
-        time.sleep(0.1)  # 短暂延迟
         
         results = []
         
         # 配置触发时钟
         if mode_config['trigger']['port1']:
-            success, message = self.send_clock_command(1, 1, 1)  # 触发 Port1
+            success, message = self.send_clock_command(1, 2, 1)  # 触发 Port1
+            time.sleep(0.1)
+            success, message = self.send_clock_command(1, 3, 0)  # 关闭 Port2
             results.append((success, message))
+            time.sleep(0.1)
         if mode_config['trigger']['port2']:
-            success, message = self.send_clock_command(1, 2, 1)  # 触发 Port2
+            success, message = self.send_clock_command(1, 3, 1)  # 触发 Port2
+            time.sleep(0.1)
+            success, message = self.send_clock_command(1, 2, 0)  # 关闭 Port1
             results.append((success, message))
-        
-        time.sleep(0.1)  # 短暂延迟
+            time.sleep(0.1)
         
         # 配置采样时钟
         if mode_config['sample']['port1']:
-            success, message = self.send_clock_command(2, 1, 1)  # 采样 Port1
+            success, message = self.send_clock_command(2, 3, 1)  # 采样 Port1
             results.append((success, message))
+            time.sleep(0.1)
         if mode_config['sample']['port2']:
-            success, message = self.send_clock_command(2, 2, 1)  # 采样 Port2
+            success, message = self.send_clock_command(2, 1, 1)  # 采样 Port2
             results.append((success, message))
+            time.sleep(0.1)
         
         # 检查所有命令是否成功
         all_success = all(success for success, _ in results)
