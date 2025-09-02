@@ -260,7 +260,7 @@ class CalibrationView(QWidget):
         
         # 第三行：端口配置
         self.port_combo = QComboBox()
-        self.port_combo.addItems(["单端口(1)", "双端口(1-2)"])
+        self.port_combo.addItems(["单端口(1)", "单端口(2)", "双端口(1-2)", "DUT测试"])
         config_layout.addRow("端口配置:", self.port_combo)
         
         # 第四行：起始频率

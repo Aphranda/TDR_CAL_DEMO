@@ -11,8 +11,10 @@ class CalibrationType(Enum):
     TRL = "TRL(Thru-Reflect-Line)"
 
 class PortConfig(Enum):
-    SINGLE = "单端口(1)"
+    SINGLE_PORT1 = "单端口(1)"
+    SINGLE_PORT2 = "单端口(2)"  # 新增：端口2单端口
     DUAL = "双端口(1-2)"
+    DUT_TEST = "DUT测试"  # 新增：DUT测试模式
 
 class CalibrationKitType(Enum):
     ELECTRONIC = "电子校准件"
@@ -21,7 +23,7 @@ class CalibrationKitType(Enum):
 @dataclass
 class CalibrationParameters:
     cal_type: CalibrationType = CalibrationType.SOLT
-    port_config: PortConfig = PortConfig.SINGLE
+    port_config: PortConfig = PortConfig.SINGLE_PORT1
     kit_type: CalibrationKitType = CalibrationKitType.MECHANICAL
     start_freq: float = 1000.0  # MHz
     stop_freq: float = 35000.0   # MHz
@@ -38,15 +40,14 @@ class CalibrationModel:
         
 
     def generate_calibration_steps(self):
-        """改进的校准步骤生成，添加底噪测试和直通模式确认"""
+        """改进的校准步骤生成，支持端口2单端口和DUT测试"""
         self.steps = []
         
-        # 添加底噪测试步骤 - 先连接底噪校准件，再测试
-        self.steps.append("1. 连接底噪校准件到端口1")
-        self.steps.append("2. 测量端口1底噪")
-        
-        if self.params.cal_type == CalibrationType.SOLT:
-            # 单端口或双端口的SOL测量
+        # 根据端口配置生成不同的步骤
+        if self.params.port_config == PortConfig.SINGLE_PORT1:
+            # 端口1单端口校准
+            self.steps.append("1. 连接底噪校准件到端口1")
+            self.steps.append("2. 测量端口1底噪")
             self.steps.append("3. 连接短路器到端口1")
             self.steps.append("4. 测量端口1短路标准件")
             self.steps.append("5. 连接开路器到端口1")
@@ -54,36 +55,56 @@ class CalibrationModel:
             self.steps.append("7. 连接负载到端口1")
             self.steps.append("8. 测量端口1负载标准件")
             
-            if self.params.port_config == PortConfig.DUAL:
-                self.steps.append("9. 连接底噪校准件到端口2")
-                self.steps.append("10. 测量端口2底噪")
-                self.steps.append("11. 连接短路器到端口2")
-                self.steps.append("12. 测量端口2短路标准件")
-                self.steps.append("13. 连接开路器到端口2")
-                self.steps.append("14. 测量端口2开路标准件")
-                self.steps.append("15. 连接负载到端口2")
-                self.steps.append("16. 测量端口2负载标准件")
-                
-                # 直通标件的四种模式，每种模式都需要连接确认
-                self.steps.append("17. 连接直通件到端口1-2 (S11模式)")
-                self.steps.append("18. 测量直通标准件 S11模式")
-                self.steps.append("19. 连接直通件到端口1-2 (S12模式)")
-                self.steps.append("20. 测量直通标准件 S12模式")
-                self.steps.append("21. 连接直通件到端口1-2 (S21模式)")
-                self.steps.append("22. 测量直通标准件 S21模式")
-                self.steps.append("23. 连接直通件到端口1-2 (S22模式)")
-                self.steps.append("24. 测量直通标准件 S22模式")
-                
-        elif self.params.cal_type == CalibrationType.TRL:
-            self.steps.append("3. 连接直通件到端口1-2")
-            self.steps.append("4. 测量直通标准件")
-            self.steps.append("5. 连接反射件到端口1")
-            self.steps.append("6. 测量端口1反射标准件")
-            self.steps.append("7. 连接反射件到端口2")
-            self.steps.append("8. 测量端口2反射标准件")
-            self.steps.append("9. 连接延迟线到端口1-2")
-            self.steps.append("10. 测量延迟线标准件")
+        elif self.params.port_config == PortConfig.SINGLE_PORT2:
+            # 端口2单端口校准
+            self.steps.append("1. 连接底噪校准件到端口2")
+            self.steps.append("2. 测量端口2底噪")
+            self.steps.append("3. 连接短路器到端口2")
+            self.steps.append("4. 测量端口2短路标准件")
+            self.steps.append("5. 连接开路器到端口2")
+            self.steps.append("6. 测量端口2开路标准件")
+            self.steps.append("7. 连接负载到端口2")
+            self.steps.append("8. 测量端口2负载标准件")
             
+        elif self.params.port_config == PortConfig.DUAL:
+            # 双端口校准（原有逻辑）
+            self.steps.append("1. 连接底噪校准件到端口1")
+            self.steps.append("2. 测量端口1底噪")
+            self.steps.append("3. 连接短路器到端口1")
+            self.steps.append("4. 测量端口1短路标准件")
+            self.steps.append("5. 连接开路器到端口1")
+            self.steps.append("6. 测量端口1开路标准件")
+            self.steps.append("7. 连接负载到端口1")
+            self.steps.append("8. 测量端口1负载标准件")
+            self.steps.append("9. 连接底噪校准件到端口2")
+            self.steps.append("10. 测量端口2底噪")
+            self.steps.append("11. 连接短路器到端口2")
+            self.steps.append("12. 测量端口2短路标准件")
+            self.steps.append("13. 连接开路器到端口2")
+            self.steps.append("14. 测量端口2开路标准件")
+            self.steps.append("15. 连接负载到端口2")
+            self.steps.append("16. 测量端口2负载标准件")
+            self.steps.append("17. 连接直通件到端口1-2 (S11模式)")
+            self.steps.append("18. 测量直通标准件 S11模式")
+            self.steps.append("19. 连接直通件到端口1-2 (S12模式)")
+            self.steps.append("20. 测量直通标准件 S12模式")
+            self.steps.append("21. 连接直通件到端口1-2 (S21模式)")
+            self.steps.append("22. 测量直通标准件 S21模式")
+            self.steps.append("23. 连接直通件到端口1-2 (S22模式)")
+            self.steps.append("24. 测量直通标准件 S22模式")
+            
+        elif self.params.port_config == PortConfig.DUT_TEST:
+            # DUT测试流程
+            self.steps.append("1. 完成系统校准")
+            self.steps.append("2. 断开所有校准件")
+            self.steps.append("3. 连接DUT到端口1")
+            self.steps.append("4. 测量DUT S11参数")
+            self.steps.append("5. 连接DUT到端口2")
+            self.steps.append("6. 测量DUT S22参数")
+            self.steps.append("7. 连接DUT到端口1-2")
+            self.steps.append("8. 测量DUT S21参数")
+            self.steps.append("9. 测量DUT S12参数")
+        
         self.steps.append("计算误差系数")
         self.steps.append("验证校准质量")
         self.steps.append("保存校准结果")
@@ -93,52 +114,88 @@ class CalibrationModel:
 
 
     def create_calibration_folders(self):
-        """创建校准文件夹结构，包含底噪测试文件夹和直通模式子文件夹"""
+        """创建校准文件夹结构，支持端口1、端口2单端口和DUT测试"""
         # 确保data/calibration目录存在
         calibration_base_dir = os.path.join("data", "calibration")
         os.makedirs(calibration_base_dir, exist_ok=True)
         
         # 创建基础校准目录
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        cal_type = "SOLT" if self.params.cal_type == CalibrationType.SOLT else "TRL"
-        port_config = "SinglePort" if self.params.port_config == PortConfig.SINGLE else "DualPort"
         
-        base_dir_name = f"Calibration_{cal_type}_{port_config}_{timestamp}"
+        # 根据端口配置确定目录名称
+        if self.params.port_config == PortConfig.SINGLE_PORT1:
+            port_config_str = "SinglePort1"
+        elif self.params.port_config == PortConfig.SINGLE_PORT2:
+            port_config_str = "SinglePort2"
+        elif self.params.port_config == PortConfig.DUAL:
+            port_config_str = "DualPort"
+        elif self.params.port_config == PortConfig.DUT_TEST:
+            port_config_str = "DUT_Test"
+        else:
+            port_config_str = "Unknown"
+        
+        cal_type = "SOLT" if self.params.cal_type == CalibrationType.SOLT else "TRL"
+        
+        base_dir_name = f"Calibration_{cal_type}_{port_config_str}_{timestamp}"
         self.base_calibration_path = os.path.join(calibration_base_dir, base_dir_name)
         
         # 创建基础目录
         os.makedirs(self.base_calibration_path, exist_ok=True)
         
-        # 添加底噪测试文件夹
-        measurement_folders = ["Noise_Port1"]
+        # 根据端口配置创建不同的文件夹结构
+        measurement_folders = []
         analysis_folders = ["ErrorCoefficients", "Verification"]
         
-        if self.params.cal_type == CalibrationType.SOLT:
-            if self.params.port_config == PortConfig.SINGLE:
-                measurement_folders.extend([
-                    "Short_Port1",
-                    "Open_Port1", 
-                    "Load_Port1"
-                ])
-            else:  # DUAL port
-                measurement_folders.extend([
-                    "Short_Port1",
-                    "Open_Port1",
-                    "Load_Port1",
-                    "Noise_Port2",  # 添加端口2底噪测试
-                    "Short_Port2",
-                    "Open_Port2",
-                    "Load_Port2"
-                ])
-                # 为双端口直通测试创建Thru文件夹
-                measurement_folders.append("Thru")
-        else:  # TRL calibration
-            measurement_folders.extend([
-                "Thru",
-                "Reflect_Port1",
-                "Reflect_Port2",
-                "Line"
-            ])
+        if self.params.port_config == PortConfig.SINGLE_PORT1:
+            # 端口1单端口校准
+            measurement_folders = [
+                "Noise_Port1",
+                "Short_Port1",
+                "Open_Port1",
+                "Load_Port1"
+            ]
+            
+        elif self.params.port_config == PortConfig.SINGLE_PORT2:
+            # 端口2单端口校准
+            measurement_folders = [
+                "Noise_Port2",
+                "Short_Port2",
+                "Open_Port2",
+                "Load_Port2"
+            ]
+            
+        elif self.params.port_config == PortConfig.DUAL:
+            # 双端口校准
+            measurement_folders = [
+                "Noise_Port1",
+                "Short_Port1",
+                "Open_Port1",
+                "Load_Port1",
+                "Noise_Port2",
+                "Short_Port2",
+                "Open_Port2",
+                "Load_Port2",
+                "Thru"
+            ]
+            
+        elif self.params.port_config == PortConfig.DUT_TEST:
+            # DUT测试
+            measurement_folders = ["DUT_Measurement"]
+            
+            # 为DUT测试创建S参数子文件夹
+            dut_path = os.path.join(self.base_calibration_path, "DUT_Measurement")
+            os.makedirs(dut_path, exist_ok=True)
+            
+            # 创建S参数子文件夹
+            for s_param in ["S11", "S22", "S21", "S12"]:
+                s_param_path = os.path.join(dut_path, s_param)
+                os.makedirs(s_param_path, exist_ok=True)
+                
+                # 在每个S参数文件夹内创建Raw_ADC_Data和Processed_Data
+                raw_data_path = os.path.join(s_param_path, "Raw_ADC_Data")
+                processed_data_path = os.path.join(s_param_path, "Processed_Data")
+                os.makedirs(raw_data_path, exist_ok=True)
+                os.makedirs(processed_data_path, exist_ok=True)
         
         # 为每个测量文件夹创建Raw_ADC_Data和Processed_Data子文件夹
         for folder in measurement_folders:
@@ -170,10 +227,9 @@ class CalibrationModel:
         
         # 返回基础路径
         return self.base_calibration_path
-
-
+    
     def get_folder_name_from_step(self, step):
-        """根据步骤描述获取文件夹名称"""
+        """根据步骤描述获取文件夹名称，支持端口2和DUT测试"""
         if "底噪" in step:
             if "端口1" in step:
                 return "Noise_Port1"
@@ -203,6 +259,18 @@ class CalibrationModel:
             base = "Reflect"
         elif "延迟线" in step:
             return "Line"
+        elif "DUT" in step:
+            # DUT测试步骤
+            if "S11" in step:
+                return "DUT_Measurement\\S11"
+            elif "S22" in step:
+                return "DUT_Measurement\\S22"
+            elif "S21" in step:
+                return "DUT_Measurement\\S21"
+            elif "S12" in step:
+                return "DUT_Measurement\\S12"
+            else:
+                return "DUT_Measurement"
         elif "误差系数" in step:
             return "ErrorCoefficients"
         elif "验证" in step:
@@ -211,7 +279,6 @@ class CalibrationModel:
             return "SaveResults"
         else:
             return "Unknown"
-
         # 检查端口
         if "端口1" in step:
             return f"{base}_Port1"

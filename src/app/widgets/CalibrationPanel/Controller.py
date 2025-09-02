@@ -57,9 +57,19 @@ class CalibrationWorker(QThread):
             # 更新进度
             self.progress_updated.emit(step, progress, False, has_measurement)
             self.log_message.emit(f"执行步骤: {step}", "INFO")
+
+            # 根据步骤描述配置S参数模式
+            s_mode = self._get_s_mode_from_step(step)
+            if s_mode:
+                self.log_message.emit(f"配置S参数模式: {s_mode}", "INFO")
+                adc_controller.set_s_mode(s_mode)
+                # 等待模式切换完成
+                self.msleep(100)
             
             # 如果是测量步骤，执行ADC采样和数据分析
             if has_measurement and self._is_running:
+                
+
                 # 获取当前步骤对应的文件夹
                 folder_name = self.model.get_folder_name_from_step(step)
                 
@@ -178,6 +188,56 @@ class CalibrationWorker(QThread):
         if self._is_running:
             self.log_message.emit("校准流程完成", "INFO")
         self.finished.emit()
+    
+    def _get_s_mode_from_step(self, step):
+        """根据步骤描述获取S参数模式"""
+        # 端口1的噪声测试配置S12
+        if "端口1底噪" in step:
+            return "S12"
+        
+        # 端口1的开路、短路、负载测试配置S11
+        elif any(x in step for x in ["端口1短路", "端口1开路", "端口1负载"]):
+            return "S11"
+        
+        # 端口2的噪声测试配置S21
+        elif "端口2底噪" in step:
+            return "S21"
+        
+        # 端口2的开路、短路、负载测试配置S22
+        elif any(x in step for x in ["端口2短路", "端口2开路", "端口2负载"]):
+            return "S22"
+        
+        # 直通测试按照测试项配置
+        elif "直通" in step:
+            if "S11" in step:
+                return "S11"
+            elif "S12" in step:
+                return "S12"
+            elif "S21" in step:
+                return "S21"
+            elif "S22" in step:
+                return "S22"
+            else:
+                # 默认配置S11
+                return "S11"
+        # DUT测试
+        elif "DUT" in step:
+            if "S11" in step:
+                return "S11"
+            elif "S22" in step:
+                return "S22"
+            elif "S21" in step:
+                return "S21"
+            elif "S12" in step:
+                return "S12"
+        
+        # 其他测量步骤默认配置S11
+        elif "测量" in step:
+            return "S11"
+        
+        return None
+
+
     def request_user_confirmation(self, step_description, has_measurement):
         """请求用户确认（在工作线程中调用）"""
         # 重置确认状态
