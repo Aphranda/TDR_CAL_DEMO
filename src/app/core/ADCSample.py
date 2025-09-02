@@ -197,13 +197,13 @@ class ADCSample:
             output_dir = self.output_dir
         
         # 保存CSV文件
-        csv_success, csv_message = self.file_manager.save_adc_csv_data(u32_values, filename, output_dir)
+        csv_success, csv_message = None,None # self.file_manager.save_adc_csv_data(u32_values, filename, output_dir)
         
         # 同时保存原始二进制数据
         bin_filename = f'{filename.replace(".csv","")}.bin'
         bin_success, bin_message = self.save_binary_data(u32_values, bin_filename, output_dir)
         
-        return csv_success, f"CSV: {csv_message}, BIN: {bin_message}"
+        return bin_success, f"CSV: {csv_message}, BIN: {bin_message}"
     
     def save_binary_data(self, u32_values, filename, output_dir):
         """保存原始二进制数据"""
@@ -214,15 +214,28 @@ class ADCSample:
             # 将uint32数组转换为字节数据
             binary_data = struct.pack('<' + 'I' * len(u32_values), *u32_values)
             
+            # 确保以二进制模式写入
             with open(filepath, 'wb') as f:
                 f.write(binary_data)
             
             logger.info(f"二进制数据已保存到 {filepath}，共{len(binary_data)}字节")
-            return True, f"二进制数据保存成功: {filepath}"
             
+            # 对于ADC数据，我们信任写入过程，不进行严格的格式验证
+            # 因为ADC数据可能包含看起来像文本的值
+            return True, f"二进制数据保存成功: {filepath}"
+                
         except Exception as e:
             logger.error(f"二进制数据保存失败: {str(e)}")
+            # 删除可能损坏的文件
+            if os.path.exists(filepath):
+                try:
+                    os.remove(filepath)
+                except:
+                    pass
             return False, f"二进制数据保存失败: {str(e)}"
+
+
+
 
 
 

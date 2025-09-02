@@ -210,4 +210,112 @@ class FileManager:
         logger.info(f"找到 {len(files)} 个CSV文件")
         return files
     
+
+
+    def load_binary_data(self, path: str, data_type: str = 'uint32', byte_order: str = '<') -> np.ndarray:
+        """
+        从二进制文件加载数据
+        
+        Args:
+            path: 文件路径
+            data_type: 数据类型 ('uint32', 'int32', 'float32', 'float64')
+            byte_order: 字节序 ('<' 小端, '>' 大端)
+            
+        Returns:
+            numpy数组
+        """
+        try:
+            with open(path, 'rb') as f:
+                raw_data = f.read()
+            
+            if not raw_data:
+                raise ValueError("文件为空")
+            
+            # 根据数据类型确定格式字符串
+            format_map = {
+                'uint32': 'I',
+                'int32': 'i', 
+                'float32': 'f',
+                'float64': 'd'
+            }
+            
+            if data_type not in format_map:
+                raise ValueError(f"不支持的数据类型: {data_type}")
+            
+            fmt_char = format_map[data_type]
+            element_size = struct.calcsize(byte_order + fmt_char)
+            
+            # 检查数据长度是否匹配
+            if len(raw_data) % element_size != 0:
+                logger.warning(f"文件大小({len(raw_data)}字节)不是{data_type}类型大小的整数倍，将截断数据")
+                raw_data = raw_data[:-(len(raw_data) % element_size)]
+            
+            # 解析二进制数据
+            num_elements = len(raw_data) // element_size
+            fmt_string = byte_order + fmt_char * num_elements
+            
+            try:
+                data = struct.unpack(fmt_string, raw_data)
+            except struct.error as e:
+                raise ValueError(f"二进制数据解析失败: {str(e)}")
+            
+            return np.array(data, dtype=getattr(np, data_type))
+            
+        except Exception as e:
+            logger.error(f"加载二进制文件失败: {str(e)}")
+            raise
+
+    def detect_file_format(self, path: str) -> str:
+        """
+        检测文件格式，特别处理ADC二进制数据
+        
+        Returns:
+            'text' 或 'binary'
+        """
+        try:
+            with open(path, 'rb') as f:
+                # 读取前1024字节进行检测
+                sample = f.read(1024)
+                
+            if not sample:
+                return 'text'  # 空文件视为文本
+            
+            # ADC二进制数据的特殊检测逻辑
+            # 检查是否包含典型的ADC数据特征
+            if len(sample) >= 4:
+                # 检查前几个32位值是否在合理的ADC范围内
+                try:
+                    # 解析前几个uint32值
+                    num_values = min(10, len(sample) // 4)
+                    for i in range(num_values):
+                        offset = i * 4
+                        if offset + 4 <= len(sample):
+                            value = struct.unpack('<I', sample[offset:offset+4])[0]
+                            # ADC数据通常在特定范围内，排除明显的错误值
+                            if value == 0xFFFFFFFF or value == 0x00000000:
+                                continue  # 可能是填充值
+                            if value > 0xFF000000:  # 高字节为FF可能是错误数据
+                                return 'binary'  # 但仍然认为是二进制格式
+                except:
+                    pass
+            
+            # 标准检测逻辑
+            text_chars = bytearray({7,8,9,10,12,13,27} | set(range(0x20, 0x100)) - {0x7f})
+            
+            if b'\x00' in sample:
+                return 'binary'
+                
+            # 检查非文本字符的比例
+            non_text = [byte for byte in sample if byte not in text_chars]
+            if len(non_text) / len(sample) > 0.3:
+                return 'binary'
+                
+            return 'text'
+            
+        except Exception as e:
+            logger.warning(f"文件格式检测失败: {str(e)}，默认视为二进制文件")
+            return 'binary'  # 对于ADC数据，默认视为二进制
+
+
+    
     

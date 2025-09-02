@@ -168,9 +168,28 @@ class ADCProcessWorker(QObject):
         self.running = False
 
     def load_u32_data(self, path: str) -> np.ndarray:
-        """从文件加载uint32数据"""
+        """从文件加载uint32数据，支持文本和二进制格式"""
         file_manager = FileManager()
-        return file_manager.load_u32_text_first_col(path, skip_first=self.config.skip_first_value)
+        
+        # 检测文件格式
+        file_format = file_manager.detect_file_format(path)
+        
+        if file_format == 'binary':
+            # 尝试不同的二进制格式
+            for data_type in ['uint32', 'int32', 'float32']:
+                try:
+                    data = file_manager.load_binary_data(path, data_type=data_type)
+                    message = f"成功以{data_type}格式加载二进制文件: {os.path.basename(path)}"
+                    self.log_message.emit(message, "INFO")
+                    return data.astype(np.uint32)  # 统一转换为uint32
+                except Exception as e:
+                    continue
+            
+            # 如果所有格式都失败，抛出异常
+            raise ValueError(f"无法解析二进制文件: {os.path.basename(path)}")
+        else:
+            # 文本格式
+            return file_manager.load_u32_text_first_col(path, skip_first=self.config.skip_first_value)
   
     def calculate_averages(self, results: Dict[str, Any]) -> Dict[str, Any]:
         """计算平均值"""
@@ -244,21 +263,27 @@ class DataAnalysisController(QObject):
                 self.main_window_controller.log_controller.log(f"{key}: {value}", "INFO")
   
     def on_load_file(self):
-        """加载数据文件"""
+        """加载数据文件，支持多种格式"""
         try:
             file_paths, _ = QFileDialog.getOpenFileNames(
                 self.view,
                 "选择数据文件",
                 "",
-                "数据文件 (*.s2p *.csv *.txt *.dat);;所有文件 (*)"
+                "数据文件 (*.s2p *.csv *.txt *.dat *.bin);;"
+                "文本文件 (*.csv *.txt *.dat);;"
+                "二进制文件 (*.bin *.raw);;"
+                "所有文件 (*)"
             )
-          
+        
             if file_paths:
                 for file_path in file_paths:
                     if file_path not in self.model.data_files:
                         self.model.data_files.append(file_path)
-                        self.view.file_list.addItem(os.path.basename(file_path))
-              
+                        # 在文件列表中显示格式信息
+                        file_format = FileManager().detect_file_format(file_path)
+                        display_name = f"{os.path.basename(file_path)} [{file_format}]"
+                        self.view.file_list.addItem(display_name)
+            
                 msg = f"成功加载 {len(file_paths)} 个文件"
                 self.dataLoaded.emit(msg)
                 self.log_message(msg, "INFO")

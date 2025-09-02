@@ -117,6 +117,7 @@ class CalibrationWorker(QThread):
                 
                 # 等待采样完成
                 loop = QEventLoop()
+                adc_controller.samplingProgress.connect(lambda:self.process_transmit)
                 adc_controller.finished.connect(loop.quit)
                 adc_controller.errorOccurred.connect(loop.quit)
                 loop.exec_()
@@ -127,7 +128,7 @@ class CalibrationWorker(QThread):
                     continue
                 
                 # 获取当前文件夹中的所有数据文件
-                data_files = glob.glob(os.path.join(raw_data_dir, "*.csv"))
+                data_files = glob.glob(os.path.join(raw_data_dir, "*.csv")) + glob.glob(os.path.join(raw_data_dir, "*.bin"))
                 if not data_files:
                     self.log_message.emit(f"未找到数据文件: {raw_data_dir}", "ERROR")
                     continue
@@ -265,6 +266,9 @@ class CalibrationWorker(QThread):
         
         return result
         
+    def process_transmit(self, current: int, total: int, message: str = ""):
+        pass
+
     def wake_up_confirmation(self, result):
         """唤醒等待的确认"""
         self.confirmation_mutex.lock()
