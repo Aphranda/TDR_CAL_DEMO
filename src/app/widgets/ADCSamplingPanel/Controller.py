@@ -29,7 +29,6 @@ class ADCWorker(QObject):
         self.running = False
         self._should_stop = False
 
-
     @pyqtSlot()
     def run(self):
         """执行ADC采样"""

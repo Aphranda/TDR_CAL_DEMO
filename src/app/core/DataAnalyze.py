@@ -455,7 +455,7 @@ def main():
     logging.basicConfig(level=logging.INFO)
     
     # 创建配置
-    config = AnalysisConfig(cal_mode=CalibrationMode.LOAD, input_dir="data\\results\\test\\TT")
+    config = AnalysisConfig(cal_mode=CalibrationMode.LOAD, input_dir="data\\results\\test")
   
     try:
         # 创建分析器并运行

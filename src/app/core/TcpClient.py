@@ -1,7 +1,8 @@
-
+# file: TcpClient.py
 import socket, select
 import time
-
+import logging
+logger = logging.getLogger(__name__)
 class TcpClient:
     """带超时重发机制的TCP客户端"""
     def __init__(self):
@@ -27,6 +28,46 @@ class TcpClient:
             self.connected = False
             self.sock = None
             return False, f"连接失败: {e}"
+
+    def clear_receive_buffer(self):
+        """
+        清空TCP接收缓存中的所有待处理数据
+        返回: 清空的字节数
+        """
+        if not self.connected or not self.sock:
+            return 0
+        
+        bytes_cleared = 0
+        try:
+            # 设置非阻塞模式来检查是否有待处理数据
+            self.sock.setblocking(False)
+            
+            while True:
+                try:
+                    # 尝试读取数据但不处理
+                    data = self.sock.recv(4096)
+                    if not data:
+                        break
+                    bytes_cleared += len(data)
+                except BlockingIOError:
+                    # 没有更多数据可读
+                    break
+                except Exception:
+                    break
+            
+        except Exception as e:
+            logger.debug(f"清空接收缓存时发生错误: {str(e)}")
+        finally:
+            # 恢复阻塞模式
+            try:
+                self.sock.setblocking(True)
+            except Exception:
+                pass
+        
+        if bytes_cleared > 0:
+            logger.debug(f"清空了 {bytes_cleared} 字节的TCP接收缓存")
+        
+        return bytes_cleared
 
     def send(self, msg, max_retries=3, base_timeout=1.0):
         """
