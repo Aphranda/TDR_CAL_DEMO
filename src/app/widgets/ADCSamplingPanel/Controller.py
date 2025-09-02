@@ -7,6 +7,7 @@ from PyQt5.QtCore import QObject, pyqtSignal, QThread, pyqtSlot
 from ...core.ADCSample import ADCSample
 from ...core.FileManager import FileManager
 from ...core.ClockController import ClockController  # 导入时钟控制类
+from memory_profiler import profile
 
 class ADCWorker(QObject):
     """ADC采样工作线程"""
@@ -26,13 +27,14 @@ class ADCWorker(QObject):
         self.output_dir = output_dir or 'data\\results\\test'
         self.filename_prefix = filename_prefix or 'adc_raw_data'
         self.running = False
-    
+        self._should_stop = False
+
+
     @pyqtSlot()
     def run(self):
         """执行ADC采样"""
         self.running = True
         successful_samples = 0
-        all_samples = []
         
         try:
             # 确保输出目录存在
@@ -40,50 +42,120 @@ class ADCWorker(QObject):
                 self.adc_sample.file_manager.ensure_dir_exists(self.output_dir)
             
             for i in range(self.count):
-                if not self.running:
+                if not self.running or self._should_stop:
                     break
                 
                 self.progress.emit(i + 1, self.count, f"采样 {i + 1}/{self.count}")
                 
-                # 执行单次采样
-                u32_values, error = self.adc_sample.perform_single_test(i)
-                if error:
-                    self.progress.emit(i + 1, self.count, f"采样失败: {error}")
-                    continue
-                
-                successful_samples += 1
-                all_samples.append(u32_values)
-                
-                # 保存原始数据
-                if self.save_raw_data:
-                    filename = f'{self.filename_prefix}_{i + 1:04d}.csv'
-                    success, message = self.adc_sample.save_test_result(i, u32_values, filename, self.output_dir)
-                    if success:
-                        self.dataSaved.emit(os.path.join(self.output_dir, filename), f"数据已保存: {filename}")
-                    else:
-                        self.progress.emit(i + 1, self.count, f"数据保存失败: {message}")
+                # 执行单次采样 - 使用上下文管理器确保资源释放
+                u32_values, error = None, None
+                try:
+                    u32_values, error = self.adc_sample.perform_single_test(i)
+                    if error:
+                        self.progress.emit(i + 1, self.count, f"采样失败: {error}")
+                        continue
+                    
+                    successful_samples += 1
+                    
+                    # 处理采样数据 - 优化内存使用
+                    sample_data = self._process_sample_data(u32_values)
+                    
+                    # 立即发送数据
+                    self.sampleData.emit([sample_data])
+                    
+                    # 保存原始数据
+                    if self.save_raw_data:
+                        filename = f'{self.filename_prefix}_{i + 1:04d}.csv'
+                        success, message = self.adc_sample.save_test_result(i, u32_values, filename, self.output_dir)
+                        if success:
+                            self.dataSaved.emit(os.path.join(self.output_dir, filename), f"数据已保存: {filename}")
+                        else:
+                            self.progress.emit(i + 1, self.count, f"数据保存失败: {message}")
+                    
+                finally:
+                    # 强制释放采样数据内存
+                    self._force_release_memory(u32_values)
+                    u32_values = None
+                    del u32_values
                 
                 # 等待间隔
                 time.sleep(self.interval)
             
             success = successful_samples > 0
             message = f"完成 {successful_samples}/{self.count} 次采样"
-            self.sampleData.emit(all_samples)
             self.finished.emit(success, message)
             
         except Exception as e:
             self.finished.emit(False, f"采样过程中发生错误: {str(e)}")
         finally:
-            # 确保线程正确清理
+            # 彻底清理资源
+            self.cleanup_resources()
+
+    def _process_sample_data(self, u32_values):
+        """处理采样数据，优化内存使用"""
+        if u32_values is None:
+            return []
+        
+        # 如果是numpy数组，转换为更小的数据类型
+        if isinstance(u32_values, np.ndarray):
+            # 根据数据范围选择合适的数据类型
+            if np.max(u32_values) < 65536:  # 如果数据在uint16范围内
+                return u32_values.astype(np.uint16)
+            else:
+                return u32_values.astype(np.uint32)
+        elif isinstance(u32_values, tuple):
+            return list(u32_values)
+        else:
+            try:
+                return u32_values.copy()
+            except AttributeError:
+                return u32_values
+
+    def _force_release_memory(self, obj):
+        """强制释放对象内存"""
+        if obj is None:
+            return
+        
+        # 对于numpy数组，使用特殊方法释放内存
+        if isinstance(obj, np.ndarray):
+            # 设置数组为None并调用gc
+            obj.setflags(write=True)
+            obj.resize(0, refcheck=False)
+        elif hasattr(obj, 'clear'):
+            obj.clear()
+        
+        # 删除引用
+        del obj
+
+    
+    def cleanup_resources(self):
+        """清理工作线程资源"""
+        try:
+            # 清理ADCSample实例
+            if hasattr(self, 'adc_sample') and self.adc_sample:
+                if hasattr(self.adc_sample, 'file_manager'):
+                    self.adc_sample.file_manager = None
+                if hasattr(self.adc_sample, 'tcp_client'):
+                    self.adc_sample.tcp_client = None
+                self.adc_sample = None
+            
+            # 清理其他引用
             self.running = False
             self._should_stop = False
+            
             # 强制垃圾回收
             import gc
             gc.collect()
+            
+        except Exception as e:
+            print(f"清理工作线程资源失败: {e}")
     
     def stop(self):
         """停止采样"""
         self.running = False
+        self._should_stop = True
+
+
 
 
 class ADCSamplingController(QObject):

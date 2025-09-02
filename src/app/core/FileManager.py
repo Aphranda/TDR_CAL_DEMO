@@ -31,11 +31,33 @@ class FileManager:
         logger.info(f"数据目录结构已创建在: {self.base_data_path.absolute()}")
     
     def ensure_dir_exists(self, directory):
-        """确保目录存在，如果不存在则创建"""
+        """确保目录存在，如果不存在则创建 - 优化内存版本"""
+        if not directory:
+            return directory
+        
+        # 使用缓存避免重复检查相同的目录
+        if not hasattr(self, '_dir_cache'):
+            self._dir_cache = set()
+        
+        # 如果目录已经在缓存中，直接返回
+        if directory in self._dir_cache:
+            return directory
+        
+        # 检查目录是否存在
         if not os.path.exists(directory):
-            os.makedirs(directory)
-            logger.info(f"创建目录: {directory}")
+            try:
+                os.makedirs(directory)
+                logger.info(f"创建目录: {directory}")
+            except OSError as e:
+                # 如果目录已存在（可能由其他进程创建），忽略错误
+                if e.errno != 17:  # 17 = 文件已存在
+                    logger.error(f"创建目录失败: {str(e)}")
+                    raise
+        
+        # 添加到缓存
+        self._dir_cache.add(directory)
         return directory
+
     
     def save_adc_csv_data(self, data, filename, output_dir, include_timestamp=True):
         """保存ADC数据到CSV文件"""
