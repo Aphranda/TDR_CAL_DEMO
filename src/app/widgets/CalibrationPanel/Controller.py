@@ -117,7 +117,7 @@ class CalibrationWorker(QThread):
                 
                 # 等待采样完成
                 loop = QEventLoop()
-                adc_controller.dataLoaded.connect(loop.quit)
+                adc_controller.finished.connect(loop.quit)
                 adc_controller.errorOccurred.connect(loop.quit)
                 loop.exec_()
                 

@@ -90,6 +90,7 @@ class ADCWorker(QObject):
         finally:
             # 彻底清理资源
             self.cleanup_resources()
+            pass
 
     def _process_sample_data(self, u32_values):
         """处理采样数据，优化内存使用"""
@@ -156,12 +157,11 @@ class ADCWorker(QObject):
         self._should_stop = True
 
 
-
-
 class ADCSamplingController(QObject):
     # 定义信号
     dataLoaded = pyqtSignal(str)  # 数据加载完成信号
     errorOccurred = pyqtSignal(str)  # 错误信号
+    finished = pyqtSignal(bool, str)
     adcStatusChanged = pyqtSignal(bool, str)  # ADC连接状态变化信号
     samplingProgress = pyqtSignal(int, int, str)  # 采样进度信号
     dataSaved = pyqtSignal(str, str)  # 数据保存信号
@@ -320,6 +320,7 @@ class ADCSamplingController(QObject):
     def on_sampling_finished(self, success, message):
         """采样完成"""
         if success:
+            self.finished.emit(True,"message")
             self.dataLoaded.emit(message)
             self.log_message(message, "INFO")
         else:
