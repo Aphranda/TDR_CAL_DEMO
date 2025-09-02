@@ -38,41 +38,51 @@ class CalibrationModel:
         
 
     def generate_calibration_steps(self):
-        """改进的校准步骤生成，添加底噪测试"""
+        """改进的校准步骤生成，添加底噪测试和直通模式确认"""
         self.steps = []
         
-        # 添加底噪测试步骤
-        self.steps.append("1. 测试端口1底噪")
+        # 添加底噪测试步骤 - 先连接底噪校准件，再测试
+        self.steps.append("1. 连接底噪校准件到端口1")
+        self.steps.append("2. 测量端口1底噪")
         
         if self.params.cal_type == CalibrationType.SOLT:
             # 单端口或双端口的SOL测量
-            self.steps.append("2. 连接短路器到端口1")
-            self.steps.append("3. 测量端口1短路标准件")
-            self.steps.append("4. 连接开路器到端口1")
-            self.steps.append("5. 测量端口1开路标准件")
-            self.steps.append("6. 连接负载到端口1")
-            self.steps.append("7. 测量端口1负载标准件")
+            self.steps.append("3. 连接短路器到端口1")
+            self.steps.append("4. 测量端口1短路标准件")
+            self.steps.append("5. 连接开路器到端口1")
+            self.steps.append("6. 测量端口1开路标准件")
+            self.steps.append("7. 连接负载到端口1")
+            self.steps.append("8. 测量端口1负载标准件")
             
             if self.params.port_config == PortConfig.DUAL:
-                self.steps.append("8. 测试端口2底噪")
-                self.steps.append("9. 连接短路器到端口2")
-                self.steps.append("10. 测量端口2短路标准件")
-                self.steps.append("11. 连接开路器到端口2")
-                self.steps.append("12. 测量端口2开路标准件")
-                self.steps.append("13. 连接负载到端口2")
-                self.steps.append("14. 测量端口2负载标准件")
-                self.steps.append("15. 连接直通件到端口1-2")
-                self.steps.append("16. 测量直通标准件")
+                self.steps.append("9. 连接底噪校准件到端口2")
+                self.steps.append("10. 测量端口2底噪")
+                self.steps.append("11. 连接短路器到端口2")
+                self.steps.append("12. 测量端口2短路标准件")
+                self.steps.append("13. 连接开路器到端口2")
+                self.steps.append("14. 测量端口2开路标准件")
+                self.steps.append("15. 连接负载到端口2")
+                self.steps.append("16. 测量端口2负载标准件")
+                
+                # 直通标件的四种模式，每种模式都需要连接确认
+                self.steps.append("17. 连接直通件到端口1-2 (S11模式)")
+                self.steps.append("18. 测量直通标准件 S11模式")
+                self.steps.append("19. 连接直通件到端口1-2 (S12模式)")
+                self.steps.append("20. 测量直通标准件 S12模式")
+                self.steps.append("21. 连接直通件到端口1-2 (S21模式)")
+                self.steps.append("22. 测量直通标准件 S21模式")
+                self.steps.append("23. 连接直通件到端口1-2 (S22模式)")
+                self.steps.append("24. 测量直通标准件 S22模式")
                 
         elif self.params.cal_type == CalibrationType.TRL:
-            self.steps.append("2. 连接直通件到端口1-2")
-            self.steps.append("3. 测量直通标准件")
-            self.steps.append("4. 连接反射件到端口1")
-            self.steps.append("5. 测量端口1反射标准件")
-            self.steps.append("6. 连接反射件到端口2")
-            self.steps.append("7. 测量端口2反射标准件")
-            self.steps.append("8. 连接延迟线到端口1-2")
-            self.steps.append("9. 测量延迟线标准件")
+            self.steps.append("3. 连接直通件到端口1-2")
+            self.steps.append("4. 测量直通标准件")
+            self.steps.append("5. 连接反射件到端口1")
+            self.steps.append("6. 测量端口1反射标准件")
+            self.steps.append("7. 连接反射件到端口2")
+            self.steps.append("8. 测量端口2反射标准件")
+            self.steps.append("9. 连接延迟线到端口1-2")
+            self.steps.append("10. 测量延迟线标准件")
             
         self.steps.append("计算误差系数")
         self.steps.append("验证校准质量")
@@ -83,7 +93,7 @@ class CalibrationModel:
 
 
     def create_calibration_folders(self):
-        """创建校准文件夹结构，包含底噪测试文件夹"""
+        """创建校准文件夹结构，包含底噪测试文件夹和直通模式子文件夹"""
         # 确保data/calibration目录存在
         calibration_base_dir = os.path.join("data", "calibration")
         os.makedirs(calibration_base_dir, exist_ok=True)
@@ -118,9 +128,10 @@ class CalibrationModel:
                     "Noise_Port2",  # 添加端口2底噪测试
                     "Short_Port2",
                     "Open_Port2",
-                    "Load_Port2",
-                    "Thru"
+                    "Load_Port2"
                 ])
+                # 为双端口直通测试创建Thru文件夹
+                measurement_folders.append("Thru")
         else:  # TRL calibration
             measurement_folders.extend([
                 "Thru",
@@ -134,23 +145,23 @@ class CalibrationModel:
             folder_path = os.path.join(self.base_calibration_path, folder)
             os.makedirs(folder_path, exist_ok=True)
             
-            # 创建数据子文件夹
-            raw_data_path = os.path.join(folder_path, "Raw_ADC_Data")
-            processed_data_path = os.path.join(folder_path, "Processed_Data")
-            os.makedirs(raw_data_path, exist_ok=True)
-            os.makedirs(processed_data_path, exist_ok=True)
-            
-            # 如果是双端口直通测试，创建S参数文件夹
+            # 如果是Thru文件夹，创建S参数子文件夹
             if folder == "Thru" and self.params.port_config == PortConfig.DUAL:
-                # 在Raw_ADC_Data中创建S参数文件夹
                 for s_param in ["S11", "S12", "S21", "S22"]:
-                    s_param_raw_path = os.path.join(raw_data_path, s_param)
-                    os.makedirs(s_param_raw_path, exist_ok=True)
-                
-                # 在Processed_Data中创建S参数文件夹
-                for s_param in ["S11", "S12", "S21", "S22"]:
-                    s_param_processed_path = os.path.join(processed_data_path, s_param)
-                    os.makedirs(s_param_processed_path, exist_ok=True)
+                    s_param_path = os.path.join(folder_path, s_param)
+                    os.makedirs(s_param_path, exist_ok=True)
+                    
+                    # 在每个S参数文件夹内创建Raw_ADC_Data和Processed_Data
+                    raw_data_path = os.path.join(s_param_path, "Raw_ADC_Data")
+                    processed_data_path = os.path.join(s_param_path, "Processed_Data")
+                    os.makedirs(raw_data_path, exist_ok=True)
+                    os.makedirs(processed_data_path, exist_ok=True)
+            else:
+                # 其他文件夹正常创建Raw_ADC_Data和Processed_Data
+                raw_data_path = os.path.join(folder_path, "Raw_ADC_Data")
+                processed_data_path = os.path.join(folder_path, "Processed_Data")
+                os.makedirs(raw_data_path, exist_ok=True)
+                os.makedirs(processed_data_path, exist_ok=True)
         
         # 创建分析和验证文件夹
         for folder in analysis_folders:
@@ -177,7 +188,17 @@ class CalibrationModel:
         elif "负载" in step:
             base = "Load"
         elif "直通" in step:
-            return "Thru"
+            # 检查具体的S参数模式
+            if "S11" in step:
+                return "Thru\\S11"
+            elif "S12" in step:
+                return "Thru\\S12"
+            elif "S21" in step:
+                return "Thru\\S21"
+            elif "S22" in step:
+                return "Thru\\S22"
+            else:
+                return "Thru"
         elif "反射" in step:
             base = "Reflect"
         elif "延迟线" in step:
@@ -220,10 +241,26 @@ class CalibrationModel:
             # 如果是测量步骤，生成并保存模拟数据
             if has_measurement and base_path:
                 folder_name = self.get_folder_name_from_step(step)
-                folder_path = os.path.join(base_path, folder_name)
                 
-                raw_data_dir = os.path.join(folder_path, "Raw_ADC_Data")
-                processed_data_dir = os.path.join(folder_path, "Processed_Data")
+                # 处理嵌套文件夹路径
+                if "/" in folder_name:
+                    # 对于Thru/S11这样的路径
+                    parent_folder, sub_folder = folder_name.split("/")
+                    folder_path = os.path.join(self.base_calibration_path, parent_folder, sub_folder)
+                    
+                    # 确保目录存在
+                    os.makedirs(folder_path, exist_ok=True)
+                    
+                    # 构建Raw和Processed路径
+                    raw_data_dir = os.path.join(folder_path, "Raw_ADC_Data")
+                    processed_data_dir = os.path.join(folder_path, "Processed_Data")
+                else:
+                    folder_path = os.path.join(self.base_calibration_path, folder_name)
+                    # 确保目录存在
+                    os.makedirs(folder_path, exist_ok=True)
+                    
+                    raw_data_dir = os.path.join(folder_path, "Raw_ADC_Data")
+                    processed_data_dir = os.path.join(folder_path, "Processed_Data")
                 
                 # 确保目录存在
                 os.makedirs(raw_data_dir, exist_ok=True)
@@ -233,7 +270,12 @@ class CalibrationModel:
                 raw_data = np.random.randint(0, 2**19, 1024, dtype=np.uint32)  # 19位ADC
                 
                 # 保存原始数据
-                raw_filename = f"step_{i+1}_{folder_name}.csv"
+                if "/" in folder_name:
+                    file_base_name = folder_name.replace("/", "_")
+                else:
+                    file_base_name = folder_name
+                
+                raw_filename = f"step_{i+1}_{file_base_name}.csv"
                 raw_filepath = os.path.join(raw_data_dir, raw_filename)
                 np.savetxt(raw_filepath, raw_data, delimiter=',', fmt='%u')
                 
@@ -242,7 +284,7 @@ class CalibrationModel:
                 mag = np.abs(processed_data)
                 
                 # 保存处理后的数据
-                processed_filename = f"step_{i+1}_{folder_name}_fft_mag.csv"
+                processed_filename = f"step_{i+1}_{file_base_name}_fft_mag.csv"
                 processed_filepath = os.path.join(processed_data_dir, processed_filename)
                 np.savetxt(processed_filepath, mag, delimiter=',')
             

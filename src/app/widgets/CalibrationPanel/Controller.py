@@ -22,7 +22,6 @@ class CalibrationWorker(QThread):
         self.confirmation_result_received = False
         self.last_confirmation_result = False
         
-
     def run(self):
         self._is_running = True
         self.log_message.emit("开始校准流程", "INFO")
@@ -63,10 +62,23 @@ class CalibrationWorker(QThread):
             if has_measurement and self._is_running:
                 # 获取当前步骤对应的文件夹
                 folder_name = self.model.get_folder_name_from_step(step)
-                folder_path = os.path.join(base_path, folder_name)
                 
-                raw_data_dir = os.path.join(folder_path, "Raw_ADC_Data")
-                processed_data_dir = os.path.join(folder_path, "Processed_Data")
+                # 处理直通测试的特殊文件夹结构
+                if "Thru\\" in folder_name:
+                    # 对于Thru\S11这样的路径，需要特殊处理
+                    parent_folder, sub_folder = folder_name.split("\\")
+                    folder_path = os.path.join(base_path, parent_folder, sub_folder)
+                    
+                    # 确保目录存在
+                    os.makedirs(folder_path, exist_ok=True)
+                    
+                    # 构建Raw和Processed路径
+                    raw_data_dir = os.path.join(folder_path, "Raw_ADC_Data")
+                    processed_data_dir = os.path.join(folder_path, "Processed_Data")
+                else:
+                    folder_path = os.path.join(base_path, folder_name)
+                    raw_data_dir = os.path.join(folder_path, "Raw_ADC_Data")
+                    processed_data_dir = os.path.join(folder_path, "Processed_Data")
                 
                 # 确保目录存在
                 os.makedirs(raw_data_dir, exist_ok=True)
@@ -74,17 +86,14 @@ class CalibrationWorker(QThread):
                 
                 # 设置ADC采样参数
                 adc_controller.view.output_dir_edit.setText(raw_data_dir)
-                adc_controller.view.filename_edit.setText(f"step_{i+1}_{folder_name}")
                 
-                # # 如果是底噪测试，设置特殊的采样参数
-                # if is_noise_test:
-                #     # 底噪测试可能需要更多的采样次数和不同的参数
-                #     adc_controller.view.sample_count_spin.setValue(20)  # 更多采样次数
-                #     adc_controller.view.sample_interval_spin.setValue(0.05)  # 更短的间隔
-                # else:
-                #     # 正常校准测量的参数
-                #     adc_controller.view.sample_count_spin.setValue(10)
-                #     adc_controller.view.sample_interval_spin.setValue(0.1)
+                # 生成文件名，避免路径分隔符问题
+                if "\\" in folder_name:
+                    file_base_name = folder_name.replace("\\", "_")
+                else:
+                    file_base_name = folder_name
+                
+                adc_controller.view.filename_edit.setText(f"step_{i+1}_{file_base_name}")
                 
                 # 执行ADC采样
                 self.log_message.emit(f"开始ADC采样: {step}", "INFO")
@@ -128,7 +137,7 @@ class CalibrationWorker(QThread):
                 # 保存分析结果
                 if data_analysis_controller.model.results:
                     # 保存处理后的数据
-                    processed_filename = f"step_{i+1}_{folder_name}_processed"
+                    processed_filename = f"step_{i+1}_{file_base_name}_processed"
                     processed_filepath = os.path.join(processed_data_dir, processed_filename)
                     
                     # 使用数据分析控制器的导出函数保存数据
@@ -138,10 +147,11 @@ class CalibrationWorker(QThread):
                         
                         # 如果是底噪测试，可以额外保存一些统计信息
                         if is_noise_test:
-                            noise_stats_file = os.path.join(processed_data_dir, f"noise_statistics_{folder_name}.txt")
+                            noise_stats_file = os.path.join(processed_data_dir, f"noise_statistics_{file_base_name}.txt")
                             with open(noise_stats_file, 'w') as f:
-                                f.write(f"Noise Test Results - {folder_name}\n")
+                                f.write(f"Noise Test Results - {file_base_name}\n")
                                 f.write("=" * 50 + "\n")
+                                import datetime
                                 f.write(f"Timestamp: {datetime.datetime.now()}\n")
                                 f.write(f"Step: {step}\n")
                                 # 可以添加更多的底噪统计信息
@@ -168,8 +178,6 @@ class CalibrationWorker(QThread):
         if self._is_running:
             self.log_message.emit("校准流程完成", "INFO")
         self.finished.emit()
-
-
     def request_user_confirmation(self, step_description, has_measurement):
         """请求用户确认（在工作线程中调用）"""
         # 重置确认状态
@@ -196,7 +204,6 @@ class CalibrationWorker(QThread):
         self.last_confirmation_result = result
         self.confirmation_condition.wakeAll()
         self.confirmation_mutex.unlock()
-
     def stop(self):
         self._is_running = False
         self.wake_up_confirmation(False)  # 唤醒等待的确认
