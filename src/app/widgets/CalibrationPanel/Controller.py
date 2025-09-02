@@ -226,6 +226,18 @@ class CalibrationWorker(QThread):
             else:
                 # 默认配置S11
                 return "S11"
+        elif "DUT" in step:
+            if "S11" in step:
+                return "S11"
+            elif "S12" in step:
+                return "S12"
+            elif "S21" in step:
+                return "S21"
+            elif "S22" in step:
+                return "S22"
+            else:
+                # 默认配置S11
+                return "S11"
         
         # 其他测量步骤默认配置S11
         elif "测量" in step:

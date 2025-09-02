@@ -236,12 +236,16 @@ class ADCSamplingController(QObject):
             # 根据模式调用相应的时钟控制方法
             if mode == "S11":
                 success, message = self.clock_controller.set_s11_mode()
+                self.view.s11_radio.setChecked(True)
             elif mode == "S12":
                 success, message = self.clock_controller.set_s12_mode()
+                self.view.s12_radio.setChecked(True)
             elif mode == "S21":
                 success, message = self.clock_controller.set_s21_mode()
+                self.view.s21_radio.setChecked(True)
             elif mode == "S22":
                 success, message = self.clock_controller.set_s22_mode()
+                self.view.s22_radio.setChecked(True)
             else:
                 self.log_message(f"不支持的S参数模式: {mode}", "ERROR")
                 return

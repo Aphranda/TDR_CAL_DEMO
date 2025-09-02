@@ -330,10 +330,6 @@ class CalibrationView(QWidget):
         main_layout.addWidget(flow_group)
         
         
-
-
-
-
         # 进度条区域 - 新增：用于显示ADC采集和数据分析进度
         progress_group = QGroupBox("操作进度")
         progress_layout = QVBoxLayout()
