@@ -15,23 +15,8 @@ class ADCSamplingView(QWidget):
         main_layout.setSpacing(8)
         main_layout.setContentsMargins(6, 6, 6, 6)
 
-        memory_layout = QHBoxLayout()
-        memory_layout.setSpacing(4)
-        memory_layout.addWidget(QLabel("内存限制:"))
-        self.memory_limit_spin = QSpinBox()
-        self.memory_limit_spin.setRange(10, 1000)
-        self.memory_limit_spin.setValue(100)
-        self.memory_limit_spin.setToolTip("内存中最多保留的样本数量")
-        self.memory_limit_spin.setMinimumWidth(70)
-        self.memory_limit_spin.setMaximumWidth(100)
-        memory_layout.addWidget(self.memory_limit_spin)
-        memory_layout.addWidget(QLabel("个样本"))
-        
-        self.clear_memory_button = QPushButton("清理内存")
-        self.clear_memory_button.setMinimumWidth(80)
-        memory_layout.addWidget(self.clear_memory_button)
-        
-        main_layout.addLayout(memory_layout)
+
+    
             
         # S参数模式选择部分
         s_mode_group = QGroupBox("S参数时钟控制")

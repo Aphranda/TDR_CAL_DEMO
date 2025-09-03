@@ -53,9 +53,9 @@ class PlotWidgetController(QObject):
         # 设置时域坐标轴标签
         self.view.set_labels("时间", "幅度")
         
-        # 如果有ROI参数，设置ROI范围
-        if roi_start is not None and roi_end is not None:
-            self.set_roi_range(roi_start, roi_end)
+        # # 如果有ROI参数，设置ROI范围
+        # if roi_start is not None and roi_end is not None:
+        #     self.set_roi_range(roi_start, roi_end)
     
     def update_frequency_domain_plot(self, freq_data, magnitude_data, phase_data=None):
         """更新频域绘图"""
@@ -75,8 +75,8 @@ class PlotWidgetController(QObject):
         self.view.plot_widget.setTitle("时域信号", color='b', size='12pt')
         
         # 如果有ROI参数，设置ROI范围
-        if roi_start is not None and roi_end is not None:
-            self.set_roi_range(roi_start, roi_end)
+        # if roi_start is not None and roi_end is not None:
+        #     self.set_roi_range(roi_start, roi_end)
 
     def plot_frequency_domain(self, freq_data, magnitude_data, x_label="频率", y_label="幅度", units_x="Hz", units_y="dB"):
         """绘制频域数据"""
