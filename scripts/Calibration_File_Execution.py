@@ -29,11 +29,11 @@ class EnhancedAnalysisSummarizer:
             r'.*[Cc]al.*',                     # 包含"cal"的模式
         ]
         
-        # 定义统一的分类标准
+        # 定义统一的分类标准 - 更新Time_Domain子分类
         self.categories = {
             'Time_Domain': {
                 'keywords': ['time_domain', '_time_', 'waveform'],
-                'subcategories': ['Raw_Time', 'ROI_Time', 'Diff_Time']
+                'subcategories': ['Raw_Time', 'ROI_Time', 'Diff_Time', 'Diff_ROI_Time']
             },
             'Frequency_Domain': {
                 'keywords': ['frequency_domain', '_freq_', 'spectrum'],
@@ -173,7 +173,10 @@ class EnhancedAnalysisSummarizer:
     def _get_subcategory(self, category: str, filename: str) -> str:
         """获取子分类"""
         if category == 'Time_Domain':
-            if 'diff' in filename or 'derivative' in filename:
+            # 首先检查是否同时包含diff和roi
+            if ('diff' in filename or 'derivative' in filename) and ('roi' in filename or '0.0_100.0' in filename):
+                return 'Diff_ROI_Time'
+            elif 'diff' in filename or 'derivative' in filename:
                 return 'Diff_Time'
             elif 'roi' in filename or '0.0_100.0' in filename:
                 return 'ROI_Time'
@@ -229,8 +232,16 @@ class EnhancedAnalysisSummarizer:
                 columns = [col.lower() for col in df.columns]
                 
                 if any(col in ['time', 'timestamp', 'ns', 'us'] for col in columns):
-                    if any(col in ['diff', 'difference', 'derivative'] for col in columns):
-                        return 'Differential_Analysis', 'Time_Diff'
+                    # 检查是否同时包含diff和roi相关的列
+                    has_diff = any(col in ['diff', 'difference', 'derivative'] for col in columns)
+                    has_roi = any(col in ['roi', 'region_of_interest'] for col in columns)
+                    
+                    if has_diff and has_roi:
+                        return 'Time_Domain', 'Diff_ROI_Time'
+                    elif has_diff:
+                        return 'Time_Domain', 'Diff_Time'
+                    elif has_roi:
+                        return 'Time_Domain', 'ROI_Time'
                     else:
                         return 'Time_Domain', 'Raw_Time'
                 
@@ -443,8 +454,8 @@ class EnhancedAnalysisSummarizer:
 # 使用示例
 def main():
     # 设置源目录和输出目录
-    source_directory = "data\\calibration"
-    output_directory = "data\\calibration\\Analysis_Summary_Processed_Only"
+    source_directory = "data\\calibration\\Calibration_SOLT_DUT_Test_20250903_202613_P3P2"
+    output_directory = "data\\calibration\\Calibration_SOLT_DUT_Test_20250903_202613_P3P2\\Analysis_Summary_Processed_Only"
     
     # 创建汇总器实例
     summarizer = EnhancedAnalysisSummarizer(source_directory, output_directory)
