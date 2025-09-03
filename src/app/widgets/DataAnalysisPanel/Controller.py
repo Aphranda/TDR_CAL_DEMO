@@ -35,6 +35,7 @@ class ADCProcessWorker(QObject):
         self.analyzer = DataAnalyzer(config)  # 创建分析器实例
         self.running = False
         self._should_stop = False  # 添加停止标志
+        self.setObjectName("DataAnalyzer")
   
     @pyqtSlot()
     def run(self):

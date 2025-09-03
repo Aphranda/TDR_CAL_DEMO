@@ -20,7 +20,7 @@ class ADCSamplingView(QWidget):
         memory_layout.addWidget(QLabel("内存限制:"))
         self.memory_limit_spin = QSpinBox()
         self.memory_limit_spin.setRange(10, 1000)
-        self.memory_limit_spin.setValue(50)
+        self.memory_limit_spin.setValue(100)
         self.memory_limit_spin.setToolTip("内存中最多保留的样本数量")
         self.memory_limit_spin.setMinimumWidth(70)
         self.memory_limit_spin.setMaximumWidth(100)

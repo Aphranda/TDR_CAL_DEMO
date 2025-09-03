@@ -110,20 +110,20 @@ class MainWindowView(QMainWindow):
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
         
-        # 在状态栏添加进度控制按钮
-        self._add_statusbar_progress_button()
+    #     # 在状态栏添加进度控制按钮
+    #     self._add_statusbar_progress_button()
     
-    def _add_statusbar_progress_button(self):
-        """在状态栏添加进度控制按钮"""
-        # 创建进度控制按钮
-        self.status_progress_button = QToolButton()
-        self.status_progress_button.setText("显示进度")
-        self.status_progress_button.setCheckable(True)
-        self.status_progress_button.setChecked(False)
-        self.status_progress_button.clicked.connect(self._handle_status_progress_button)
+    # def _add_statusbar_progress_button(self):
+    #     """在状态栏添加进度控制按钮"""
+    #     # 创建进度控制按钮
+    #     self.status_progress_button = QToolButton()
+    #     self.status_progress_button.setText("显示进度")
+    #     self.status_progress_button.setCheckable(True)
+    #     self.status_progress_button.setChecked(False)
+    #     self.status_progress_button.clicked.connect(self._handle_status_progress_button)
         
-        # 添加到状态栏
-        self.status_bar.addPermanentWidget(self.status_progress_button)
+    #     # 添加到状态栏
+    #     self.status_bar.addPermanentWidget(self.status_progress_button)
     
     def _handle_status_progress_button(self, checked):
         """处理状态栏进度按钮点击"""
@@ -324,8 +324,8 @@ class MainWindowView(QMainWindow):
         if self.progress_container:
             self.progress_container.setVisible(checked)
             self.progress_toggle_button.setText("隐藏进度" if checked else "显示进度")
-            self.status_progress_button.setChecked(checked)
-            self.status_progress_button.setText("隐藏进度" if checked else "显示进度")
+            # self.status_progress_button.setChecked(checked)
+            # self.status_progress_button.setText("隐藏进度" if checked else "显示进度")
             
             if checked:
                 total_height = self.plot_progress_splitter.height()

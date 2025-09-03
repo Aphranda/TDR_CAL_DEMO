@@ -28,6 +28,7 @@ class ADCWorker(QObject):
         self.filename_prefix = filename_prefix or 'adc_raw_data'
         self.running = False
         self._should_stop = False
+        self.setObjectName("ADCSample")
 
     @pyqtSlot()
     def run(self):
