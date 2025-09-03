@@ -19,6 +19,9 @@ class ADCWorker(QObject):
     def __init__(self, tcp_client, count, interval, save_raw_data=True, output_dir=None, filename_prefix=None):
         super().__init__()
         # 使用传入的tcp_client实例化ADCSample
+
+        self.setObjectName(f"ADC采样工作线程_{filename_prefix or 'default'}")
+
         self.adc_sample = ADCSample()
         self.adc_sample.set_tcp_client(tcp_client)  # 设置TCP客户端
         self.count = count
@@ -28,7 +31,7 @@ class ADCWorker(QObject):
         self.filename_prefix = filename_prefix or 'adc_raw_data'
         self.running = False
         self._should_stop = False
-        self.setObjectName("ADCSample")
+        
 
     @pyqtSlot()
     def run(self):
@@ -302,6 +305,11 @@ class ADCSamplingController(QObject):
         
         # 创建工作线程，传入TCP客户端
         self.adc_thread = QThread()
+        
+        # 设置可追溯的线程名称
+        thread_name = f"ADC采样线程_{filename_prefix}_{int(time.time())}"
+        self.adc_thread.setObjectName(thread_name)
+
         self.adc_worker = ADCWorker(self.tcp_client, count, interval, save_raw_data, output_dir, filename_prefix)
         self.adc_worker.moveToThread(self.adc_thread)
         

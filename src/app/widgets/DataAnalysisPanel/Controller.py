@@ -30,12 +30,18 @@ class ADCProcessWorker(QObject):
   
     def __init__(self, file_list, config):
         super().__init__()
+
+        # 设置可追溯的线程名称
+        file_count = len(file_list)
+        first_file = os.path.basename(file_list[0]) if file_list else "no_files"
+        self.setObjectName(f"数据分析线程_{first_file}_{file_count}files")
+
         self.file_list = file_list
         self.config = config
         self.analyzer = DataAnalyzer(config)  # 创建分析器实例
         self.running = False
         self._should_stop = False  # 添加停止标志
-        self.setObjectName("DataAnalyzer")
+        
   
     @pyqtSlot()
     def run(self):
