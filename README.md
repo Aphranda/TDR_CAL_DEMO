@@ -7,87 +7,6 @@ TDR_CAL_DEMO
 │  ├─ 📄instrument_config.json
 │  └─ 📄__init__.py
 ├─ 📁data
-│  ├─ 📁calibration
-│  │  └─ 📁Calibration_SOLT_DualPort_20250826_091548
-│  │     ├─ 📁ErrorCoefficients
-│  │     ├─ 📁Load_Port1
-│  │     │  ├─ 📁Processed_Data
-│  │     │  │  └─ 📁Processed_Data
-│  │     │  │     ├─ 📄step_6_Load_Port1_processed_diff_frequency_domain.png
-│  │     │  │     ├─ 📄step_6_Load_Port1_processed_diff_time_domain.png
-│  │     │  │     ├─ 📄step_6_Load_Port1_processed_frequency_domain.png
-│  │     │  │     └─ 📄step_6_Load_Port1_processed_time_domain.png
-│  │     │  └─ 📁Raw_ADC_Data
-│  │     ├─ 📁Load_Port2
-│  │     │  ├─ 📁Processed_Data
-│  │     │  │  └─ 📁Processed_Data
-│  │     │  │     ├─ 📄step_12_Load_Port2_processed_diff_frequency_domain.png
-│  │     │  │     ├─ 📄step_12_Load_Port2_processed_diff_time_domain.png
-│  │     │  │     ├─ 📄step_12_Load_Port2_processed_frequency_domain.png
-│  │     │  │     └─ 📄step_12_Load_Port2_processed_time_domain.png
-│  │     │  └─ 📁Raw_ADC_Data
-│  │     ├─ 📁Open_Port1
-│  │     │  ├─ 📁Processed_Data
-│  │     │  │  └─ 📁Processed_Data
-│  │     │  │     ├─ 📄step_4_Open_Port1_processed_diff_frequency_domain.png
-│  │     │  │     ├─ 📄step_4_Open_Port1_processed_diff_time_domain.png
-│  │     │  │     ├─ 📄step_4_Open_Port1_processed_frequency_domain.png
-│  │     │  │     └─ 📄step_4_Open_Port1_processed_time_domain.png
-│  │     │  └─ 📁Raw_ADC_Data
-│  │     ├─ 📁Open_Port2
-│  │     │  ├─ 📁Processed_Data
-│  │     │  │  ├─ 📄step_10_Open_Port2_processed_diff_frequency_domain.png
-│  │     │  │  ├─ 📄step_10_Open_Port2_processed_diff_time_domain.png
-│  │     │  │  ├─ 📄step_10_Open_Port2_processed_frequency_domain.png
-│  │     │  │  └─ 📄step_10_Open_Port2_processed_time_domain.png
-│  │     │  └─ 📁Raw_ADC_Data
-│  │     ├─ 📁Short_Port1
-│  │     │  ├─ 📁Processed_Data
-│  │     │  │  └─ 📁Processed_Data
-│  │     │  │     ├─ 📄step_2_Short_Port1_processed_diff_frequency_domain.png
-│  │     │  │     ├─ 📄step_2_Short_Port1_processed_diff_time_domain.png
-│  │     │  │     ├─ 📄step_2_Short_Port1_processed_frequency_domain.png
-│  │     │  │     └─ 📄step_2_Short_Port1_processed_time_domain.png
-│  │     │  └─ 📁Raw_ADC_Data
-│  │     ├─ 📁Short_Port2
-│  │     │  ├─ 📁Processed_Data
-│  │     │  │  ├─ 📄step_8_Short_Port2_processed_diff_frequency_domain.png
-│  │     │  │  ├─ 📄step_8_Short_Port2_processed_diff_time_domain.png
-│  │     │  │  ├─ 📄step_8_Short_Port2_processed_frequency_domain.png
-│  │     │  │  └─ 📄step_8_Short_Port2_processed_time_domain.png
-│  │     │  └─ 📁Raw_ADC_Data
-│  │     ├─ 📁Thru
-│  │     │  ├─ 📁Processed_Data
-│  │     │  │  ├─ 📁S11
-│  │     │  │  │  ├─ 📄step_14_Thru_S11_diff_frequency_domain.png
-│  │     │  │  │  ├─ 📄step_14_Thru_S11_diff_time_domain.png
-│  │     │  │  │  ├─ 📄step_14_Thru_S11_frequency_domain.png
-│  │     │  │  │  └─ 📄step_14_Thru_S11_time_domain.png
-│  │     │  │  ├─ 📁S12
-│  │     │  │  │  ├─ 📄step_14_Thru_S12_diff_frequency_domain.png
-│  │     │  │  │  ├─ 📄step_14_Thru_S12_diff_time_domain.png
-│  │     │  │  │  ├─ 📄step_14_Thru_S12_frequency_domain.png
-│  │     │  │  │  └─ 📄step_14_Thru_S12_time_domain.png
-│  │     │  │  ├─ 📁S21
-│  │     │  │  │  ├─ 📄step_14_Thru_S21_diff_frequency_domain.png
-│  │     │  │  │  ├─ 📄step_14_Thru_S21_diff_time_domain.png
-│  │     │  │  │  ├─ 📄step_14_Thru_S21_frequency_domain.png
-│  │     │  │  │  └─ 📄step_14_Thru_S21_time_domain.png
-│  │     │  │  └─ 📁S22
-│  │     │  │     ├─ 📄step_14_Load_S22_diff_frequency_domain.png
-│  │     │  │     ├─ 📄step_14_Load_S22_diff_time_domain.png
-│  │     │  │     ├─ 📄step_14_Load_S22_frequency_domain.png
-│  │     │  │     └─ 📄step_14_Load_S22_time_domain.png
-│  │     │  └─ 📁Raw_ADC_Data
-│  │     │     ├─ 📁S11
-│  │     │     ├─ 📁S12
-│  │     │     ├─ 📁S21
-│  │     │     └─ 📁S22
-│  │     └─ 📁Verification
-│  └─ 📁results
-│     ├─ 📁10dB
-│     ├─ 📁plots
-│     └─ 📁test
 ├─ 📁docs
 │  ├─ 📄calibration_protocol.md
 │  ├─ 📄ODC网分设计.pptx
@@ -100,15 +19,23 @@ TDR_CAL_DEMO
 │  ├─ 📄Doicon.py
 │  ├─ 📄project.py
 │  ├─ 📄S_paramCalibration.py
+│  ├─ 📄test.py
 │  ├─ 📄Testing.py
+│  ├─ 📄VNA_S_CAL.md
 │  └─ 📄VNA_S_CALIBRATION.m
 ├─ 📁src
 │  ├─ 📁app
 │  │  ├─ 📁core
 │  │  │  ├─ 📁__pycache__
 │  │  │  ├─ 📄ADCSample.py
+│  │  │  ├─ 📄ClockController.py
+│  │  │  ├─ 📄ConfigManager.py
 │  │  │  ├─ 📄DataAnalyze.py
+│  │  │  ├─ 📄DataPlotter.py
+│  │  │  ├─ 📄DataProcessor.py
+│  │  │  ├─ 📄EdgeDetector.py
 │  │  │  ├─ 📄FileManager.py
+│  │  │  ├─ 📄ResultProcessor.py
 │  │  │  ├─ 📄TcpClient.py
 │  │  │  ├─ 📄VNACalibration.py
 │  │  │  └─ 📄__init__.py

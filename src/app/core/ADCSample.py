@@ -219,7 +219,7 @@ class ADCSample:
                 f.write(binary_data)
             
             logger.info(f"二进制数据已保存到 {filepath}，共{len(binary_data)}字节")
-            
+            time.sleep(0.01)
             # 对于ADC数据，我们信任写入过程，不进行严格的格式验证
             # 因为ADC数据可能包含看起来像文本的值
             return True, f"二进制数据保存成功: {filepath}"
