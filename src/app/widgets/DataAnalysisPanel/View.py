@@ -75,10 +75,10 @@ class DataAnalysisView(QWidget):
         adc_analysis_widget = self.create_adc_analysis_options()
         self.options_stack.addWidget(adc_analysis_widget)
         
-        # 进度条
-        self.progress_bar = QProgressBar()
-        self.progress_bar.setVisible(False)
-        main_layout.addWidget(self.progress_bar)
+        # # 进度条
+        # self.progress_bar = QProgressBar()
+        # self.progress_bar.setVisible(False)
+        # main_layout.addWidget(self.progress_bar)
         
         self.setLayout(main_layout)
         

@@ -6,11 +6,12 @@ import os
 import numpy as np
 import glob
 
+# src/app/widgets/CalibrationPanel/Controller.py (部分修改)
 class CalibrationWorker(QThread):
-    progress_updated = pyqtSignal(str, int, bool, bool)  # 修改：添加第三个参数表示是否需要用户确认
+    progress_updated = pyqtSignal(str, int, bool, bool)  # 保留进度信号
     finished = pyqtSignal()
     log_message = pyqtSignal(str, str)
-    confirmation_result = pyqtSignal(bool)  # 新增：用户确认结果信号
+    confirmation_result = pyqtSignal(bool)  # 用户确认结果信号
     
     def __init__(self, model, controller):
         super().__init__()
@@ -54,7 +55,7 @@ class CalibrationWorker(QThread):
             # 判断是否是底噪测试
             is_noise_test = "底噪" in step
             
-            # 更新进度
+            # 更新进度 - 通过信号传递给主窗口的进度面板
             self.progress_updated.emit(step, progress, False, has_measurement)
             self.log_message.emit(f"执行步骤: {step}", "INFO")
 
@@ -117,7 +118,6 @@ class CalibrationWorker(QThread):
                 
                 # 等待采样完成
                 loop = QEventLoop()
-                adc_controller.samplingProgress.connect(lambda:self.process_transmit)
                 adc_controller.finished.connect(loop.quit)
                 adc_controller.errorOccurred.connect(loop.quit)
                 loop.exec_()
@@ -195,6 +195,7 @@ class CalibrationWorker(QThread):
         if self._is_running:
             self.log_message.emit("校准流程完成", "INFO")
         self.finished.emit()
+
     
     def _get_s_mode_from_step(self, step):
         """根据步骤描述获取S参数模式"""
@@ -286,9 +287,8 @@ class CalibrationController(QObject):
     user_confirmation_requested = pyqtSignal(str, bool)  # 修改：添加第二个参数表示是否有测量字段
     retest_requested = pyqtSignal()  # 新增：重测请求信号
     retest_finished = pyqtSignal()  # 新增：重测完成信号
-    adc_progress_updated = pyqtSignal(int, int, str)  # 新增：ADC进度更新信号
-    analysis_progress_updated = pyqtSignal(int, int, str)  # 新增：分析进度更新信号
-    
+    progress_updated = pyqtSignal(str, int, bool, bool)  # 新增：进度更新信号
+ 
     def __init__(self, view, model):
         super().__init__()
         self.view = view
@@ -318,15 +318,10 @@ class CalibrationController(QObject):
         
         # 连接用户确认信号
         self.user_confirmation_requested.connect(self.handle_user_confirmation)
-
         # 连接重测信号
         self.view.retest_requested.connect(self.on_retest_requested)
         self.retest_requested.connect(self.on_retest_requested)
         self.retest_finished.connect(self.view.retest_finished)  # 连接重测完成信号
-
-        # 连接进度信号
-        self.adc_progress_updated.connect(self.view.update_adc_progress)
-        self.analysis_progress_updated.connect(self.view.update_analysis_progress)
         
     def update_view_from_model(self):
         """从模型更新视图"""
@@ -425,7 +420,7 @@ class CalibrationController(QObject):
             
         self.view.set_calibration_running(True)
         self.worker = CalibrationWorker(self.model, self)
-        self.worker.progress_updated.connect(self.on_progress_updated)
+        self.worker.progress_updated.connect(self.on_progress_updated)  # 连接进度信号
         self.worker.finished.connect(self.on_calibration_finished)
         self.worker.log_message.connect(self.log_message)
         self.worker.confirmation_result.connect(self.on_confirmation_result)
@@ -444,8 +439,11 @@ class CalibrationController(QObject):
             self.view.confirmation_dialog.reject()
         
     def on_progress_updated(self, step, progress, needs_confirmation, has_measurement):
-        """更新进度"""
-        # 计算当前步骤索引
+        """处理进度更新"""
+        # 通过信号传递给主窗口的进度面板
+        self.progress_updated.emit(step, progress, needs_confirmation, has_measurement)
+        
+        # 更新本地视图的进度（如果需要）
         current_step_index = -1
         for i, s in enumerate(self.model.steps):
             if s == step:

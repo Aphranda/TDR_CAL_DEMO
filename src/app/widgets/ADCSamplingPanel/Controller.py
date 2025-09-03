@@ -6,7 +6,7 @@ from PyQt5.QtWidgets import QFileDialog, QMessageBox
 from PyQt5.QtCore import QObject, pyqtSignal, QThread, pyqtSlot
 from ...core.ADCSample import ADCSample
 from ...core.FileManager import FileManager
-from ...core.ClockController import ClockController  # 导入时钟控制类
+from ...core.ClockController import ClockController
 from memory_profiler import profile
 
 class ADCWorker(QObject):
@@ -28,7 +28,6 @@ class ADCWorker(QObject):
         self.filename_prefix = filename_prefix or 'adc_raw_data'
         self.running = False
         self._should_stop = False
-
 
     @pyqtSlot()
     def run(self):
@@ -192,8 +191,6 @@ class ADCSamplingController(QObject):
         
         # 连接状态信号
         self.adcStatusChanged.connect(self.view.update_adc_connection_status)
-        self.samplingProgress.connect(self.view.update_sampling_progress)
-        self.clockModeChanged.connect(self.on_clock_mode_changed)
         
         # 错误和日志信号
         self.errorOccurred.connect(lambda msg: self.log_message(msg, "ERROR"))

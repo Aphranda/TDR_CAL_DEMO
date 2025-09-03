@@ -1,8 +1,7 @@
 # src/app/widgets/ADCSamplingPanel/View.py
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, 
                              QLabel, QPushButton, QLineEdit, QSpinBox, 
-                             QProgressBar, QDoubleSpinBox, QFileDialog, QCheckBox,
-                             QRadioButton, QButtonGroup)
+                             QDoubleSpinBox, QFileDialog, QRadioButton, QButtonGroup)
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QIntValidator, QPalette, QColor
 
@@ -32,6 +31,7 @@ class ADCSamplingView(QWidget):
         self.clear_memory_button.setMinimumWidth(80)
         memory_layout.addWidget(self.clear_memory_button)
         
+        main_layout.addLayout(memory_layout)
             
         # S参数模式选择部分
         s_mode_group = QGroupBox("S参数时钟控制")
@@ -68,10 +68,8 @@ class ADCSamplingView(QWidget):
         self.s_mode_button_group.addButton(self.s22_radio, 3)
         s_mode_layout.addWidget(self.s22_radio)
         
-        
         s_mode_group.setLayout(s_mode_layout)
         main_layout.addWidget(s_mode_group)
-        
         
         # 仪表控制部分
         instrument_group = QGroupBox("ADC采样控制")
@@ -146,11 +144,6 @@ class ADCSamplingView(QWidget):
         instrument_group.setLayout(instrument_layout)
         main_layout.addWidget(instrument_group)
         
-        # 进度条
-        self.progress_bar = QProgressBar()
-        self.progress_bar.setVisible(False)
-        main_layout.addWidget(self.progress_bar)
-        
         self.setLayout(main_layout)
     
     def get_selected_s_mode(self) -> str:
@@ -164,7 +157,6 @@ class ADCSamplingView(QWidget):
         elif self.s22_radio.isChecked():
             return "S22"
         return "S11"  # 默认返回S11
-    
     
     def update_adc_connection_status(self, connected: bool, message: str = ""):
         """更新ADC连接状态"""
@@ -195,14 +187,3 @@ class ADCSamplingView(QWidget):
             
         self.status_label.setText(status_text)
         self.sample_button.setEnabled(connected)
-
-    
-    def update_sampling_progress(self, current: int, total: int, message: str = ""):
-        """更新采样进度"""
-        self.progress_bar.setVisible(True)
-        self.progress_bar.setMaximum(total)
-        self.progress_bar.setValue(current)
-        if message:
-            self.progress_bar.setFormat(f"{message} - %p%")
-        else:
-            self.progress_bar.setFormat("%p%")

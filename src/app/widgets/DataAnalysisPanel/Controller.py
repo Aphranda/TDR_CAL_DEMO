@@ -21,11 +21,9 @@ class SearchMethod:
     RISING = 1
     MAX = 2
 
-# src/app/widgets/DataAnalysisPanel/Controller.py
-
 class ADCProcessWorker(QObject):
     """ADC数据处理工作线程 - 使用DataAnalyzer进行分析"""
-    progress = pyqtSignal(int, int, str)
+    progress = pyqtSignal(int, int, str)  # 保留进度信号
     finished = pyqtSignal(dict, dict)  # 传递结果和平均值
     error = pyqtSignal(str)
     log_message = pyqtSignal(str, str)  # 日志消息信号
@@ -162,6 +160,7 @@ class ADCProcessWorker(QObject):
             import gc
             gc.collect()
 
+
     def stop(self):
         """停止处理"""
         self._should_stop = True
@@ -220,6 +219,7 @@ class DataAnalysisController(QObject):
     analysisCompleted = pyqtSignal(dict)  # 分析完成信号，传递结果
     errorOccurred = pyqtSignal(str)  # 错误信号
     plotDataReady = pyqtSignal(str, np.ndarray, np.ndarray)  # 绘图数据准备信号 (类型, x_data, y_data)
+    analysisProgress = pyqtSignal(int, int, str)  # 新增：分析进度信号
   
     def __init__(self, view, model):
         super().__init__()
@@ -248,6 +248,14 @@ class DataAnalysisController(QObject):
         self.errorOccurred.connect(lambda msg: self.log_message(msg, "ERROR"))
         self.dataLoaded.connect(lambda msg: self.log_message(msg, "INFO"))
         self.analysisCompleted.connect(self.log_analysis_results)
+
+        # 连接分析进度信号
+        self.analysisProgress.connect(self.on_analysis_progress)
+
+    def on_analysis_progress(self, current, total, message):
+        """处理分析进度更新"""
+        # 这里不再更新本地进度条，而是通过信号传递给主窗口
+        pass
 
     def log_message(self, message, level="INFO"):
         """记录消息到日志区域"""
@@ -393,12 +401,7 @@ class DataAnalysisController(QObject):
         
             self.analysisStarted.emit("ADC数据分析")
             self.log_message("开始ADC数据分析", "INFO")
-        
-            # 显示进度条
-            self.view.progress_bar.setVisible(True)
-            self.view.progress_bar.setMaximum(len(self.model.data_files))
-            self.view.progress_bar.setValue(0)
-        
+           
             # 创建工作线程
             self.adc_process_thread = QThread()
             self.adc_process_worker = ADCProcessWorker(self.model.data_files, config)
@@ -424,14 +427,16 @@ class DataAnalysisController(QObject):
 
     def on_adc_process_progress(self, current, total, message):
         """ADC处理进度更新"""
-        self.view.progress_bar.setValue(current)
+        # 通过信号传递给主窗口的进度面板
+        self.analysisProgress.emit(current, total, message)
+        
+        # 记录日志
         self.log_message(f"处理进度: {current}/{total} - {message}", "INFO")
 
     def on_adc_process_finished(self, results, averages):
         """ADC处理完成"""
         try:
-            # 隐藏进度条
-            self.view.progress_bar.setVisible(False)
+
           
             # 保存分析结果供导出使用
             self.last_analysis_results = results
@@ -483,7 +488,6 @@ class DataAnalysisController(QObject):
 
     def on_adc_process_error(self, error_message):
         """ADC处理错误"""
-        self.view.progress_bar.setVisible(False)
         self.errorOccurred.emit(error_message)
         self.log_message(error_message, "ERROR")
   

@@ -268,8 +268,6 @@ class MainWindowController:
         self.view.hide_progress_panel()
 
 
-        
-    
     def _setup_progress_connections(self):
         """设置进度相关的信号连接"""
         # 连接ADC采样进度信号
@@ -290,7 +288,7 @@ class MainWindowController:
     def _handle_adc_progress(self, current, total, message):
         """处理ADC采样进度"""
         progress_id = "adc_sampling"
-        label = "ADC数据采集"
+        label = "数据采集"
         
         # 确保进度条存在
         if not self.progress_controller.get_progress(progress_id):
@@ -306,7 +304,7 @@ class MainWindowController:
     def _handle_analysis_progress(self, current, total, message):
         """处理数据分析进度"""
         progress_id = "data_analysis"
-        label = "数据分析处理"
+        label = "数据分析"
         
         # 确保进度条存在
         if not self.progress_controller.get_progress(progress_id):
@@ -322,7 +320,7 @@ class MainWindowController:
     def _handle_calibration_progress(self, step, progress, needs_confirmation, has_measurement):
         """处理校准进度"""
         progress_id = "calibration"
-        label = "网分校准流程"
+        label = "校准流程"
         
         # 确保进度条存在
         if not self.progress_controller.get_progress(progress_id):

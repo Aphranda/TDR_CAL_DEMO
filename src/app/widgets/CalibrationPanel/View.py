@@ -330,36 +330,36 @@ class CalibrationView(QWidget):
         main_layout.addWidget(flow_group)
         
         
-        # 进度条区域 - 新增：用于显示ADC采集和数据分析进度
-        progress_group = QGroupBox("操作进度")
-        progress_layout = QVBoxLayout()
+        # # 进度条区域 - 新增：用于显示ADC采集和数据分析进度
+        # progress_group = QGroupBox("操作进度")
+        # progress_layout = QVBoxLayout()
         
-        # ADC采样进度
-        adc_progress_layout = QHBoxLayout()
-        self.adc_progress_bar = QProgressBar()
-        self.adc_progress_bar.setRange(0, 100)
-        self.adc_progress_bar.setTextVisible(True)
-        self.adc_progress_bar.setVisible(False)  # 初始隐藏
-        adc_progress_layout.addWidget(self.adc_progress_bar)
-        progress_layout.addLayout(adc_progress_layout)
+        # # ADC采样进度
+        # adc_progress_layout = QHBoxLayout()
+        # self.adc_progress_bar = QProgressBar()
+        # self.adc_progress_bar.setRange(0, 100)
+        # self.adc_progress_bar.setTextVisible(True)
+        # self.adc_progress_bar.setVisible(False)  # 初始隐藏
+        # adc_progress_layout.addWidget(self.adc_progress_bar)
+        # progress_layout.addLayout(adc_progress_layout)
         
-        # 数据分析进度
-        analysis_progress_layout = QHBoxLayout()
-        self.analysis_progress_bar = QProgressBar()
-        self.analysis_progress_bar.setRange(0, 100)
-        self.analysis_progress_bar.setTextVisible(True)
-        self.analysis_progress_bar.setVisible(False)  # 初始隐藏
-        analysis_progress_layout.addWidget(self.analysis_progress_bar)
-        progress_layout.addLayout(analysis_progress_layout)
+        # # 数据分析进度
+        # analysis_progress_layout = QHBoxLayout()
+        # self.analysis_progress_bar = QProgressBar()
+        # self.analysis_progress_bar.setRange(0, 100)
+        # self.analysis_progress_bar.setTextVisible(True)
+        # self.analysis_progress_bar.setVisible(False)  # 初始隐藏
+        # analysis_progress_layout.addWidget(self.analysis_progress_bar)
+        # progress_layout.addLayout(analysis_progress_layout)
 
-        # 进度条
-        self.progress_bar = QProgressBar()
-        self.progress_bar.setRange(0, 100)
-        self.progress_bar.setTextVisible(True)
-        progress_layout.addWidget(self.progress_bar)
+        # # 进度条
+        # self.progress_bar = QProgressBar()
+        # self.progress_bar.setRange(0, 100)
+        # self.progress_bar.setTextVisible(True)
+        # progress_layout.addWidget(self.progress_bar)
 
-        progress_group.setLayout(progress_layout)
-        main_layout.addWidget(progress_group)
+        # progress_group.setLayout(progress_layout)
+        # main_layout.addWidget(progress_group)
         
         # 按钮区域
         button_layout = QHBoxLayout()
@@ -382,41 +382,19 @@ class CalibrationView(QWidget):
     
     def update_progress(self, value, current_step=-1):
         """更新进度"""
-        self.progress_bar.setValue(value)
         self.flow_chart.update_steps(self.flow_chart.steps, current_step)
         
         # 确保当前步骤可见
         if current_step >= 0:
             self.flow_chart.ensure_step_visible(current_step)
+    
 
-    def update_adc_progress(self, current, total, message):
-        """更新ADC采样进度"""
-        self.adc_progress_bar.setVisible(True)
-        self.adc_progress_bar.setMaximum(total)
-        self.adc_progress_bar.setValue(current)
-        self.status_label.setText(f"ADC采样: {message}")
-    
-    def update_analysis_progress(self, current, total, message):
-        """更新数据分析进度"""
-        self.analysis_progress_bar.setVisible(True)
-        self.analysis_progress_bar.setMaximum(total)
-        self.analysis_progress_bar.setValue(current)
-        self.status_label.setText(f"数据分析: {message}")
-    
-    def reset_progress_bars(self):
-        """重置进度条"""
-        self.adc_progress_bar.setVisible(False)
-        self.analysis_progress_bar.setVisible(False)
-        self.adc_progress_bar.setValue(0)
-        self.analysis_progress_bar.setValue(0)
-        self.status_label.setText("就绪")
     
     def set_calibration_running(self, running):
         """设置校准状态"""
         self.start_btn.setEnabled(not running)
         self.stop_btn.setEnabled(running)
         if not running:
-            self.progress_bar.setValue(0)
             self.flow_chart.update_steps(self.flow_chart.steps, -1)
     
     # 修改 show_user_confirmation 方法
