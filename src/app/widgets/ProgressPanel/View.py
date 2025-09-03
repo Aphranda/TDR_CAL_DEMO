@@ -1,6 +1,6 @@
 # src/app/widgets/ProgressPanel/View.py
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, 
-                            QProgressBar, QLabel, QScrollArea, QFrame, QPushButton)
+                            QProgressBar, QLabel, QScrollArea, QFrame, QPushButton,QToolButton)
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont
 from .Model import ProgressBarStyle
@@ -215,15 +215,17 @@ class ProgressPanelView(QWidget):
         # 控制按钮
         button_layout = QHBoxLayout()
         
-        self.clear_button = QPushButton("清除所有")
-        self.clear_button.setFixedWidth(80)
+        self.clear_button = QToolButton()
+        self.clear_button.setText("清除")
+        self.clear_button.setToolTip("清除所有进度条")
         self.clear_button.clicked.connect(self.clear_all)
-        button_layout.addWidget(self.clear_button)
+        header_layout.addWidget(self.clear_button)
         
-        self.collapse_button = QPushButton("折叠/展开")
-        self.collapse_button.setFixedWidth(80)
+        self.collapse_button = QToolButton()
+        self.collapse_button.setText("折叠/展开")
+        self.collapse_button.setToolTip("折叠或展开所有进度条")
         self.collapse_button.clicked.connect(self.toggle_collapse)
-        button_layout.addWidget(self.collapse_button)
+        header_layout.addWidget(self.collapse_button)
         
         header_layout.addLayout(button_layout)
         main_layout.addLayout(header_layout)

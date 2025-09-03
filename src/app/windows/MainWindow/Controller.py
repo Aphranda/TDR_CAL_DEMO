@@ -6,12 +6,17 @@ from app.widgets.PlotWidget import create_plot_widget
 from app.widgets.VNAControlPanel import create_vna_control_panel
 from app.widgets.ADCSamplingPanel import create_adc_sampling_panel
 from app.widgets.DataAnalysisPanel import create_data_analysis_panel
+from app.widgets.ProgressPanel import create_progress_panel_simple,ProgressBarStyle
 
 class MainWindowController:
     def __init__(self, view, model):
         self.view = view
         self.model = model
         self.sub_controllers = {}
+
+        # 存储进度面板控制器
+        self.progress_controller = None
+
         self._initialize()
         self.setup_connections()
     
@@ -93,6 +98,9 @@ class MainWindowController:
         # 初始状态消息
         self.view.show_status_message("就绪", 3000)
         self.log_controller.log("应用程序初始化完成", "INFO")
+
+        # 创建进度面板
+        self._setup_progress_panel()
     
     
     def setup_connections(self):
@@ -190,6 +198,9 @@ class MainWindowController:
             data_analysis_controller.errorOccurred.connect(
                 lambda msg: self.log_controller.log(msg, "ERROR")
             )
+
+        # 连接进度相关的信号
+        self._setup_progress_connections()
     
     def _handle_instrument_connection_change(self, connected):
         """处理仪表连接状态变化"""
@@ -240,3 +251,124 @@ class MainWindowController:
     def is_instrument_connected(self):
         """检查仪表是否已连接"""
         return self.model.instrument_connected
+
+
+    def _setup_progress_panel(self):
+        """设置进度面板"""
+        # 创建进度面板
+        self.progress_controller = create_progress_panel_simple("任务进度监控", self.view)
+        
+        # 设置到主窗口视图
+        self.view.set_progress_panel(self.progress_controller.view)
+        
+        # 存储到子控制器字典
+        self.sub_controllers['progress'] = self.progress_controller
+        
+        # 初始隐藏进度面板
+        self.view.hide_progress_panel()
+
+
+        
+    
+    def _setup_progress_connections(self):
+        """设置进度相关的信号连接"""
+        # 连接ADC采样进度信号
+        adc_controller = self.sub_controllers.get('adc_sampling')
+        if adc_controller and hasattr(adc_controller, 'samplingProgress'):
+            adc_controller.samplingProgress.connect(self._handle_adc_progress)
+        
+        # 连接数据分析进度信号
+        data_analysis_controller = self.sub_controllers.get('data_analysis')
+        if data_analysis_controller and hasattr(data_analysis_controller, 'analysisProgress'):
+            data_analysis_controller.analysisProgress.connect(self._handle_analysis_progress)
+        
+        # 连接校准进度信号
+        calibration_controller = self.sub_controllers.get('calibration')
+        if calibration_controller and hasattr(calibration_controller, 'progress_updated'):
+            calibration_controller.progress_updated.connect(self._handle_calibration_progress)
+    
+    def _handle_adc_progress(self, current, total, message):
+        """处理ADC采样进度"""
+        progress_id = "adc_sampling"
+        label = "ADC数据采集"
+        
+        # 确保进度条存在
+        if not self.progress_controller.get_progress(progress_id):
+            self.progress_controller.add_progress_bar(progress_id, label, total)
+        
+        # 更新进度
+        self.progress_controller.update_progress(progress_id, current, total, message)
+        
+        # 自动显示进度面板
+        if not self.view.is_progress_panel_visible():
+            self.view.show_progress_panel()
+    
+    def _handle_analysis_progress(self, current, total, message):
+        """处理数据分析进度"""
+        progress_id = "data_analysis"
+        label = "数据分析处理"
+        
+        # 确保进度条存在
+        if not self.progress_controller.get_progress(progress_id):
+            self.progress_controller.add_progress_bar(progress_id, label, total, ProgressBarStyle.GREEN)
+        
+        # 更新进度
+        self.progress_controller.update_progress(progress_id, current, total, message)
+        
+        # 自动显示进度面板
+        if not self.view.is_progress_panel_visible():
+            self.view.show_progress_panel()
+    
+    def _handle_calibration_progress(self, step, progress, needs_confirmation, has_measurement):
+        """处理校准进度"""
+        progress_id = "calibration"
+        label = "网分校准流程"
+        
+        # 确保进度条存在
+        if not self.progress_controller.get_progress(progress_id):
+            self.progress_controller.add_progress_bar(progress_id, label, 100, ProgressBarStyle.ORANGE)
+        
+        # 更新进度
+        message = f"执行步骤: {step}"
+        if needs_confirmation:
+            message += " (等待确认)"
+        
+        self.progress_controller.update_progress(progress_id, progress, 100, message)
+        
+        # 自动显示进度面板
+        if not self.view.is_progress_panel_visible():
+            self.view.show_progress_panel()
+    
+    def add_custom_progress(self, progress_id, label, total=100, style=ProgressBarStyle.DEFAULT):
+        """添加自定义进度条"""
+        return self.progress_controller.add_progress_bar(progress_id, label, total, style)
+    
+    def update_custom_progress(self, progress_id, current, total=None, message=""):
+        """更新自定义进度条"""
+        success = self.progress_controller.update_progress(progress_id, current, total, message)
+        if success and not self.view.is_progress_panel_visible():
+            self.view.show_progress_panel()
+        return success
+    
+    def remove_progress(self, progress_id):
+        """移除进度条"""
+        return self.progress_controller.remove_progress_bar(progress_id)
+    
+    def clear_all_progress(self):
+        """清除所有进度条"""
+        self.progress_controller.clear_all()
+    
+    def show_progress_panel(self):
+        """显示进度面板"""
+        self.view.show_progress_panel()
+    
+    def hide_progress_panel(self):
+        """隐藏进度面板"""
+        self.view.hide_progress_panel()
+    
+    def toggle_progress_panel(self):
+        """切换进度面板显示状态"""
+        if self.view.is_progress_panel_visible():
+            self.view.hide_progress_panel()
+        else:
+            self.view.show_progress_panel()
