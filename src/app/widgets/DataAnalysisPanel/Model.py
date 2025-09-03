@@ -2,7 +2,7 @@
 import os
 import numpy as np
 from dataclasses import dataclass, field
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional,Generator
 from ...core.DataAnalyze import AnalysisConfig
 
 @dataclass
@@ -82,8 +82,8 @@ class DataAnalysisModel:
         self.adc_port = 15000
         self.sample_count = 10
         self.sample_interval = 0.1
-        self.output_dir = "data\\results\\test"  # 新增：输出目录
-        self.filename_prefix = "adc_data"  # 新增：文件名前缀
+        self.output_dir = "data\\results\\test"
+        self.filename_prefix = "adc_data"
         
     def set_adc_connection_status(self, connected: bool):
         """设置ADC连接状态"""
@@ -91,11 +91,42 @@ class DataAnalysisModel:
         
     def add_adc_sample(self, sample_data):
         """添加ADC采样数据"""
-        self.adc_samples.append(sample_data)
+        # 使用内存友好的方式存储样本
+        optimized_sample = self._optimize_sample_memory(sample_data)
+        self.adc_samples.append(optimized_sample)
+        
+    def _optimize_sample_memory(self, sample_data):
+        """优化样本内存使用"""
+        if isinstance(sample_data, np.ndarray):
+            if sample_data.dtype == np.float64:
+                return sample_data.astype(np.float32)
+            elif sample_data.dtype == np.uint32 and np.max(sample_data) < 65536:
+                return sample_data.astype(np.uint16)
+        return sample_data
         
     def clear_adc_samples(self):
         """清除ADC采样数据"""
+        for sample in self.adc_samples:
+            self._release_sample_memory(sample)
         self.adc_samples.clear()
+        
+    def _release_sample_memory(self, sample):
+        """释放样本内存"""
+        if isinstance(sample, np.ndarray):
+            sample.setflags(write=True)
+            sample.resize(0, refcheck=False)
+        del sample
+        
+    def get_adc_samples_generator(self) -> Generator:
+        """返回ADC样本的生成器"""
+        for sample in self.adc_samples:
+            yield sample
+            
+    def get_recent_samples(self, count=10) -> Generator:
+        """获取最近的样本（生成器方式）"""
+        start_idx = max(0, len(self.adc_samples) - count)
+        for i in range(start_idx, len(self.adc_samples)):
+            yield self.adc_samples[i]
         
     def get_adc_samples_count(self) -> int:
         """获取ADC采样数量"""

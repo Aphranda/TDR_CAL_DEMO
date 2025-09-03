@@ -10,20 +10,16 @@ from ...core.ClockController import ClockController
 from memory_profiler import profile
 
 class ADCWorker(QObject):
-    """ADC采样工作线程"""
+    """ADC采样工作线程 - 使用生成器优化内存"""
     progress = pyqtSignal(int, int, str)
     finished = pyqtSignal(bool, str)
-    sampleData = pyqtSignal(list)
-    dataSaved = pyqtSignal(str, str)  # 数据保存信号 (文件路径, 消息)
+    sampleData = pyqtSignal(object)  # 改为发送单个数据对象
+    dataSaved = pyqtSignal(str, str)
     
     def __init__(self, tcp_client, count, interval, save_raw_data=True, output_dir=None, filename_prefix=None):
         super().__init__()
-        # 使用传入的tcp_client实例化ADCSample
-
-        self.setObjectName(f"ADC采样工作线程_{filename_prefix or 'default'}")
-
         self.adc_sample = ADCSample()
-        self.adc_sample.set_tcp_client(tcp_client)  # 设置TCP客户端
+        self.adc_sample.set_tcp_client(tcp_client)
         self.count = count
         self.interval = interval
         self.save_raw_data = save_raw_data
@@ -31,11 +27,35 @@ class ADCWorker(QObject):
         self.filename_prefix = filename_prefix or 'adc_raw_data'
         self.running = False
         self._should_stop = False
-        
-
+    def _sample_generator(self):
+        """生成器函数，逐次产生采样数据"""
+        for i in range(self.count):
+            if not self.running or self._should_stop:
+                break
+            
+            self.progress.emit(i + 1, self.count, f"采样 {i + 1}/{self.count}")
+            
+            # 执行单次采样
+            u32_values, error = None, None
+            try:
+                u32_values, error = self.adc_sample.perform_single_test(i)
+                if error:
+                    self.progress.emit(i + 1, self.count, f"采样失败: {error}")
+                    continue
+                
+                # 处理并产生数据
+                processed_data = self._process_sample_data(u32_values)
+                yield processed_data, i
+                
+            finally:
+                # 立即释放内存
+                self._force_release_memory(u32_values)
+            
+            # 等待间隔
+            time.sleep(self.interval)
     @pyqtSlot()
     def run(self):
-        """执行ADC采样"""
+        """执行ADC采样 - 使用生成器逐次处理"""
         self.running = True
         successful_samples = 0
         
@@ -44,45 +64,27 @@ class ADCWorker(QObject):
             if self.save_raw_data:
                 self.adc_sample.file_manager.ensure_dir_exists(self.output_dir)
             
-            for i in range(self.count):
-                if not self.running or self._should_stop:
-                    break
+            # 使用生成器逐次处理数据
+            sample_gen = self._sample_generator()
+            
+            for sample_data, sample_index in sample_gen:
+                successful_samples += 1
                 
-                self.progress.emit(i + 1, self.count, f"采样 {i + 1}/{self.count}")
+                # 发送单个数据点
+                self.sampleData.emit(sample_data)
                 
-                # 执行单次采样 - 使用上下文管理器确保资源释放
-                u32_values, error = None, None
-                try:
-                    u32_values, error = self.adc_sample.perform_single_test(i)
-                    if error:
-                        self.progress.emit(i + 1, self.count, f"采样失败: {error}")
-                        continue
-                    
-                    successful_samples += 1
-                    
-                    # 处理采样数据 - 优化内存使用
-                    sample_data = self._process_sample_data(u32_values)
-                    
-                    # 立即发送数据
-                    self.sampleData.emit([sample_data])
-                    
-                    # 保存原始数据
-                    if self.save_raw_data:
-                        filename = f'{self.filename_prefix}_{i + 1:04d}.csv'
-                        success, message = self.adc_sample.save_test_result(i, u32_values, filename, self.output_dir)
-                        if success:
-                            self.dataSaved.emit(os.path.join(self.output_dir, filename), f"数据已保存: {filename}")
-                        else:
-                            self.progress.emit(i + 1, self.count, f"数据保存失败: {message}")
-                    
-                finally:
-                    # 强制释放采样数据内存
-                    self._force_release_memory(u32_values)
-                    u32_values = None
-                    del u32_values
-                
-                # 等待间隔
-                time.sleep(self.interval)
+                # 保存原始数据
+                if self.save_raw_data:
+                    filename = f'{self.filename_prefix}_{sample_index + 1:04d}.csv'
+                    success, message = self.adc_sample.save_test_result(
+                        sample_index, sample_data, filename, self.output_dir
+                    )
+                    if success:
+                        self.dataSaved.emit(os.path.join(self.output_dir, filename), 
+                                           f"数据已保存: {filename}")
+                    else:
+                        self.progress.emit(sample_index + 1, self.count, 
+                                          f"数据保存失败: {message}")
             
             success = successful_samples > 0
             message = f"完成 {successful_samples}/{self.count} 次采样"
@@ -91,51 +93,36 @@ class ADCWorker(QObject):
         except Exception as e:
             self.finished.emit(False, f"采样过程中发生错误: {str(e)}")
         finally:
-            # 彻底清理资源
             self.cleanup_resources()
-            pass
-
     def _process_sample_data(self, u32_values):
         """处理采样数据，优化内存使用"""
         if u32_values is None:
-            return []
+            return np.array([], dtype=np.uint16)
         
-        # 如果是numpy数组，转换为更小的数据类型
-        if isinstance(u32_values, np.ndarray):
-            # 根据数据范围选择合适的数据类型
-            if np.max(u32_values) < 65536:  # 如果数据在uint16范围内
+        # 使用生成器表达式处理大型数组
+        if isinstance(u32_values, np.ndarray) and u32_values.size > 10000:
+            # 对于大型数组，使用更高效的数据类型
+            if np.max(u32_values) < 65536:
                 return u32_values.astype(np.uint16)
             else:
                 return u32_values.astype(np.uint32)
-        elif isinstance(u32_values, tuple):
-            return list(u32_values)
         else:
-            try:
-                return u32_values.copy()
-            except AttributeError:
-                return u32_values
-
+            return np.array(u32_values, dtype=np.uint32)
     def _force_release_memory(self, obj):
         """强制释放对象内存"""
         if obj is None:
             return
         
-        # 对于numpy数组，使用特殊方法释放内存
         if isinstance(obj, np.ndarray):
-            # 设置数组为None并调用gc
             obj.setflags(write=True)
             obj.resize(0, refcheck=False)
         elif hasattr(obj, 'clear'):
             obj.clear()
         
-        # 删除引用
         del obj
-
-    
     def cleanup_resources(self):
         """清理工作线程资源"""
         try:
-            # 清理ADCSample实例
             if hasattr(self, 'adc_sample') and self.adc_sample:
                 if hasattr(self.adc_sample, 'file_manager'):
                     self.adc_sample.file_manager = None
@@ -143,17 +130,14 @@ class ADCWorker(QObject):
                     self.adc_sample.tcp_client = None
                 self.adc_sample = None
             
-            # 清理其他引用
             self.running = False
             self._should_stop = False
             
-            # 强制垃圾回收
             import gc
             gc.collect()
             
         except Exception as e:
             print(f"清理工作线程资源失败: {e}")
-    
     def stop(self):
         """停止采样"""
         self.running = False
@@ -338,12 +322,21 @@ class ADCSamplingController(QObject):
             self.log_message(message, "ERROR")
     
     def on_sample_data_received(self, sample_data):
-        """接收到采样数据"""
-        for data in sample_data:
-            self.model.add_adc_sample(data)
-        msg = f"接收到 {len(sample_data)} 组采样数据"
+        """接收到单个采样数据"""
+        # 使用生成器处理数据流，避免一次性加载所有数据
+        processed_data = self._process_data_stream(sample_data)
+        self.model.add_adc_sample(processed_data)
+        
+        msg = f"接收到采样数据，大小: {getattr(sample_data, 'size', len(sample_data))}"
         self.dataLoaded.emit(msg)
         self.log_message(msg, "INFO")
+
+    def _process_data_stream(self, data):
+        """使用生成器处理数据流"""
+        if isinstance(data, np.ndarray) and data.size > 10000:
+            # 对于大型数组，使用视图而不是副本
+            return data.view()
+        return data
     
     def on_browse_directory(self):
         """浏览选择输出目录"""

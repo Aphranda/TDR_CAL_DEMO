@@ -10,7 +10,7 @@ from ...core.DataAnalyze import DataAnalyzer, AnalysisConfig
 from ...core.FileManager import FileManager
 from ...widgets.PlotWidget import create_plot_widget
 import time
-from typing import Optional, Tuple, Dict, Any
+from typing import Optional, Tuple, Dict, Any, Generator
 
 from PyQt5.QtCore import QObject, pyqtSignal, QThread, pyqtSlot, QEventLoop
 from PyQt5.QtGui import QTextCursor
@@ -22,111 +22,136 @@ class SearchMethod:
     MAX = 2
 
 class ADCProcessWorker(QObject):
-    """ADC数据处理工作线程 - 使用DataAnalyzer进行分析"""
-    progress = pyqtSignal(int, int, str)  # 保留进度信号
+    """ADC数据处理工作线程 - 使用生成器优化内存"""
+    progress = pyqtSignal(int, int, str)
     finished = pyqtSignal(dict, dict)  # 传递结果和平均值
     error = pyqtSignal(str)
-    log_message = pyqtSignal(str, str)  # 日志消息信号
+    log_message = pyqtSignal(str, str)
   
     def __init__(self, file_list, config):
         super().__init__()
-
+        self.file_list = file_list
+        self.config = config
+        self.analyzer = DataAnalyzer(config)
+        self.running = False
+        self._should_stop = False
+        
         # 设置可追溯的线程名称
         file_count = len(file_list)
         first_file = os.path.basename(file_list[0]) if file_list else "no_files"
         self.setObjectName(f"数据分析线程_{first_file}_{file_count}files")
+    def _file_processor_generator(self) -> Generator[Tuple[int, Dict[str, Any]], None, None]:
+        """文件处理生成器，逐文件产生处理结果"""
+        for i, file_path in enumerate(self.file_list):
+            if self._should_stop:
+                break
+                
+            self.progress.emit(i + 1, len(self.file_list), f"处理文件: {os.path.basename(file_path)}")
+            
+            try:
+                # 加载数据
+                raw_data = self.load_u32_data(file_path)
+                
+                # 处理单个文件
+                res = self.analyzer.process_single_file(raw_data, i)
+                
+                if res is not None:
+                    yield i, res
+                else:
+                    self.log_message.emit(f"文件 {os.path.basename(file_path)} 处理失败，跳过", "WARNING")
+                    
+            except Exception as e:
+                self.log_message.emit(f"处理文件 {os.path.basename(file_path)} 失败: {str(e)}", "WARNING")
+                continue
 
-        self.file_list = file_list
-        self.config = config
-        self.analyzer = DataAnalyzer(config)  # 创建分析器实例
-        self.running = False
-        self._should_stop = False  # 添加停止标志
+    def _process_results_generator(self, results_gen: Generator) -> Dict[str, Any]:
+        """处理结果生成器，累积计算结果"""
+        results = {
+            'ys_full': [], 'ys': [], 'mags': [],
+            'ys_d_full': [], 'ys_d': [], 'mags_d': [],
+            'freq_ref': None, 'freq_d_ref': None, 'sum_Xd': None,
+            'success_count': 0, 'total_files': len(self.file_list),
+        }
         
-  
+        for i, res in results_gen:
+            # 从字典中提取数据
+            y_full = res['y_full']
+            y_roi = res['y_roi']
+            freq = res['freq']
+            mag_linear = res['mag_linear']
+            y_full_diff = res['y_full_diff']
+            y_diff = res['y_diff']
+            freq_d = res['freq_d']
+            mag_linear_d = res['mag_linear_d']
+            Xd_norm = res['Xd_norm']
+            
+            # 初始化参考频率
+            if results['freq_ref'] is None:
+                results['freq_ref'] = freq
+            if results['freq_d_ref'] is None:
+                results['freq_d_ref'] = freq_d
+                results['sum_Xd'] = np.zeros_like(Xd_norm, dtype=np.complex128)
+            
+            # 存储结果 - 使用内存友好的方式
+            results['ys_full'].append(self._optimize_array(y_full))
+            results['ys'].append(self._optimize_array(y_roi))
+            results['mags'].append(self._optimize_array(mag_linear))
+            results['ys_d_full'].append(self._optimize_array(y_full_diff))
+            results['ys_d'].append(self._optimize_array(y_diff))
+            results['mags_d'].append(self._optimize_array(mag_linear_d))
+            results['sum_Xd'] += Xd_norm
+            results['success_count'] += 1
+            
+            # 定期清理内存
+            if results['success_count'] % 10 == 0:
+                self._cleanup_memory()
+                
+            yield results
+            
+        return results
+    def _optimize_array(self, array: np.ndarray) -> np.ndarray:
+        """优化数组内存使用"""
+        if array.dtype == np.float64:
+            return array.astype(np.float32)
+        elif array.dtype == np.uint32 and np.max(array) < 65536:
+            return array.astype(np.uint16)
+        return array
+    def _cleanup_memory(self):
+        """定期清理内存"""
+        import gc
+        gc.collect()
     @pyqtSlot()
     def run(self):
-        """执行ADC数据处理 - 使用分析器进行单次数据分析"""
+        """执行ADC数据处理 - 使用生成器逐文件处理"""
         self.running = True
         self._should_stop = False
       
         try:
-            # 初始化结果存储
-            results = {
-                'ys_full':[],'ys': [], 'mags': [], 'ys_d_full':[],'ys_d': [], 'mags_d': [],
-                'freq_ref': None, 'freq_d_ref': None, 'sum_Xd': None,
-                'success_count': 0, 'total_files': len(self.file_list),
-            }
-          
             self.log_message.emit(f"开始处理 {len(self.file_list)} 个文件", "INFO")
-          
-            # 处理每个文件
-            for i, file_path in enumerate(self.file_list):
-                if self._should_stop:  # 使用明确的停止标志
-                    self.log_message.emit("处理被用户中断", "INFO")
+            
+            # 使用生成器处理文件
+            file_gen = self._file_processor_generator()
+            results_gen = self._process_results_generator(file_gen)
+            
+            # 处理所有文件
+            final_results = None
+            for results in results_gen:
+                final_results = results
+                if self._should_stop:
                     break
-              
-                self.progress.emit(i + 1, len(self.file_list), f"处理文件: {os.path.basename(file_path)}")
-              
-                try:
-                    # 先加载数据，然后使用分析器处理
-                    raw_data = self.load_u32_data(file_path)
-                  
-                    # 使用分析器处理单个文件的数据
-                    res = self.analyzer.process_single_file(raw_data,i)
-                  
-                    if res is None:
-                        self.log_message.emit(f"文件 {os.path.basename(file_path)} 处理失败，跳过", "WARNING")
-                        continue
-                      
-                    # 从字典中提取数据
-                    y_full = res['y_full']
-                    y_roi = res['y_roi']
-                    freq = res['freq']
-                    mag_linear = res['mag_linear']
-                    y_full_diff = res['y_full_diff']
-                    y_diff = res['y_diff']
-                    freq_d = res['freq_d']
-                    mag_linear_d = res['mag_linear_d']
-                    Xd_norm = res['Xd_norm']
-                  
-                    # 初始化参考频率
-                    if results['freq_ref'] is None:
-                        results['freq_ref'] = freq
-                    if results['freq_d_ref'] is None:
-                        results['freq_d_ref'] = freq_d
-                        results['sum_Xd'] = np.zeros_like(Xd_norm, dtype=np.complex128)
-                  
-                    # 存储结果
-                    results['ys_full'].append(y_full.astype(np.float64))
-                    results['ys'].append(y_roi.astype(np.float64))
-                    results['mags'].append(mag_linear.astype(np.float64))
-                    results['ys_d_full'].append(y_full_diff.astype(np.float64))
-                    results['ys_d'].append(y_diff.astype(np.float64))
-                    results['mags_d'].append(mag_linear_d.astype(np.float64))
-                    results['sum_Xd'] += Xd_norm
-                    results['success_count'] += 1
-                      
-                    # 及时释放临时变量内存
-                    del y_full, y_roi, freq, mag_linear, y_full_diff, y_diff, freq_d, mag_linear_d, Xd_norm
-                      
-                except Exception as e:
-                    self.log_message.emit(f"处理文件 {os.path.basename(file_path)} 失败: {str(e)}", "WARNING")
-                    continue
-          
-            if results['success_count'] == 0:
+            
+            if final_results is None or final_results['success_count'] == 0:
                 raise RuntimeError("没有文件成功处理")
           
             # 计算平均值
             self.progress.emit(len(self.file_list), len(self.file_list), "计算平均值...")
             self.log_message.emit("计算平均值...", "INFO")
-            averages = self.calculate_averages(results)
+            averages = self.calculate_averages(final_results)
             
-            # 直接对平均值进行边沿分析 - 添加异常处理
+            # 边沿分析
             self.progress.emit(len(self.file_list), len(self.file_list), "进行边沿分析...")
             self.log_message.emit("进行边沿分析...", "INFO")
-
             try:
-                # 对平均后的数据进行边沿分析，添加异常处理
                 edge_results = self.analyzer.analyze_edges(averages['y_full_avg'])
                 
                 if 'first_rise_pos' in edge_results and edge_results['first_rise_pos'] is not None:
@@ -136,43 +161,31 @@ class ADCProcessWorker(QObject):
                 if 'fall_pos' in edge_results and edge_results['fall_pos'] is not None:
                     edge_results['fall_pos_time'] = edge_results['fall_pos'] * self.config.ts_eff * 1e6
                     
-                # 将边沿分析结果添加到results中
-                results.update(edge_results)
+                final_results.update(edge_results)
                 
             except Exception as e:
-                # 边沿分析失败时记录错误，但不中断整个处理流程
                 error_msg = f"边沿分析失败: {str(e)}，将继续处理其他数据"
                 self.log_message.emit(error_msg, "WARNING")
-                # 添加空的边沿分析结果，避免后续代码出错
-                results.update({
-                    'first_rise_pos': None,
-                    'second_rise_pos': None, 
-                    'fall_pos': None,
-                    'first_rise_pos_time': None,
-                    'second_rise_pos_time': None,
-                    'fall_pos_time': None
+                final_results.update({
+                    'first_rise_pos': None, 'second_rise_pos': None, 'fall_pos': None,
+                    'first_rise_pos_time': None, 'second_rise_pos_time': None, 'fall_pos_time': None
                 })
           
-            self.finished.emit(results, averages)
+            self.finished.emit(final_results, averages)
           
         except Exception as e:
             error_msg = f"ADC数据处理失败: {str(e)}"
             self.log_message.emit(error_msg, "ERROR")
             self.error.emit(error_msg)
         finally:
-            # 确保线程正确清理
             self.running = False
             self._should_stop = False
-            # 强制垃圾回收
             import gc
             gc.collect()
-
-
     def stop(self):
         """停止处理"""
         self._should_stop = True
         self.running = False
-
     def load_u32_data(self, path: str) -> np.ndarray:
         """从文件加载uint32数据，支持文本和二进制格式"""
         file_manager = FileManager()
@@ -187,37 +200,68 @@ class ADCProcessWorker(QObject):
                     data = file_manager.load_binary_data(path, data_type=data_type)
                     message = f"成功以{data_type}格式加载二进制文件: {os.path.basename(path)}"
                     self.log_message.emit(message, "INFO")
-                    return data.astype(np.uint32)  # 统一转换为uint32
+                    return data.astype(np.uint32)
                 except Exception as e:
                     continue
             
-            # 如果所有格式都失败，抛出异常
             raise ValueError(f"无法解析二进制文件: {os.path.basename(path)}")
         else:
-            # 文本格式
             return file_manager.load_u32_text_first_col(path, skip_first=self.config.skip_first_value)
   
     def calculate_averages(self, results: Dict[str, Any]) -> Dict[str, Any]:
-        """计算平均值"""
+        """计算平均值 - 使用内存友好的方式"""
         averages = {}
-      
+        
+        # 使用生成器计算平均值，避免一次性创建大数组
+        def mean_generator(arrays):
+            """生成器方式计算平均值"""
+            total = None
+            count = 0
+            
+            for arr in arrays:
+                if total is None:
+                    total = arr.astype(np.float64)
+                else:
+                    total += arr.astype(np.float64)
+                count += 1
+                yield total / count if count > 0 else None
+            
+            return total / count if count > 0 else None
+        
         # ROI平均值
-        averages['y_full_avg'] = np.mean(np.vstack(results['ys_full']), axis=0)
-        averages['y_avg'] = np.mean(np.vstack(results['ys']), axis=0)
-        averages['mag_avg_linear'] = np.mean(np.vstack(results['mags']), axis=0)
+        ys_full_gen = mean_generator(results['ys_full'])
+        for avg in ys_full_gen:
+            averages['y_full_avg'] = avg
+        
+        ys_gen = mean_generator(results['ys'])
+        for avg in ys_gen:
+            averages['y_avg'] = avg
+        
+        mags_gen = mean_generator(results['mags'])
+        for avg in mags_gen:
+            averages['mag_avg_linear'] = avg
+        
         averages['mag_avg_db'] = 20 * np.log10(averages['mag_avg_linear'])
     
         # 差分平均值
-        averages['y_d_full_avg'] = np.mean(np.vstack(results['ys_d_full']), axis=0)
-        averages['y_d_avg'] = np.mean(np.vstack(results['ys_d']), axis=0)
-        averages['mag_d_avg_linear'] = np.mean(np.vstack(results['mags_d']), axis=0)
+        ys_d_full_gen = mean_generator(results['ys_d_full'])
+        for avg in ys_d_full_gen:
+            averages['y_d_full_avg'] = avg
+        
+        ys_d_gen = mean_generator(results['ys_d'])
+        for avg in ys_d_gen:
+            averages['y_d_avg'] = avg
+        
+        mags_d_gen = mean_generator(results['mags_d'])
+        for avg in mags_d_gen:
+            averages['mag_d_avg_linear'] = avg
+        
         averages['mag_d_avg_db'] = 20 * np.log10(averages['mag_d_avg_linear'])
     
         # 复数FFT平均值
         averages['avg_Xd'] = results['sum_Xd'] / results['success_count']
     
         return averages
-
 
 class DataAnalysisController(QObject):
     # 定义信号
