@@ -4,9 +4,11 @@ import struct
 import os
 import time
 import socket
+import logging
 from .TcpClient import TcpClient
 from .FileManager import FileManager
-import logging
+
+from .PerformanceMonitor import timeit,performance_monitor
 
 logger = logging.getLogger(__name__)
 
@@ -205,6 +207,7 @@ class ADCSample:
         
         return bin_success, f"CSV: {csv_message}, BIN: {bin_message}"
     
+    @timeit
     def save_binary_data(self, u32_values, filename, output_dir):
         """保存原始二进制数据"""
         self.file_manager.ensure_dir_exists(output_dir)
@@ -222,6 +225,7 @@ class ADCSample:
             time.sleep(0.01)
             # 对于ADC数据，我们信任写入过程，不进行严格的格式验证
             # 因为ADC数据可能包含看起来像文本的值
+            del binary_data
             return True, f"二进制数据保存成功: {filepath}"
                 
         except Exception as e:

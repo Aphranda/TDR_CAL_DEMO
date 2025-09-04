@@ -94,6 +94,7 @@ class ADCWorker(QObject):
             self.finished.emit(False, f"采样过程中发生错误: {str(e)}")
         finally:
             self.cleanup_resources()
+
     def _process_sample_data(self, u32_values):
         """处理采样数据，优化内存使用"""
         if u32_values is None:
@@ -132,8 +133,10 @@ class ADCWorker(QObject):
             
             self.running = False
             self._should_stop = False
+            self.save_raw_data = None
             
             import gc
+            gc.collect()
             gc.collect()
             
         except Exception as e:
