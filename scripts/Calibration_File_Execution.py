@@ -454,8 +454,8 @@ class EnhancedAnalysisSummarizer:
 # 使用示例
 def main():
     # 设置源目录和输出目录
-    source_directory = "data\\calibration\\Calibration_SOLT_DUT_Test_20250903_202613_P3P2"
-    output_directory = "data\\calibration\\Calibration_SOLT_DUT_Test_20250903_202613_P3P2\\Analysis_Summary_Processed_Only"
+    source_directory = "data\\calibration\\Calibration_SOLT_DUT_Test_20250904_102644"
+    output_directory = "data\\calibration\\Calibration_SOLT_DUT_Test_20250904_102644\\Analysis_Summary_Processed_Only"
     
     # 创建汇总器实例
     summarizer = EnhancedAnalysisSummarizer(source_directory, output_directory)
