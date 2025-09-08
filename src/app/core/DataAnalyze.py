@@ -11,6 +11,7 @@ try:
     from .ResultProcessor import ResultProcessor
     from .FileManager import FileManager
     from .DataPlotter import DataPlotter
+    from .DebugPlotter import DebugPlotter
 except ImportError:
     from ConfigManager import AnalysisConfig, ConfigValidator, CalibrationMode
     from DataProcessor import DataProcessor
@@ -18,6 +19,7 @@ except ImportError:
     from ResultProcessor import ResultProcessor
     from FileManager import FileManager
     from DataPlotter import DataPlotter
+    from DebugPlotter import DebugPlotter
 logger = logging.getLogger(__name__)
 
 class DataAnalyzer:
@@ -33,6 +35,7 @@ class DataAnalyzer:
         self.data_processor = data_processor or DataProcessor(config)
         self.edge_detector = edge_detector or EdgeDetector(config)
         self.result_processor = result_processor or ResultProcessor(config)
+        self.debug_plotter = DebugPlotter()
         
         # 验证配置
         ConfigValidator.validate_config(config)
@@ -61,6 +64,7 @@ class DataAnalyzer:
             segment_adc = self.data_processor.extract_data_segment(
                 adc_full, rise_idx, self.config.start_index, self.config.n_points
             )
+            
             if segment_adc is None:
                 logger.warning(f"数据索引 {data_index}: 数据段截取失败")
                 return None
@@ -69,7 +73,6 @@ class DataAnalyzer:
             y_sorted, _ = self.data_processor.sort_data_by_period(
                 segment_adc, self.config.t_sample, self.config.t_trig
             )
-
             
             # 5. 搜索所有边沿位置,第一上升沿，第二上升沿，下降沿
             rise_pos = self.edge_detector.find_rise_position(

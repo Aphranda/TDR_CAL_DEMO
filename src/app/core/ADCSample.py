@@ -75,11 +75,12 @@ class ADCSample:
         while retry_count < max_retries:
             try:
                 # 发送read1命令读取第一个ADC
+                time.sleep(0.01)
                 success, _ = self.tcp_client.send('read1', max_retries)
                 if not success:
                     retry_count += 1
                     continue
-                
+                time.sleep(0.01)
                 # 接收第一个ADC的二进制数据
                 self.tcp_client.sock.settimeout(base_timeout)
                 chunk1 = self.tcp_client.sock.recv(self.chunk_size)
@@ -99,7 +100,7 @@ class ADCSample:
                 if not success:
                     retry_count += 1
                     continue
-                
+                time.sleep(0.01)
                 # 接收第二个ADC的二进制数据
                 chunk2 = self.tcp_client.sock.recv(self.chunk_size)
                 
