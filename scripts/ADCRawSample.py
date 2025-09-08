@@ -46,7 +46,7 @@ def perform_test(test_num):
         # 接收采样数据
         data = bytearray()
         while True:
-            s.sendall(b'read')
+            s.sendall(b'read1')
             chunk = s.recv(CHUNK_SIZE)
 
             if chunk == b'\x00':

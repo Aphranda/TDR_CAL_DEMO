@@ -5,10 +5,16 @@ import time
 import socket
 import logging
 import numpy as np
-from .TcpClient import TcpClient
-from .FileManager import FileManager
+try:
+    from .TcpClient import TcpClient
+    from .FileManager import FileManager
+    from .PerformanceMonitor import timeit, performance_monitor
+except ImportError:
+    from TcpClient import TcpClient
+    from FileManager import FileManager
+    from PerformanceMonitor import timeit, performance_monitor
 
-from .PerformanceMonitor import timeit, performance_monitor
+
 
 logger = logging.getLogger(__name__)
 

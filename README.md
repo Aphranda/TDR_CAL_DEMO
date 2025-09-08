@@ -15,13 +15,17 @@ TDR_CAL_DEMO
 │  └─ 📄__init__.py
 ├─ 📁logs
 ├─ 📁scripts
+│  ├─ 📁temp
+│  │  └─ 📁test_raw
+│  ├─ 📄ADCRawSample.py
 │  ├─ 📄ADC_DataAnalyze.py
 │  ├─ 📄Calibration_File_Execution.py
+│  ├─ 📄CurveComparator.py
 │  ├─ 📄Doicon.py
+│  ├─ 📄FreqStitcher.py
 │  ├─ 📄project.py
 │  ├─ 📄S_paramCalibration.py
-│  ├─ 📄test.py
-│  ├─ 📄Testing.py
+│  ├─ 📄TimeDomainRegionCopier.py
 │  ├─ 📄VNA_S_CAL.md
 │  └─ 📄VNA_S_CALIBRATION.m
 ├─ 📁src
@@ -34,8 +38,10 @@ TDR_CAL_DEMO
 │  │  │  ├─ 📄DataAnalyze.py
 │  │  │  ├─ 📄DataPlotter.py
 │  │  │  ├─ 📄DataProcessor.py
+│  │  │  ├─ 📄DebugPlotter.py
 │  │  │  ├─ 📄EdgeDetector.py
 │  │  │  ├─ 📄FileManager.py
+│  │  │  ├─ 📄PerformanceMonitor.py
 │  │  │  ├─ 📄ResultProcessor.py
 │  │  │  ├─ 📄TcpClient.py
 │  │  │  ├─ 📄VNACalibration.py
@@ -51,8 +57,14 @@ TDR_CAL_DEMO
 │  │  ├─ 📁instruments
 │  │  ├─ 📁models
 │  │  ├─ 📁threads
+│  │  │  ├─ 📁__pycache__
+│  │  │  ├─ 📄ADCProcessWorker.py
+│  │  │  ├─ 📄ADCSampleWorker.py
+│  │  │  ├─ 📄ThreadManager.py
+│  │  │  └─ 📄__init__.py
 │  │  ├─ 📁utils
 │  │  │  ├─ 📁__pycache__
+│  │  │  ├─ 📄MathUtils.py
 │  │  │  ├─ 📄ProcessManager.py
 │  │  │  └─ 📄StyleManager.py
 │  │  ├─ 📁widgets
