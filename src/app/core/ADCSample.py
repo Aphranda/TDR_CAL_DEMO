@@ -1,14 +1,14 @@
 # src/app/core/ADCSample.py
-# src/app/core/ADCSample.py
 import struct
 import os
 import time
 import socket
 import logging
+import numpy as np
 from .TcpClient import TcpClient
 from .FileManager import FileManager
 
-from .PerformanceMonitor import timeit,performance_monitor
+from .PerformanceMonitor import timeit, performance_monitor
 
 logger = logging.getLogger(__name__)
 
@@ -62,35 +62,56 @@ class ADCSample:
     def receive_binary_data(self, max_retries=3, base_timeout=1.0):
         """
         专门用于接收二进制数据的方法
-        返回: (是否成功, 字节数据或错误信息)
+        现在分别读取两个ADC的数据，使用字典返回
+        返回: (是否成功, {'adc1': adc1_data, 'adc2': adc2_data} 或错误信息)
         """
         if not self.is_connected() or not self.tcp_client.sock:
             return False, "未连接"
         
         retry_count = 0
-        data = bytearray()
+        adc1_data = bytearray()
+        adc2_data = bytearray()
         
         while retry_count < max_retries:
             try:
-                # 发送read命令
-                success, _ = self.tcp_client.send('read', max_retries)
+                # 发送read1命令读取第一个ADC
+                success, _ = self.tcp_client.send('read1', max_retries)
                 if not success:
                     retry_count += 1
                     continue
                 
-                # 直接接收二进制数据
+                # 接收第一个ADC的二进制数据
                 self.tcp_client.sock.settimeout(base_timeout)
-                chunk = self.tcp_client.sock.recv(self.chunk_size)
+                chunk1 = self.tcp_client.sock.recv(self.chunk_size)
                 
-                if not chunk:
+                if not chunk1:
                     retry_count += 1
                     continue
                 
                 # 检查结束标记
-                if chunk == b'\x00':
+                if chunk1 == b'\x00':
                     break
                 
-                data.extend(chunk)
+                adc1_data.extend(chunk1)
+                
+                # 发送read2命令读取第二个ADC
+                success, _ = self.tcp_client.send('read2', max_retries)
+                if not success:
+                    retry_count += 1
+                    continue
+                
+                # 接收第二个ADC的二进制数据
+                chunk2 = self.tcp_client.sock.recv(self.chunk_size)
+                
+                if not chunk2:
+                    retry_count += 1
+                    continue
+                
+                # 检查结束标记
+                if chunk2 == b'\x00':
+                    break
+                
+                adc2_data.extend(chunk2)
                 retry_count = 0  # 重置重试计数
                 
             except (socket.timeout, ConnectionError) as e:
@@ -102,7 +123,8 @@ class ADCSample:
         if retry_count >= max_retries:
             return False, "接收数据超时"
         
-        return True, data
+        # 返回两个ADC的数据字典
+        return True, {'adc1': adc1_data, 'adc2': adc2_data}
     
     def perform_single_test(self, test_num):
         """执行单次测试并返回数据"""
@@ -121,28 +143,36 @@ class ADCSample:
                 return None, f"采样失败: {response}"
             
             # 接收采样数据 - 使用专门的二进制接收方法
-            success, data = self.receive_binary_data(max_retries=5)
+            success, data_dict = self.receive_binary_data(max_retries=5)
             if not success:
-                return None, f"数据接收失败: {data}"
+                return None, f"数据接收失败: {data_dict}"
             
-            logger.info(f"测试 {test_num + 1}: 接收 {len(data)} 字节原始数据")
+            logger.info(f"测试 {test_num + 1}: 接收 ADC1 {len(data_dict['adc1'])} 字节, ADC2 {len(data_dict['adc2'])} 字节")
             
-            # 检查数据长度是否为4的倍数
-            if len(data) % 4 != 0:
-                # 截断到最近的4的倍数
-                data = data[:len(data) - (len(data) % 4)]
+            # 分别处理两个ADC的数据
+            processed_data = {}
+            for adc_name, data in data_dict.items():
+                # 检查数据长度是否为4的倍数
+                if len(data) % 4 != 0:
+                    # 截断到最近的4的倍数
+                    data = data[:len(data) - (len(data) % 4)]
+                
+                # 将数据解析为小端 uint32
+                num_values = len(data) // 4
+                if num_values == 0:
+                    logger.warning(f"ADC {adc_name} 未接收到有效数据")
+                    processed_data[adc_name] = np.array([], dtype=np.uint32)
+                    continue
+                
+                try:
+                    u32_values = struct.unpack('<' + 'I' * num_values, data)
+                    processed_data[adc_name] = np.array(u32_values, dtype=np.uint32)
+                    logger.info(f"测试 {test_num + 1}: ADC {adc_name} 成功解析 {num_values} 个32位数据点")
+                except struct.error as e:
+                    logger.error(f"ADC {adc_name} 数据解析错误: {str(e)}")
+                    processed_data[adc_name] = np.array([], dtype=np.uint32)
             
-            # 将数据解析为小端 uint32
-            num_values = len(data) // 4
-            if num_values == 0:
-                return None, "未接收到有效数据"
-            
-            try:
-                u32_values = struct.unpack('<' + 'I' * num_values, data)
-                logger.info(f"测试 {test_num + 1}: 成功解析 {num_values} 个32位数据点")
-                return u32_values, None
-            except struct.error as e:
-                return None, f"数据解析错误: {str(e)}"
+            return processed_data, None
             
         except Exception as e:
             return None, f"测试过程中发生错误: {str(e)}"
@@ -161,13 +191,13 @@ class ADCSample:
                 logger.info(f"\n开始测试 {i + 1}/{test_count}")
                 
                 # 执行单次测试
-                u32_values, error = self.perform_single_test(i)
+                data_dict, error = self.perform_single_test(i)
                 if error:
                     logger.error(f"测试 {i + 1} 失败: {error}")
                     continue
                 
                 # 保存结果
-                success, message = self.save_test_result(i, u32_values)
+                success, message = self.save_test_result(i, data_dict)
                 if success:
                     successful_tests += 1
                     logger.info(f"测试 {i + 1} 完成: {message}")
@@ -191,23 +221,33 @@ class ADCSample:
         
         return successful_tests > 0, f"完成 {successful_tests}/{test_count} 次测试"
 
-    def save_test_result(self, test_num, u32_values, filename=None, output_dir=None):
-        """保存测试结果到文件"""
-        if filename is None:
-            filename = f'test_result_{test_num + 1:04d}.csv'
+    def save_test_result(self, test_num, data_dict, filename_prefix=None, output_dir=None):
+        """保存测试结果到文件，分别保存两个ADC的数据"""
+        if filename_prefix is None:
+            filename_prefix = f'test_result_{test_num + 1:04d}'
         if output_dir is None:
             output_dir = self.output_dir
         
-        # 保存CSV文件
-        csv_success, csv_message = None,None # self.file_manager.save_adc_csv_data(u32_values, filename, output_dir)
+        success_messages = []
         
-        # 同时保存原始二进制数据
-        bin_filename = f'{filename.replace(".csv","")}.bin'
-        bin_success, bin_message = self.save_binary_data(u32_values, bin_filename, output_dir)
+        # 分别保存两个ADC的数据
+        for adc_name, u32_values in data_dict.items():
+            # # 保存CSV文件
+            # csv_filename = f'{filename_prefix}_{adc_name}.csv'
+            # csv_success, csv_message = self.file_manager.save_adc_csv_data(u32_values, csv_filename, output_dir)
+            
+            # 保存二进制数据
+            bin_filename = f'{filename_prefix}_{adc_name}.bin'
+            bin_success, bin_message = self.save_binary_data(u32_values, bin_filename, output_dir)
+            
+            if bin_success:
+                success_messages.append(f"{adc_name}: BIN保存成功")
+            else:
+                success_messages.append(f"{adc_name}:BIN:{bin_message}")
         
-        return bin_success, f"CSV: {csv_message}, BIN: {bin_message}"
+        return True, "; ".join(success_messages)
     
-    @timeit
+
     def save_binary_data(self, u32_values, filename, output_dir):
         """保存原始二进制数据"""
         self.file_manager.ensure_dir_exists(output_dir)
@@ -223,8 +263,8 @@ class ADCSample:
             
             logger.info(f"二进制数据已保存到 {filepath}，共{len(binary_data)}字节")
             time.sleep(0.01)
-            # 对于ADC数据，我们信任写入过程，不进行严格的格式验证
-            # 因为ADC数据可能包含看起来像文本的值
+            
+            # 释放内存
             del binary_data
             return True, f"二进制数据保存成功: {filepath}"
                 
@@ -238,35 +278,27 @@ class ADCSample:
                     pass
             return False, f"二进制数据保存失败: {str(e)}"
 
-
-
-
-
-
 # 保持向后兼容的独立函数
 def main():
     """独立运行的主函数"""
     adc_sample = ADCSample()
     
+    tcp = TcpClient()
+    tcp.connect('192.168.1.10',15000)
+
     # 连接到服务器
-    success, message = adc_sample.connect()
-    if not success:
-        print(f"连接失败: {message}")
-        return
-    
+    adc_sample.set_tcp_client(tcp)
+  
     print("连接成功，开始测试...")
     
     # 执行多次测试
     success, message = adc_sample.perform_multiple_tests(test_count=10)
     
-    # 断开连接
-    adc_sample.disconnect()
     
     if success:
         print(f"测试完成: {message}")
     else:
         print(f"测试失败: {message}")
-
 
 if __name__ == "__main__":
     main()

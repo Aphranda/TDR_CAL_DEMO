@@ -13,7 +13,7 @@ class ADCWorker(QObject):
     """ADC采样工作线程 - 使用生成器优化内存"""
     progress = pyqtSignal(int, int, str)
     finished = pyqtSignal(bool, str)
-    sampleData = pyqtSignal(object)  # 改为发送单个数据对象
+    sampleData = pyqtSignal(dict)  # 发送字典，包含两个ADC的数据
     dataSaved = pyqtSignal(str, str)
     
     def __init__(self, tcp_client, count, interval, save_raw_data=True, output_dir=None, filename_prefix=None):
@@ -27,6 +27,7 @@ class ADCWorker(QObject):
         self.filename_prefix = filename_prefix or 'adc_raw_data'
         self.running = False
         self._should_stop = False
+    
     def _sample_generator(self):
         """生成器函数，逐次产生采样数据"""
         for i in range(self.count):
@@ -36,23 +37,24 @@ class ADCWorker(QObject):
             self.progress.emit(i + 1, self.count, f"采样 {i + 1}/{self.count}")
             
             # 执行单次采样
-            u32_values, error = None, None
+            data_dict, error = None, None
             try:
-                u32_values, error = self.adc_sample.perform_single_test(i)
+                data_dict, error = self.adc_sample.perform_single_test(i)
                 if error:
                     self.progress.emit(i + 1, self.count, f"采样失败: {error}")
                     continue
                 
                 # 处理并产生数据
-                processed_data = self._process_sample_data(u32_values)
+                processed_data = self._process_sample_data(data_dict)
                 yield processed_data, i
                 
             finally:
                 # 立即释放内存
-                self._force_release_memory(u32_values)
+                self._force_release_memory(data_dict)
             
             # 等待间隔
             time.sleep(self.interval)
+    
     @pyqtSlot()
     def run(self):
         """执行ADC采样 - 使用生成器逐次处理"""
@@ -70,18 +72,21 @@ class ADCWorker(QObject):
             for sample_data, sample_index in sample_gen:
                 successful_samples += 1
                 
-                # 发送单个数据点
+                # 发送双ADC数据字典
                 self.sampleData.emit(sample_data)
                 
-                # 保存原始数据
+                # 保存原始数据 - 分别保存两个ADC的数据
                 if self.save_raw_data:
-                    filename = f'{self.filename_prefix}_{sample_index + 1:04d}.csv'
+                    filename_prefix = f'{self.filename_prefix}_{sample_index + 1:04d}'
                     success, message = self.adc_sample.save_test_result(
-                        sample_index, sample_data, filename, self.output_dir
+                        sample_index, sample_data, filename_prefix, self.output_dir
                     )
                     if success:
-                        self.dataSaved.emit(os.path.join(self.output_dir, filename), 
-                                           f"数据已保存: {filename}")
+                        # 发送两个ADC文件的保存消息
+                        for adc_name in sample_data.keys():
+                            filename = f'{filename_prefix}_{adc_name}.csv'
+                            self.dataSaved.emit(os.path.join(self.output_dir, filename), 
+                                               f"数据已保存: {filename}")
                     else:
                         self.progress.emit(sample_index + 1, self.count, 
                                           f"数据保存失败: {message}")
@@ -94,33 +99,40 @@ class ADCWorker(QObject):
             self.finished.emit(False, f"采样过程中发生错误: {str(e)}")
         finally:
             self.cleanup_resources()
-
-    def _process_sample_data(self, u32_values):
+    def _process_sample_data(self, data_dict):
         """处理采样数据，优化内存使用"""
-        if u32_values is None:
-            return np.array([], dtype=np.uint16)
+        processed_dict = {}
         
-        # 使用生成器表达式处理大型数组
-        if isinstance(u32_values, np.ndarray) and u32_values.size > 10000:
-            # 对于大型数组，使用更高效的数据类型
+        for adc_name, u32_values in data_dict.items():
+            if u32_values is None or len(u32_values) == 0:
+                processed_dict[adc_name] = np.array([], dtype=np.uint16)
+                continue
+            
+            # 使用更高效的数据类型
             if np.max(u32_values) < 65536:
-                return u32_values.astype(np.uint16)
+                processed_dict[adc_name] = np.array(u32_values, dtype=np.uint16)
             else:
-                return u32_values.astype(np.uint32)
-        else:
-            return np.array(u32_values, dtype=np.uint32)
+                processed_dict[adc_name] = np.array(u32_values, dtype=np.uint32)
+        
+        return processed_dict
+    
     def _force_release_memory(self, obj):
         """强制释放对象内存"""
         if obj is None:
             return
         
-        if isinstance(obj, np.ndarray):
+        if isinstance(obj, dict):
+            for key, value in obj.items():
+                self._force_release_memory(value)
+            obj.clear()
+        elif isinstance(obj, np.ndarray):
             obj.setflags(write=True)
             obj.resize(0, refcheck=False)
         elif hasattr(obj, 'clear'):
             obj.clear()
         
         del obj
+        
     def cleanup_resources(self):
         """清理工作线程资源"""
         try:
@@ -141,6 +153,7 @@ class ADCWorker(QObject):
             
         except Exception as e:
             print(f"清理工作线程资源失败: {e}")
+    
     def stop(self):
         """停止采样"""
         self.running = False
