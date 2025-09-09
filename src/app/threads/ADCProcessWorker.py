@@ -1,4 +1,5 @@
-# src/app/widgets/DataAnalysisPanel/Controller.py
+# src/app/threads/ADCProcessWorker.py
+
 import os
 import gc
 import numpy as np
@@ -11,24 +12,24 @@ from app.core.FileManager import FileManager
 
 
 class ADCProcessWorker(QObject):
-    """ADC数据处理工作线程 - 使用生成器优化内存"""
+    """ADC数据处理工作线程 - 支持双通道(adc1和adc2)处理"""
     progress = pyqtSignal(int, int, str)
     finished = pyqtSignal(dict, dict)  # 传递结果和平均值
     error = pyqtSignal(str)
     log_message = pyqtSignal(str, str)
   
-    def __init__(self, file_list: List[str], config: AnalysisConfig):
+    def __init__(self, file_dict: Dict[str, List[str]], config: AnalysisConfig):
         super().__init__()
-        self.file_list = file_list
+        self.file_dict = file_dict  # 字典格式 {'adc1': [], 'adc2': []}
         self.config = config
         self.analyzer = DataAnalyzer(config)
         self.running = False
         self._should_stop = False
         
         # 设置可追溯的线程名称
-        file_count = len(file_list)
-        first_file = os.path.basename(file_list[0]) if file_list else "no_files"
-        self.setObjectName(f"数据分析线程_{first_file}_{file_count}files")
+        adc1_count = len(file_dict.get('adc1', []))
+        adc2_count = len(file_dict.get('adc2', []))
+        self.setObjectName(f"双通道数据分析线程_ADC1:{adc1_count}_ADC2:{adc2_count}")
 
     @pyqtSlot()
     def run(self):
@@ -61,17 +62,19 @@ class ADCProcessWorker(QObject):
 
     def _log_start_message(self):
         """记录开始处理的消息"""
-        self.log_message.emit(f"开始处理 {len(self.file_list)} 个文件", "INFO")
+        adc1_count = len(self.file_dict.get('adc1', []))
+        adc2_count = len(self.file_dict.get('adc2', []))
+        self.log_message.emit(f"开始处理 {adc1_count + adc2_count} 个文件 (ADC1: {adc1_count}, ADC2: {adc2_count})", "INFO")
 
     def _process_all_files(self) -> Optional[Dict[str, Any]]:
         """处理所有文件并返回结果"""
         results = self._initialize_results()
         
-        # 使用生成器处理文件
-        file_gen = self._file_processor_generator()
-        results_gen = self._process_results_generator(file_gen, results)
+        # 使用生成器处理文件对
+        file_pair_gen = self._file_pair_generator()
+        results_gen = self._process_results_generator(file_pair_gen, results)
         
-        # 处理所有文件
+        # 处理所有文件对
         final_results = None
         for results in results_gen:
             final_results = results
@@ -81,57 +84,101 @@ class ADCProcessWorker(QObject):
         return final_results
 
     def _initialize_results(self) -> Dict[str, Any]:
-        """初始化结果字典"""
+        """初始化结果字典 - 支持双通道结构"""
         return {
-            'ys_full': [], 'ys': [], 'mags': [],
-            'ys_d_full': [], 'ys_d': [], 'mags_d': [],
-            'freq_ref': None, 'freq_d_ref': None, 'sum_Xd': None,
-            'success_count': 0, 'total_files': len(self.file_list),
+            'adc1': {
+                'ys_full': [], 'ys': [], 'mags': [],
+                'ys_d_full': [], 'ys_d': [], 'mags_d': [],
+                'freq_ref': None, 'freq_d_ref': None, 'sum_Xd': None,
+            },
+            'adc2': {
+                'ys_full': [], 'ys': [], 'mags': [],
+                'ys_d_full': [], 'ys_d': [], 'mags_d': [],
+                'freq_ref': None, 'freq_d_ref': None, 'sum_Xd': None,
+            },
+            'success_count': 0, 
+            'total_files': self._get_total_file_count(),
         }
 
-    def _file_processor_generator(self) -> Generator[Tuple[int, Dict[str, Any]], None, None]:
-        """文件处理生成器，逐文件产生处理结果"""
-        for i, file_path in enumerate(self.file_list):
+    def _get_total_file_count(self) -> int:
+        """获取总文件数量"""
+        adc1_count = len(self.file_dict.get('adc1', []))
+        adc2_count = len(self.file_dict.get('adc2', []))
+        return adc1_count + adc2_count
+
+    def _file_pair_generator(self) -> Generator[Tuple[int, Dict[str, Any]], None, None]:
+        """文件对处理生成器，逐对产生处理结果"""
+        adc1_files = self.file_dict.get('adc1', [])
+        adc2_files = self.file_dict.get('adc2', [])
+        
+        # 确定要处理的文件对数量
+        pair_count = min(len(adc1_files), len(adc2_files))
+        
+        if len(adc1_files) != len(adc2_files):
+            self.log_message.emit(
+                f"警告: ADC1和ADC2文件数量不匹配 (ADC1: {len(adc1_files)}, ADC2: {len(adc2_files)})，将处理前{pair_count}对文件", 
+                "WARNING"
+            )
+        
+        for i in range(pair_count):
             if self._should_stop:
                 break
                 
-            self._emit_progress(i, file_path)
+            adc1_file = adc1_files[i]
+            adc2_file = adc2_files[i]
+            
+            self._emit_progress(i, adc1_file, adc2_file)
             
             try:
-                result = self._process_single_file(file_path, i)
+                result = self._process_file_pair(adc1_file, adc2_file, i)
                 if result is not None:
                     yield i, result
                 else:
-                    self._log_file_skip_warning(file_path)
+                    self._log_file_skip_warning(adc1_file, adc2_file)
                     
             except Exception as e:
-                self._log_file_error(file_path, e)
+                self._log_file_error(adc1_file, adc2_file, e)
                 continue
 
-    def _emit_progress(self, index: int, file_path: str):
+    def _emit_progress(self, index: int, adc1_file: str, adc2_file: str):
         """发射进度信号"""
+        adc1_name = os.path.basename(adc1_file)
+        adc2_name = os.path.basename(adc2_file)
+        
         self.progress.emit(
             index + 1, 
-            len(self.file_list), 
-            f"处理文件: {os.path.basename(file_path)}"
+            min(len(self.file_dict.get('adc1', [])), len(self.file_dict.get('adc2', []))), 
+            f"处理文件对: {adc1_name} + {adc2_name}"
         )
 
-    def _process_single_file(self, file_path: str, index: int) -> Optional[Dict[str, Any]]:
-        """处理单个文件"""
-        raw_data = self.load_u32_data(file_path)
-        return self.analyzer.process_single_file(raw_data, index)
+    def _process_file_pair(self, adc1_file: str, adc2_file: str, index: int) -> Optional[Dict[str, Any]]:
+        """处理文件对 (adc1和adc2)"""
+        # 加载两个ADC的数据
+        adc1_data = self.load_u32_data(adc1_file)
+        adc2_data = self.load_u32_data(adc2_file)
+        
+        # 将两个ADC的数据作为字典传递给处理函数
+        adc_data = {'adc1': adc1_data, 'adc2': adc2_data}
+        
+        return self.analyzer.process_single_file(adc_data, index)
 
-    def _log_file_skip_warning(self, file_path: str):
+    def _log_file_skip_warning(self, adc1_file: str, adc2_file: str):
         """记录文件跳过警告"""
+        adc1_name = os.path.basename(adc1_file)
+        adc2_name = os.path.basename(adc2_file)
+        
         self.log_message.emit(
-            f"文件 {os.path.basename(file_path)} 处理失败，跳过", 
+            f"文件对 {adc1_name} + {adc2_name} 处理失败，跳过", 
             "WARNING"
         )
 
-    def _log_file_error(self, file_path: str, error: Exception):
+    def _log_file_error(self, adc1_file: str, adc2_file: str, error: Exception):
         """记录文件处理错误"""
+        adc1_name = os.path.basename(adc1_file)
+        adc2_name = os.path.basename(adc2_file)
+        
         self.log_message.emit(
-            f"处理文件 {os.path.basename(file_path)} 失败: {str(error)}", 
+            f"处理文件对 {adc1_name} + {adc2_name} 失败: {str(error)}", 
             "WARNING"
         )
 
@@ -145,36 +192,41 @@ class ADCProcessWorker(QObject):
                 self._cleanup_memory()
                 
             yield results
-            
 
     def _update_results_with_file_data(self, results: Dict[str, Any], file_result: Dict[str, Any]):
-        """使用文件结果更新总结果"""
-        # 从字典中提取数据
-        y_full = file_result['y_full']
-        y_roi = file_result['y_roi']
-        freq = file_result['freq']
-        mag_linear = file_result['mag_linear']
-        y_full_diff = file_result['y_full_diff']
-        y_diff = file_result['y_diff']
-        freq_d = file_result['freq_d']
-        mag_linear_d = file_result['mag_linear_d']
-        Xd_norm = file_result['Xd_norm']
+        """使用文件结果更新总结果 - 支持嵌套字典结构"""
+        # 假设 file_result 是一个嵌套字典，包含 'adc1' 和 'adc2' 键
+        for adc_channel in ['adc1', 'adc2']:
+            if adc_channel in file_result:
+                channel_result = file_result[adc_channel]
+                
+                # 从字典中提取数据
+                y_full = channel_result['y_full']
+                y_roi = channel_result['y_roi']
+                freq = channel_result['freq']
+                mag_linear = channel_result['mag_linear']
+                y_full_diff = channel_result['y_full_diff']
+                y_diff = channel_result['y_diff']
+                freq_d = channel_result['freq_d']
+                mag_linear_d = channel_result['mag_linear_d']
+                Xd_norm = channel_result['Xd_norm']
+                
+                # 初始化参考频率
+                if results[adc_channel]['freq_ref'] is None:
+                    results[adc_channel]['freq_ref'] = freq
+                if results[adc_channel]['freq_d_ref'] is None:
+                    results[adc_channel]['freq_d_ref'] = freq_d
+                    results[adc_channel]['sum_Xd'] = np.zeros_like(Xd_norm, dtype=np.complex128)
+                
+                # 存储结果 - 使用内存友好的方式
+                results[adc_channel]['ys_full'].append(self._optimize_array(y_full))
+                results[adc_channel]['ys'].append(self._optimize_array(y_roi))
+                results[adc_channel]['mags'].append(self._optimize_array(mag_linear))
+                results[adc_channel]['ys_d_full'].append(self._optimize_array(y_full_diff))
+                results[adc_channel]['ys_d'].append(self._optimize_array(y_diff))
+                results[adc_channel]['mags_d'].append(self._optimize_array(mag_linear_d))
+                results[adc_channel]['sum_Xd'] += Xd_norm
         
-        # 初始化参考频率
-        if results['freq_ref'] is None:
-            results['freq_ref'] = freq
-        if results['freq_d_ref'] is None:
-            results['freq_d_ref'] = freq_d
-            results['sum_Xd'] = np.zeros_like(Xd_norm, dtype=np.complex128)
-        
-        # 存储结果 - 使用内存友好的方式
-        results['ys_full'].append(self._optimize_array(y_full))
-        results['ys'].append(self._optimize_array(y_roi))
-        results['mags'].append(self._optimize_array(mag_linear))
-        results['ys_d_full'].append(self._optimize_array(y_full_diff))
-        results['ys_d'].append(self._optimize_array(y_diff))
-        results['mags_d'].append(self._optimize_array(mag_linear_d))
-        results['sum_Xd'] += Xd_norm
         results['success_count'] += 1
 
     def _optimize_array(self, array: np.ndarray) -> np.ndarray:
@@ -190,33 +242,38 @@ class ADCProcessWorker(QObject):
         gc.collect()
 
     def _calculate_averages(self, results: Dict[str, Any]) -> Dict[str, Any]:
-        """计算平均值 - 使用内存友好的方式"""
+        """计算平均值 - 使用内存友好的方式，支持双通道"""
         self._emit_calculating_averages()
         
-        averages = {}
+        averages = {
+            'adc1': {},
+            'adc2': {}
+        }
         
-        # ROI平均值
-        averages['y_full_avg'] = self._calculate_mean(results['ys_full'])
-        averages['y_avg'] = self._calculate_mean(results['ys'])
-        averages['mag_avg_linear'] = self._calculate_mean(results['mags'])
-        averages['mag_avg_db'] = 20 * np.log10(averages['mag_avg_linear'])
-    
-        # 差分平均值
-        averages['y_d_full_avg'] = self._calculate_mean(results['ys_d_full'])
-        averages['y_d_avg'] = self._calculate_mean(results['ys_d'])
-        averages['mag_d_avg_linear'] = self._calculate_mean(results['mags_d'])
-        averages['mag_d_avg_db'] = 20 * np.log10(averages['mag_d_avg_linear'])
-    
-        # 复数FFT平均值
-        averages['avg_Xd'] = results['sum_Xd'] / results['success_count']
+        # 为每个通道计算平均值
+        for adc_channel in ['adc1', 'adc2']:
+            # ROI平均值
+            averages[adc_channel]['y_full_avg'] = self._calculate_mean(results[adc_channel]['ys_full'])
+            averages[adc_channel]['y_avg'] = self._calculate_mean(results[adc_channel]['ys'])
+            averages[adc_channel]['mag_avg_linear'] = self._calculate_mean(results[adc_channel]['mags'])
+            averages[adc_channel]['mag_avg_db'] = 20 * np.log10(averages[adc_channel]['mag_avg_linear'])
+        
+            # 差分平均值
+            averages[adc_channel]['y_d_full_avg'] = self._calculate_mean(results[adc_channel]['ys_d_full'])
+            averages[adc_channel]['y_d_avg'] = self._calculate_mean(results[adc_channel]['ys_d'])
+            averages[adc_channel]['mag_d_avg_linear'] = self._calculate_mean(results[adc_channel]['mags_d'])
+            averages[adc_channel]['mag_d_avg_db'] = 20 * np.log10(averages[adc_channel]['mag_d_avg_linear'])
+        
+            # 复数FFT平均值
+            averages[adc_channel]['avg_Xd'] = results[adc_channel]['sum_Xd'] / results['success_count']
     
         return averages
 
     def _emit_calculating_averages(self):
         """发射计算平均值的进度信号"""
         self.progress.emit(
-            len(self.file_list), 
-            len(self.file_list), 
+            self._get_total_file_count(), 
+            self._get_total_file_count(), 
             "计算平均值..."
         )
         self.log_message.emit("计算平均值...", "INFO")
@@ -236,24 +293,24 @@ class ADCProcessWorker(QObject):
         
         return total / count
 
-
     def _perform_edge_analysis(self, final_results: Dict[str, Any], averages: Dict[str, Any]):
-        """执行边沿分析"""
+        """执行边沿分析 - 对每个通道分别进行"""
         self._emit_edge_analysis_progress()
         
-        try:
-            edge_results = self.analyzer.analyze_edges(averages['y_full_avg'])
-            self._add_time_metrics_to_edge_results(edge_results)
-            final_results.update(edge_results)
-                
-        except Exception as e:
-            self._handle_edge_analysis_error(e, final_results)
+        for adc_channel in ['adc1', 'adc2']:
+            try:
+                edge_results = self.analyzer.analyze_edges(averages[adc_channel]['y_full_avg'])
+                self._add_time_metrics_to_edge_results(edge_results)
+                final_results[adc_channel].update(edge_results)
+                    
+            except Exception as e:
+                self._handle_edge_analysis_error(e, final_results[adc_channel])
 
     def _emit_edge_analysis_progress(self):
         """发射边沿分析进度信号"""
         self.progress.emit(
-            len(self.file_list), 
-            len(self.file_list), 
+            self._get_total_file_count(), 
+            self._get_total_file_count(), 
             "进行边沿分析..."
         )
         self.log_message.emit("进行边沿分析...", "INFO")

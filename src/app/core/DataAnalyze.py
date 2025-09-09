@@ -1,4 +1,5 @@
-# src/app/core/DataAnalyzer.py
+# src/app/core/DataAnalyze.py
+
 import numpy as np
 from typing import Dict, Any, List, Optional, Tuple
 import logging
@@ -23,7 +24,7 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 class DataAnalyzer:
-    """重构后的数据分析器类"""
+    """重构后的数据分析器类 - 支持双通道处理"""
   
     def __init__(self, config: AnalysisConfig, file_manager=None, plotter=None, 
                  data_processor=None, edge_detector=None, result_processor=None):
@@ -40,12 +41,14 @@ class DataAnalyzer:
         # 验证配置
         ConfigValidator.validate_config(config)
   
-    def extract_basic_segment(self, u32_arr: np.ndarray, data_index: int = -1) -> Optional[Dict[str, Any]]:
+    def extract_basic_segment(self, u32_arr: np.ndarray, data_index: int = -1, 
+                             target_idx: Optional[int] = None) -> Optional[Dict[str, Any]]:
         """提取基本数据段，返回字典格式的结果
         
         Args:
             u32_arr: uint32数据数组
             data_index: 数据索引，用于错误追踪
+            target_idx: 目标对齐位置，如果提供则跳过边沿搜索直接使用此位置对齐
             
         Returns:
             处理结果字典或None
@@ -74,24 +77,37 @@ class DataAnalyzer:
                 segment_adc, self.config.t_sample, self.config.t_trig
             )
             
-            # 5. 搜索所有边沿位置,第一上升沿，第二上升沿，下降沿
-            rise_pos = self.edge_detector.find_rise_position(
-                y_sorted, self.config.search_method, np.mean(adc_full), self.config.min_edge_amplitude_ratio
-            )
+            # 5. 搜索边沿位置（如果未提供目标对齐位置）
+            if target_idx is None:
+                # 搜索所有边沿位置,第一上升沿，第二上升沿，下降沿
+                rise_pos = self.edge_detector.find_rise_position(
+                    y_sorted, self.config.search_method, np.mean(adc_full), self.config.min_edge_amplitude_ratio
+                )
+            else:
+                # 使用提供的目标对齐位置
+                rise_pos = target_idx
 
             # 6. 数据对齐
-            target_idx = self.config.n_points // 4
+            if target_idx is None:
+                target_idx = self.config.n_points // 4
             y_full = self.data_processor.align_data(y_sorted, rise_pos, target_idx)
 
             
             # 7. 提取ROI
             y_roi = self.data_processor.extract_roi(y_full, self.config.roi_start, self.config.roi_end)
 
-            # 搜索所有上升沿位置
-            edges_dict = self.analyze_edges(y_roi)
-            rise_pos = edges_dict["first_rise_pos"]
-            second_rise_pos = edges_dict["second_rise_pos"]
-            fall_pos = edges_dict['fall_pos']
+            # 搜索所有上升沿位置（如果未提供目标对齐位置）
+            if target_idx is None:
+                edges_dict = self.analyze_edges(y_roi)
+                rise_pos = edges_dict["first_rise_pos"]
+                second_rise_pos = edges_dict["second_rise_pos"]
+                fall_pos = edges_dict['fall_pos']
+            else:
+                # 对于使用目标对齐位置的情况，设置默认边沿位置
+                rise_pos = target_idx
+                second_rise_pos = None
+                fall_pos = None
+            
             # 返回字典格式的结果
             return {
                 'adc_full': adc_full,
@@ -107,7 +123,6 @@ class DataAnalyzer:
         except Exception as e:
             logger.error(f"数据索引 {data_index}: 提取基本数据段时出错: {e}")
             return None
-
 
     def process_thru_load_mode(self, data_dict: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """
@@ -272,44 +287,67 @@ class DataAnalyzer:
             logger.error(f"处理OPEN模式时出错: {e}")
             return None
 
-    def process_single_file(self, u32_arr: np.ndarray, file_index: int = -1) -> Optional[Dict[str, Any]]:
+    def process_single_file(self, u32_arr_dict: Dict[str, np.ndarray], file_index: int = -1) -> Optional[Dict[str, Any]]:
         """
-        处理单个文件的方法
+        处理单个文件的方法 - 支持双通道数据
         
         Args:
-            u32_arr: uint32数据数组
+            u32_arr_dict: 包含'adc1'和'adc2'键的字典，值为uint32数据数组
             file_index: 文件索引，用于错误追踪
             
         Returns:
             处理结果字典或None
         """
         try:
-            # 提取基本数据段（步骤1-7）
-            basic_result = self.extract_basic_segment(u32_arr, file_index)
-            if basic_result is None:
+            # 检查输入数据
+            if not isinstance(u32_arr_dict, dict) or 'adc1' not in u32_arr_dict:
+                logger.error(f"文件索引 {file_index}: 输入数据格式不正确")
                 return None
+            
+            adc1_data = u32_arr_dict['adc1']
+            adc2_data = u32_arr_dict.get('adc2', None)
+            
+            # 处理ADC1数据
+            adc1_basic_result = self.extract_basic_segment(adc1_data, file_index)
+            if adc1_basic_result is None:
+                return None
+            
+            # 获取ADC1的目标对齐位置
+            target_idx = adc1_basic_result.get('rise_pos')
+            
+            # 处理ADC2数据（如果存在）
+            adc2_basic_result = None
+            if adc2_data is not None:
+                # 使用ADC1的目标对齐位置来处理ADC2数据
+                adc2_basic_result = self.extract_basic_segment(adc2_data, file_index, target_idx)
             
             # 根据校准模式选择不同的处理方法
             if self.config.cal_mode in [CalibrationMode.THRU, CalibrationMode.LOAD]:
                 # THRU和LOAD模式使用标准处理
-                return self.process_thru_load_mode(basic_result)
-            
+                adc1_result = self.process_thru_load_mode(adc1_basic_result)
+                adc2_result = self.process_thru_load_mode(adc2_basic_result) if adc2_basic_result else None
             elif self.config.cal_mode == CalibrationMode.SHORT:
                 # SHORT模式特殊处理
-                return self.process_thru_load_mode(basic_result)
-            
+                adc1_result = self.process_thru_load_mode(adc1_basic_result)
+                adc2_result = self.process_thru_load_mode(adc2_basic_result) if adc2_basic_result else None
             elif self.config.cal_mode == CalibrationMode.OPEN:
                 # OPEN模式特殊处理
-                return self.process_thru_load_mode(basic_result)
-            
+                adc1_result = self.process_thru_load_mode(adc1_basic_result)
+                adc2_result = self.process_thru_load_mode(adc2_basic_result) if adc2_basic_result else None
             else:
                 logger.error(f"未知的校准模式: {self.config.cal_mode}")
                 return None
             
+            # 返回嵌套字典结果
+            result = {'adc1': adc1_result}
+            if adc2_result is not None:
+                result['adc2'] = adc2_result
+            
+            return result
+            
         except Exception as e:
             logger.error(f"处理文件索引 {file_index} 时出错: {e}")
             return None
-
 
     def batch_process_files(self, file_list: List[str]) -> Dict[str, Any]:
         """
@@ -325,47 +363,40 @@ class DataAnalyzer:
     
         # 初始化结果存储
         results = {
-            'ys_full':[],'ys': [], 'mags': [], 'ys_d_full':[],'ys_d': [], 'mags_d': [],
-            'freq_ref': None, 'freq_d_ref': None, 'sum_Xd': None,
-            'success_count': 0, 'total_files': len(file_list)
+            'adc1': {
+                'ys_full':[], 'ys': [], 'mags': [], 'ys_d_full':[], 'ys_d': [], 'mags_d': [],
+                'freq_ref': None, 'freq_d_ref': None, 'sum_Xd': None
+            },
+            'adc2': {
+                'ys_full':[], 'ys': [], 'mags': [], 'ys_d_full':[], 'ys_d': [], 'mags_d': [],
+                'freq_ref': None, 'freq_d_ref': None, 'sum_Xd': None
+            },
+            'success_count': 0, 
+            'total_files': len(file_list)
         }
     
         # 处理每个文件
         for i, f in enumerate(tqdm(file_list, desc="处理文件", unit="file")):
             try:
                 raw = self.file_manager.load_u32_text_first_col(f, skip_first=self.config.skip_first_value)
-                res = self.process_single_file(raw, i)  # 传递文件索引
+                
+                # 创建单通道数据字典
+                u32_arr_dict = {'adc1': raw}
+                
+                res = self.process_single_file(u32_arr_dict, i)  # 传递文件索引
                 
                 if res is None:
                     continue
                 
-                # 从字典中提取数据
-                y_full = res['y_full']
-                y_roi = res['y_roi']
-                freq = res['freq']
-                mag_linear = res['mag_linear']
-                y_full_diff = res['y_full_diff']
-                y_diff = res['y_diff']
-                freq_d = res['freq_d']
-                mag_linear_d = res['mag_linear_d']
-                Xd_norm = res['Xd_norm']
-            
-                # 初始化参考频率
-                if results['freq_ref'] is None:
-                    results['freq_ref'] = freq
-                if results['freq_d_ref'] is None:
-                    results['freq_d_ref'] = freq_d
-                    results['sum_Xd'] = np.zeros_like(Xd_norm, dtype=np.complex128)
-            
-                # 存储结果
-                results['ys_full'].append(y_full.astype(np.float64))
-                results['ys'].append(y_roi.astype(np.float64))
-                results['mags'].append(mag_linear.astype(np.float64))
-                results['ys_d_full'].append(y_full_diff.astype(np.float64))
-                results['ys_d'].append(y_diff.astype(np.float64))
-                results['mags_d'].append(mag_linear_d.astype(np.float64))
-                results['sum_Xd'] += Xd_norm
+                # 更新ADC1结果
+                self._update_channel_results(results['adc1'], res['adc1'])
+                
+                # 更新ADC2结果（如果存在）
+                if 'adc2' in res and res['adc2'] is not None:
+                    self._update_channel_results(results['adc2'], res['adc2'])
+                
                 results['success_count'] += 1
+                
             except Exception as e:
                 logger.warning(f"处理文件 {f} (索引 {i}) 失败: {e}")
                 continue
@@ -376,6 +407,34 @@ class DataAnalyzer:
         logger.info(f"成功处理 {results['success_count']}/{len(file_list)} 个文件")
         return results
 
+    def _update_channel_results(self, channel_results: Dict[str, Any], res: Dict[str, Any]):
+        """更新通道结果"""
+        # 从字典中提取数据
+        y_full = res['y_full']
+        y_roi = res['y_roi']
+        freq = res['freq']
+        mag_linear = res['mag_linear']
+        y_full_diff = res['y_full_diff']
+        y_diff = res['y_diff']
+        freq_d = res['freq_d']
+        mag_linear_d = res['mag_linear_d']
+        Xd_norm = res['Xd_norm']
+    
+        # 初始化参考频率
+        if channel_results['freq_ref'] is None:
+            channel_results['freq_ref'] = freq
+        if channel_results['freq_d_ref'] is None:
+            channel_results['freq_d_ref'] = freq_d
+            channel_results['sum_Xd'] = np.zeros_like(Xd_norm, dtype=np.complex128)
+    
+        # 存储结果
+        channel_results['ys_full'].append(y_full.astype(np.float64))
+        channel_results['ys'].append(y_roi.astype(np.float64))
+        channel_results['mags'].append(mag_linear.astype(np.float64))
+        channel_results['ys_d_full'].append(y_full_diff.ast(np.float64))
+        channel_results['ys_d'].append(y_diff.astype(np.float64))
+        channel_results['mags_d'].append(mag_linear_d.astype(np.float64))
+        channel_results['sum_Xd'] += Xd_norm
 
     def analyze_edges(self, sorted_data: np.ndarray) -> Dict[str, Any]:
         """

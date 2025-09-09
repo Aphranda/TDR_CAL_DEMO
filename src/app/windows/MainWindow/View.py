@@ -352,3 +352,10 @@ class MainWindowView(QMainWindow):
         """更新进度面板标题"""
         if self.progress_title:
             self.progress_title.setText(title)
+
+    def remove_plot_tab(self, tab_name):
+        """移除指定的绘图标签页"""
+        for i in range(self.plot_area.count()):
+            if self.plot_area.tabText(i) == tab_name:
+                self.plot_area.removeTab(i)
+                break

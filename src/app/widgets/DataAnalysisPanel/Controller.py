@@ -82,7 +82,7 @@ class DataAnalysisController(QObject):
                 self.main_window_controller.log_controller.log(f"{key}: {value}", "INFO")
   
     def on_load_file(self):
-        """加载数据文件，支持多种格式"""
+        """加载数据文件，支持多种格式，同时导入adc1和adc2的数据"""
         try:
             file_paths, _ = QFileDialog.getOpenFileNames(
                 self.view,
@@ -95,15 +95,39 @@ class DataAnalysisController(QObject):
             )
         
             if file_paths:
+                # 清空当前数据文件字典
+                self.model.data_files = {'adc1': [], 'adc2': []}
+                
                 for file_path in file_paths:
-                    if file_path not in self.model.data_files:
-                        self.model.data_files.append(file_path)
-                        # 在文件列表中显示格式信息
+                    # 根据文件名判断是adc1还是adc2的数据
+                    filename = os.path.basename(file_path).lower()
+                    
+                    if 'adc1' in filename or 'ch1' in filename or 'channel1' in filename:
+                        self.model.data_files['adc1'].append(file_path)
                         file_format = FileManager().detect_file_format(file_path)
-                        display_name = f"{os.path.basename(file_path)} [{file_format}]"
+                        display_name = f"[ADC1] {os.path.basename(file_path)} [{file_format}]"
                         self.view.file_list.addItem(display_name)
-            
-                msg = f"成功加载 {len(file_paths)} 个文件"
+                    elif 'adc2' in filename or 'ch2' in filename or 'channel2' in filename:
+                        self.model.data_files['adc2'].append(file_path)
+                        file_format = FileManager().detect_file_format(file_path)
+                        display_name = f"[ADC2] {os.path.basename(file_path)} [{file_format}]"
+                        self.view.file_list.addItem(display_name)
+                    else:
+                        # 如果无法确定是哪个ADC的数据，默认添加到adc1
+                        self.model.data_files['adc1'].append(file_path)
+                        file_format = FileManager().detect_file_format(file_path)
+                        display_name = f"[ADC1] {os.path.basename(file_path)} [{file_format}]"
+                        self.view.file_list.addItem(display_name)
+                        self.log_message(f"警告: 无法确定文件 {os.path.basename(file_path)} 属于哪个ADC，已默认添加到ADC1", "WARNING")
+                
+                # 检查两个ADC的文件数量是否匹配
+                adc1_count = len(self.model.data_files['adc1'])
+                adc2_count = len(self.model.data_files['adc2'])
+                
+                if adc1_count != adc2_count:
+                    self.log_message(f"警告: ADC1和ADC2的文件数量不匹配 (ADC1: {adc1_count}, ADC2: {adc2_count})", "WARNING")
+                
+                msg = f"成功加载 {len(file_paths)} 个文件 (ADC1: {adc1_count}, ADC2: {adc2_count})"
                 self.dataLoaded.emit(msg)
                 self.log_message(msg, "INFO")
         except Exception as e:
@@ -113,7 +137,7 @@ class DataAnalysisController(QObject):
   
     def on_clear_files(self):
         """清除文件列表"""
-        self.model.data_files.clear()
+        self.model.data_files = {'adc1': [], 'adc2': []}
         self.model.current_data = None
         self.view.file_list.clear()
         
@@ -185,9 +209,10 @@ class DataAnalysisController(QObject):
             self.errorOccurred.emit(error_msg)
             self.log_message(error_msg, "ERROR")
   
+
     def analyze_adc_data(self):
         """执行ADC数据分析"""
-        if not self.model.data_files:
+        if not self.model.data_files['adc1'] and not self.model.data_files['adc2']:
             error_msg = "请先加载数据文件"
             self.errorOccurred.emit(error_msg)
             self.log_message(error_msg, "WARNING")
@@ -201,7 +226,7 @@ class DataAnalysisController(QObject):
             config.roi_start_tenths = self.view.adc_roi_start.value()
             config.roi_mid_tenths = self.view.adc_roi_mid.value()
             config.roi_end_tenths = self.view.adc_roi_end.value()
-            config.diff_points = self.view.adc_diff_points.value()  # 新增：获取差分点数
+            config.diff_points = self.view.adc_diff_points.value()
             config.average_points = self.view.adc_average_points.value()
             config.recursive = True
             config.use_signed18 = True
@@ -212,8 +237,8 @@ class DataAnalysisController(QObject):
         
             self.analysisStarted.emit("ADC数据分析")
             self.log_message("开始ADC数据分析", "INFO")
-           
-            # 创建工作线程
+        
+            # 创建工作线程，传递两个ADC的文件路径
             self.adc_process_thread = QThread()
             self.adc_process_worker = ADCProcessWorker(self.model.data_files, config)
             self.adc_process_worker.moveToThread(self.adc_process_thread)
@@ -245,14 +270,12 @@ class DataAnalysisController(QObject):
         self.log_message(f"处理进度: {current}/{total} - {message}", "INFO")
 
     def on_adc_process_finished(self, results, averages):
-        """ADC处理完成"""
+        """ADC处理完成 - 处理双通道数据"""
         try:
-
-          
             # 保存分析结果供导出使用
             self.last_analysis_results = results
             self.last_averages = averages
-          
+        
             # 格式化结果
             config = self.model.adc_config
             analysis_results = {
@@ -262,19 +285,16 @@ class DataAnalysisController(QObject):
                 "roi_range": f"{config.roi_start_tenths}%-{config.roi_end_tenths}%",
                 "sampling_rate": f"{config.fs_eff/1e6:.2f} MS/s"
             }
-          
-            # 生成绘图数据
+        
+            # 生成绘图数据 - 分别处理ADC1和ADC2
             self.generate_plot_data(results, averages, config)
             self.model.results = analysis_results
             self.analysisCompleted.emit(analysis_results)
-          
+        
             self.log_message(f"分析完成! 成功处理 {results['success_count']}/{results['total_files']} 个文件", "INFO")
             
         finally:
             # 清理工作线程引用
-            # self.adc_process_thread = None
-            # self.adc_process_worker = None
-            # 强制垃圾回收
             import gc
             gc.collect()
 
@@ -312,22 +332,62 @@ class DataAnalysisController(QObject):
         return None
 
     def generate_plot_data(self, results, averages, config):
-        """生成绘图数据"""
+        """生成绘图数据 - 支持双通道"""
         try:
+            # 移除主界面默认的绘图页
+            self.remove_default_plot_tabs()
+            
             # 清除所有现有的标记线
             self.clear_all_markers()
             
-            # 生成绘图数据
-            self._generate_time_domain_data(results, averages, config)
-            self._generate_frequency_domain_data(results, averages, config)
-            self._generate_diff_time_domain_data(results, averages, config)
-            self._generate_diff_frequency_domain_data(results, averages, config)
-            
+            # 为每个通道生成绘图数据
+            for channel in ['adc1', 'adc2']:
+                if channel in results and channel in averages:
+                    self._generate_channel_plot_data(channel, results[channel], averages[channel], config)
+                
         except Exception as e:
             self.errorOccurred.emit(f"生成绘图数据失败: {str(e)}")
             self.log_message(f"生成绘图数据失败: {str(e)}", "ERROR")
 
-    def _generate_time_domain_data(self, results, averages, config):
+    def remove_default_plot_tabs(self):
+        """移除主界面默认的绘图页"""
+        if not hasattr(self, 'main_window_controller') or not self.main_window_controller:
+            return
+        
+        main_window_view = self.main_window_controller.view
+        
+        # 移除默认的时域和频域绘图页
+        default_tabs = ["时域", "频域"]
+        for tab_name in default_tabs:
+            if tab_name in self.main_window_controller.sub_controllers:
+                # 移除控制器引用
+                del self.main_window_controller.sub_controllers[tab_name]
+            
+            # 从界面移除标签页
+            main_window_view.remove_plot_tab(tab_name)
+        
+        self.log_message("已移除默认绘图页", "INFO")
+
+    def _generate_channel_plot_data(self, channel, results, averages, config):
+        """生成单个通道的绘图数据"""
+        try:
+            # 生成时域数据并绘制
+            self._generate_time_domain_data(channel, results, averages, config)
+            
+            # 生成频域数据并绘制
+            self._generate_frequency_domain_data(channel, results, averages, config)
+            
+            # 生成差分时域数据并绘制
+            self._generate_diff_time_domain_data(channel, results, averages, config)
+            
+            # 生成差分频域数据并绘制
+            self._generate_diff_frequency_domain_data(channel, results, averages, config)
+            
+        except Exception as e:
+            self.errorOccurred.emit(f"生成{channel}绘图数据失败: {str(e)}")
+            self.log_message(f"生成{channel}绘图数据失败: {str(e)}", "ERROR")
+
+    def _generate_time_domain_data(self, channel, results, averages, config):
         """生成时域数据并绘制"""
         # 时域数据 - 转换为电压值
         t_full_us = ((np.arange(config.roi_n(100)) * config.ts_eff) * 1e6)
@@ -338,7 +398,11 @@ class DataAnalysisController(QObject):
         roi_end_time = config.roi_end * config.ts_eff * 1e6
         
         # 获取时域绘图控制器
-        time_controller = self.get_plot_controller('plot_time')
+        plot_name = f'plot_time_{channel}'
+        time_controller = self.get_plot_controller(plot_name)
+        if not time_controller:
+            time_controller = self.create_plot_tab(plot_name, f"{channel.upper()}时域信号")
+        
         if time_controller:
             # 清除现有绘图
             time_controller.view.clear_plot()
@@ -351,9 +415,9 @@ class DataAnalysisController(QObject):
                 # 添加边缘位置标记线
                 self.add_edge_markers(time_controller, results, config, t_full_us, y_avg_voltage)
         else:
-            self.errorOccurred.emit("时域绘图控制器未找到")
+            self.errorOccurred.emit(f"{channel}时域绘图控制器未找到")
 
-    def _generate_frequency_domain_data(self, results, averages, config):
+    def _generate_frequency_domain_data(self, channel, results, averages, config):
         """生成频域数据并绘制"""
         # 频域数据
         mask = results['freq_ref'] <= (config.show_up_to_GHz * 1e9)
@@ -361,16 +425,20 @@ class DataAnalysisController(QObject):
         mag_db = averages['mag_avg_db'][mask]
         
         # 获取频域绘图控制器
-        freq_controller = self.get_plot_controller('plot_freq')
+        plot_name = f'plot_freq_{channel}'
+        freq_controller = self.get_plot_controller(plot_name)
+        if not freq_controller:
+            freq_controller = self.create_plot_tab(plot_name, f"{channel.upper()}频域信号")
+        
         if freq_controller:
             # 清除现有绘图
             freq_controller.view.clear_plot()
             
             freq_controller.plot_frequency_domain(freq_ghz, mag_db, "频率", "幅度", "GHz", "dB")
         else:
-            self.errorOccurred.emit("频域绘图控制器未找到")
+            self.errorOccurred.emit(f"{channel}频域绘图控制器未找到")
 
-    def _generate_diff_time_domain_data(self, results, averages, config):
+    def _generate_diff_time_domain_data(self, channel, results, averages, config):
         """生成差分时域数据并绘制"""
         # 差分时域数据 - 同样转换为电压值
         t_full_us = ((np.arange(config.roi_n(100)) * config.ts_eff) * 1e6)
@@ -379,10 +447,10 @@ class DataAnalysisController(QObject):
         y_d_avg_voltage = (averages['y_d_full_avg'] / adc_max_value) * 3.0
         
         # 获取或创建差分时域绘图控制器
-        diff_time_controller = self.get_plot_controller('plot_diff_time')
+        plot_name = f'plot_diff_time_{channel}'
+        diff_time_controller = self.get_plot_controller(plot_name)
         if not diff_time_controller:
-            self.create_additional_plot_tabs()
-            diff_time_controller = self.get_plot_controller('plot_diff_time')
+            diff_time_controller = self.create_plot_tab(plot_name, f"{channel.upper()}差分时域信号")
         
         if diff_time_controller:
             # 清除现有绘图
@@ -394,7 +462,7 @@ class DataAnalysisController(QObject):
             if results.get('first_rise_pos') is not None:
                 self.add_edge_markers(diff_time_controller, results, config, t_full_diff_us, y_d_avg_voltage)
 
-    def _generate_diff_frequency_domain_data(self, results, averages, config):
+    def _generate_diff_frequency_domain_data(self, channel, results, averages, config):
         """生成差分频域数据并绘制"""
         # 差分频域数据
         maskd = results['freq_d_ref'] <= (config.show_up_to_GHz * 1e9)
@@ -402,16 +470,35 @@ class DataAnalysisController(QObject):
         mag_d_db = averages['mag_d_avg_db'][maskd]
         
         # 获取或创建差分频域绘图控制器
-        diff_freq_controller = self.get_plot_controller('plot_diff_freq')
+        plot_name = f'plot_diff_freq_{channel}'
+        diff_freq_controller = self.get_plot_controller(plot_name)
         if not diff_freq_controller:
-            self.create_additional_plot_tabs()
-            diff_freq_controller = self.get_plot_controller('plot_diff_freq')
+            diff_freq_controller = self.create_plot_tab(plot_name, f"{channel.upper()}差分频域信号")
         
         if diff_freq_controller:
             # 清除现有绘图
             diff_freq_controller.view.clear_plot()
             
             diff_freq_controller.plot_diff_frequency_domain(freq_d_ghz, mag_d_db, "频率", "差分幅度", "GHz", "dB")
+
+    def create_plot_tab(self, plot_name, plot_title):
+        """创建绘图标签页"""
+        if not hasattr(self, 'main_window_controller') or not self.main_window_controller:
+            return None
+        
+        main_window_view = self.main_window_controller.view
+        
+        # 创建绘图控件
+        plot_view, plot_controller = create_plot_widget(plot_title)
+        
+        # 添加到主窗口
+        tab_name = plot_title.replace(" ", "")
+        main_window_view.add_plot_tab(plot_view, tab_name)
+        
+        # 保存控制器引用
+        self.main_window_controller.sub_controllers[plot_name] = plot_controller
+        
+        return plot_controller
 
     def add_edge_markers(self, plot_controller, results, config, t_full_us, y_avg_voltage):
         """添加边缘位置标记线 - 使用交替位置方案避免标签重叠"""
@@ -575,11 +662,13 @@ class DataAnalysisController(QObject):
         """清除所有绘图标记"""
         try:
             # 清除所有绘图控制器的标记
-            for plot_name in ['plot_time', 'plot_freq', 'plot_diff_time', 'plot_diff_freq']:
-                controller = self.get_plot_controller(plot_name)
-                if controller and hasattr(controller, 'clear_markers'):
-                    controller.clear_markers()
-                  
+            for channel in ['adc1', 'adc2']:
+                for plot_type in ['plot_time', 'plot_freq', 'plot_diff_time', 'plot_diff_freq']:
+                    plot_name = f"{plot_type}_{channel}"
+                    controller = self.get_plot_controller(plot_name)
+                    if controller and hasattr(controller, 'clear_markers'):
+                        controller.clear_markers()
+                    
         except Exception as e:
             self.errorOccurred.emit(f"清除标记失败: {str(e)}")
             self.log_message(f"清除标记失败: {str(e)}", "ERROR")
