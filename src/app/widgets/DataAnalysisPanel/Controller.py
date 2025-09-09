@@ -296,7 +296,6 @@ class DataAnalysisController(QObject):
         gc.collect()
     
 
-
     def on_adc_process_error(self, error_message):
         """ADC处理错误"""
         self.errorOccurred.emit(error_message)
@@ -317,198 +316,124 @@ class DataAnalysisController(QObject):
         try:
             # 清除所有现有的标记线
             self.clear_all_markers()
-          
-            # 时域数据 - 转换为电压值
-            t_roi_us = (np.arange(config.l_roi) * config.ts_eff) * 1e6
-            t_full_us = ((np.arange(config.roi_n(100)) * config.ts_eff) * 1e6)
-            # 将ADC数据转换为电压值 (±3V范围，带符号19位)
-            adc_max_value = 2**19  # 262144
-            y_avg_voltage = (averages['y_full_avg'] / adc_max_value) * 3.0
-
-            # 计算ROI时间范围
-            roi_start_time = config.roi_start * config.ts_eff * 1e6
-            roi_end_time = config.roi_end * config.ts_eff * 1e6
-          
-            # 边缘位置计算
-            edge_in_roi = (config.n_points // 4 - config.roi_start)
-          
-            # 获取时域绘图控制器
-            time_controller = self.get_plot_controller('plot_time')
-            if time_controller:
-                # 清除现有绘图
-                time_controller.view.clear_plot()
-              
-                # 绘制时域信号 (使用电压值)
-                time_controller.plot_time_domain(t_full_us, y_avg_voltage, "时间", "电压", "ns", "V",roi_start_time, roi_end_time)
-              
-                # 只有在边沿分析成功时才添加标记线
-                if results.get('first_rise_pos') is not None:
-                    # 添加边缘位置标记线
-                    self.add_edge_markers(time_controller, results, config, t_full_us, y_avg_voltage)
-                    
-            else:
-                self.errorOccurred.emit("时域绘图控制器未找到")
-          
-            # 频域数据
-            mask = results['freq_ref'] <= (config.show_up_to_GHz * 1e9)
-            freq_ghz = results['freq_ref'][mask] / 1e9
-            mag_db = averages['mag_avg_db'][mask]
-          
-            # 获取频域绘图控制器
-            freq_controller = self.get_plot_controller('plot_freq')
-            if freq_controller:
-                # 清除现有绘图
-                freq_controller.view.clear_plot()
-              
-                freq_controller.plot_frequency_domain(freq_ghz, mag_db, "频率", "幅度", "GHz", "dB")
-            else:
-                self.errorOccurred.emit("频域绘图控制器未找到")
-          
-            # 差分时域数据 - 同样转换为电压值
-            t_diff_us = t_roi_us[config.diff_points:]
-            t_full_diff_us = t_full_us[config.diff_points:]
-            y_d_avg_voltage = (averages['y_d_full_avg'] / adc_max_value) * 3.0
-          
-
-            # 获取或创建差分时域绘图控制器
-            diff_time_controller = self.get_plot_controller('plot_diff_time')
-            if not diff_time_controller:
-                self.create_additional_plot_tabs()
-                diff_time_controller = self.get_plot_controller('plot_diff_time')
-          
-            if diff_time_controller:
-                # 清除现有绘图
-                diff_time_controller.view.clear_plot()
-              
-                diff_time_controller.plot_diff_time_domain(t_full_diff_us, y_d_avg_voltage, "时间", "差分电压", "ns", "V")
-                # 添加边缘位置标记线到差分时域图
-                # 只有在边沿分析成功时才添加标记线
-                if results.get('first_rise_pos') is not None:
-                    self.add_edge_markers(diff_time_controller, results, config, t_full_diff_us, y_d_avg_voltage)
-              
-          
-            # 差分频域数据
-            maskd = results['freq_d_ref'] <= (config.show_up_to_GHz * 1e9)
-            freq_d_ghz = results['freq_d_ref'][maskd] / 1e9
-            mag_d_db = averages['mag_d_avg_db'][maskd]
-          
-            # 获取或创建差分频域绘图控制器
-            diff_freq_controller = self.get_plot_controller('plot_diff_freq')
-            if not diff_freq_controller:
-                self.create_additional_plot_tabs()
-                diff_freq_controller = self.get_plot_controller('plot_diff_freq')
-          
-            if diff_freq_controller:
-                # 清除现有绘图
-                diff_freq_controller.view.clear_plot()
-              
-                diff_freq_controller.plot_diff_frequency_domain(freq_d_ghz, mag_d_db, "频率", "差分幅度", "GHz", "dB")
-              
+            
+            # 生成绘图数据
+            self._generate_time_domain_data(results, averages, config)
+            self._generate_frequency_domain_data(results, averages, config)
+            self._generate_diff_time_domain_data(results, averages, config)
+            self._generate_diff_frequency_domain_data(results, averages, config)
+            
         except Exception as e:
             self.errorOccurred.emit(f"生成绘图数据失败: {str(e)}")
             self.log_message(f"生成绘图数据失败: {str(e)}", "ERROR")
 
+    def _generate_time_domain_data(self, results, averages, config):
+        """生成时域数据并绘制"""
+        # 时域数据 - 转换为电压值
+        t_full_us = ((np.arange(config.roi_n(100)) * config.ts_eff) * 1e6)
+        adc_max_value = 2**19  # 262144
+        y_avg_voltage = (averages['y_full_avg'] / adc_max_value) * 3.0
+        # 计算ROI时间范围
+        roi_start_time = config.roi_start * config.ts_eff * 1e6
+        roi_end_time = config.roi_end * config.ts_eff * 1e6
+        
+        # 获取时域绘图控制器
+        time_controller = self.get_plot_controller('plot_time')
+        if time_controller:
+            # 清除现有绘图
+            time_controller.view.clear_plot()
+            
+            # 绘制时域信号 (使用电压值)
+            time_controller.plot_time_domain(t_full_us, y_avg_voltage, "时间", "电压", "ns", "V", roi_start_time, roi_end_time)
+            
+            # 只有在边沿分析成功时才添加标记线
+            if results.get('first_rise_pos') is not None:
+                # 添加边缘位置标记线
+                self.add_edge_markers(time_controller, results, config, t_full_us, y_avg_voltage)
+        else:
+            self.errorOccurred.emit("时域绘图控制器未找到")
+
+    def _generate_frequency_domain_data(self, results, averages, config):
+        """生成频域数据并绘制"""
+        # 频域数据
+        mask = results['freq_ref'] <= (config.show_up_to_GHz * 1e9)
+        freq_ghz = results['freq_ref'][mask] / 1e9
+        mag_db = averages['mag_avg_db'][mask]
+        
+        # 获取频域绘图控制器
+        freq_controller = self.get_plot_controller('plot_freq')
+        if freq_controller:
+            # 清除现有绘图
+            freq_controller.view.clear_plot()
+            
+            freq_controller.plot_frequency_domain(freq_ghz, mag_db, "频率", "幅度", "GHz", "dB")
+        else:
+            self.errorOccurred.emit("频域绘图控制器未找到")
+
+    def _generate_diff_time_domain_data(self, results, averages, config):
+        """生成差分时域数据并绘制"""
+        # 差分时域数据 - 同样转换为电压值
+        t_full_us = ((np.arange(config.roi_n(100)) * config.ts_eff) * 1e6)
+        t_full_diff_us = t_full_us[config.diff_points:]
+        adc_max_value = 2**19  # 262144
+        y_d_avg_voltage = (averages['y_d_full_avg'] / adc_max_value) * 3.0
+        
+        # 获取或创建差分时域绘图控制器
+        diff_time_controller = self.get_plot_controller('plot_diff_time')
+        if not diff_time_controller:
+            self.create_additional_plot_tabs()
+            diff_time_controller = self.get_plot_controller('plot_diff_time')
+        
+        if diff_time_controller:
+            # 清除现有绘图
+            diff_time_controller.view.clear_plot()
+            
+            diff_time_controller.plot_diff_time_domain(t_full_diff_us, y_d_avg_voltage, "时间", "差分电压", "ns", "V")
+            # 添加边缘位置标记线到差分时域图
+            # 只有在边沿分析成功时才添加标记线
+            if results.get('first_rise_pos') is not None:
+                self.add_edge_markers(diff_time_controller, results, config, t_full_diff_us, y_d_avg_voltage)
+
+    def _generate_diff_frequency_domain_data(self, results, averages, config):
+        """生成差分频域数据并绘制"""
+        # 差分频域数据
+        maskd = results['freq_d_ref'] <= (config.show_up_to_GHz * 1e9)
+        freq_d_ghz = results['freq_d_ref'][maskd] / 1e9
+        mag_d_db = averages['mag_d_avg_db'][maskd]
+        
+        # 获取或创建差分频域绘图控制器
+        diff_freq_controller = self.get_plot_controller('plot_diff_freq')
+        if not diff_freq_controller:
+            self.create_additional_plot_tabs()
+            diff_freq_controller = self.get_plot_controller('plot_diff_freq')
+        
+        if diff_freq_controller:
+            # 清除现有绘图
+            diff_freq_controller.view.clear_plot()
+            
+            diff_freq_controller.plot_diff_frequency_domain(freq_d_ghz, mag_d_db, "频率", "差分幅度", "GHz", "dB")
+
     def add_edge_markers(self, plot_controller, results, config, t_full_us, y_avg_voltage):
         """添加边缘位置标记线 - 使用交替位置方案避免标签重叠"""
         try:
-            # 获取边缘位置时间（直接从edge_results中获取时间值，单位：微秒）
-            first_rise_time = results.get('first_rise_pos_time')
-            second_rise_time = results.get('second_rise_pos_time') 
-            fall_time = results.get('fall_pos_time')
-            rise_midpoint_time = results.get('rise_midpoint_time')
-            fall_midpoint_time = results.get('fall_midpoint_time')
-            second_fall_midpoint_time = results.get('second_fall_midpoint_time')
+            # 获取边缘位置信息
+            edge_times = self._get_edge_times(results)
+            edge_amplitudes = self._get_edge_amplitudes(results)
+            edge_ratios = self._get_edge_ratios(results)
             
-            adc_max_value = 2**19  # 262144
-            # 获取幅度信息并正确换算为电压值
-            first_amplitude = (results.get('first_rise_amplitude', 0)/adc_max_value) * 3
-            second_amplitude = (results.get('second_rise_amplitude', 0)/adc_max_value) * 3
-            fall_amplitude = (results.get('fall_amplitude', 0)/adc_max_value) * 3
-            first_rise_ratio = results.get('first_rise_ratio', 0)
-            rise_ratio = results.get('rise_ratio', 0)
-            fall_ratio = results.get('fall_ratio', 0)
+            # 创建所有标记线
+            all_markers = self._create_edge_markers(edge_times, edge_amplitudes, edge_ratios, 
+                                                config, t_full_us, y_avg_voltage)
             
-            # 收集所有要添加的标记线
-            all_markers = []
+            # 添加ROI标记线
+            roi_markers = self._create_roi_markers(config, y_avg_voltage)
+            all_markers.extend(roi_markers)
             
-            # 边缘标记线
-            if first_rise_time is not None:
-                # 找到对应时间点的Y坐标值
-                time_idx = np.argmin(np.abs(t_full_us - first_rise_time))
-                x_idx = config.n_roi(time_idx)
-                y_position = y_avg_voltage[time_idx+15] if time_idx < len(y_avg_voltage) else np.mean(y_avg_voltage)
-                all_markers.append((first_rise_time, y_position, "#D2A5A5", 'dashed', f'Rise\n({y_position:.3f}V {round(x_idx,2)}%)', 3))
-            
-            if second_rise_time is not None:
-                time_idx = np.argmin(np.abs(t_full_us - second_rise_time))
-                x_idx = config.n_roi(time_idx)
-                y_position = y_avg_voltage[time_idx+25] if time_idx < len(y_avg_voltage) else np.mean(y_avg_voltage)
-                all_markers.append((second_rise_time, y_position, "#49A333", 'dashed', f'2nd Rise\n({y_position:.3f}V,{round(x_idx,2)}%)', 3))
-            
-            if fall_time is not None:
-                time_idx = np.argmin(np.abs(t_full_us - fall_time))
-                x_idx = config.n_roi(time_idx)
-                y_position = y_avg_voltage[time_idx+25] if time_idx < len(y_avg_voltage) else np.mean(y_avg_voltage)
-                all_markers.append((fall_time, y_position, '#00AA00', 'dashed', f'Fall\n({y_position:.3f}V,{round(x_idx,2)}%)', 3))
-            
-            # 中点标记线
-            if rise_midpoint_time is not None:
-                time_idx = np.argmin(np.abs(t_full_us - rise_midpoint_time))
-                x_idx = config.n_roi(time_idx)
-                y_position = y_avg_voltage[time_idx] if time_idx < len(y_avg_voltage) else np.mean(y_avg_voltage)
-                all_markers.append((rise_midpoint_time, y_position, '#FFA500', 'dashed', f'Rise-2nd\n({y_position:.3f}V {round(x_idx,2)}%)', 2))
-            
-            if fall_midpoint_time is not None:
-                time_idx = np.argmin(np.abs(t_full_us - fall_midpoint_time))
-                x_idx = config.n_roi(time_idx)
-                y_position = y_avg_voltage[time_idx] if time_idx < len(y_avg_voltage) else np.mean(y_avg_voltage)
-                all_markers.append((fall_midpoint_time, y_position, '#800080', 'dashed', f'Rise-Fall\n({y_position:.3f}V{round(x_idx,2)}%)', 2))
-            
-            if second_fall_midpoint_time is not None:
-                time_idx = np.argmin(np.abs(t_full_us - second_fall_midpoint_time))
-                x_idx = config.n_roi(time_idx)
-                y_position = y_avg_voltage[time_idx] if time_idx < len(y_avg_voltage) else np.mean(y_avg_voltage)
-                all_markers.append((second_fall_midpoint_time, y_position, '#00FFFF', 'dashed', f'2ndRise\n({y_position:.3f}V {round(x_idx,2)}%)', 2))
-            
-            # ROI标记线
-            roi_start_time = config.roi_start * config.ts_eff * 1e6
-            roi_mid_time = config.roi_mid * config.ts_eff * 1e6
-            roi_end_time = config.roi_end * config.ts_eff * 1e6
-            
-            # 添加ROI标记线，使用平均Y值作为位置
-            avg_y = np.mean(y_avg_voltage)
-            all_markers.append((roi_start_time, avg_y, '#FF00FF', 'dashdot', f'ROI Start\n({config.roi_start_tenths}%)', 2))
-            all_markers.append((roi_mid_time, avg_y, "#94B814", 'dashdot', f'ROI Mid\n({config.roi_mid_tenths}%)', 2))
-            all_markers.append((roi_end_time, avg_y, '#00FFFF', 'dashdot', f'ROI End\n({config.roi_end_tenths}%)', 2))
-            
-            # 按时间排序标记线
-            all_markers.sort(key=lambda x: x[0])
-            
-            # 使用交替位置方案添加标记线
-            for i, (x_position, y_position, color, style, label, width) in enumerate(all_markers):
-                # 在Y坐标基础上添加小偏移以避免标签重叠
-                y_offset = 0.1 * (i % 3 - 1) * (np.max(y_avg_voltage) - np.min(y_avg_voltage))
-                final_y_position = y_position + y_offset
-                
-                self.add_vertical_line_at_position(plot_controller, x_position, color, style, label, width, final_y_position)
+            # 按时间排序并添加标记线
+            self._add_sorted_markers(plot_controller, all_markers, y_avg_voltage)
             
             # 记录边沿分析结果到日志
-            edge_info = []
-            if first_rise_time is not None:
-                edge_info.append(f"First Rise: {first_rise_time:.3f}ns, Amp: {first_amplitude:.3f}V")
-            if second_rise_time is not None:
-                edge_info.append(f"Second Rise: {second_rise_time:.3f}ns, Amp: {second_amplitude:.3f}V, Ratio: {rise_ratio:.2%}")
-            if fall_time is not None:
-                edge_info.append(f"Fall: {fall_time:.3f}ns, Amp: {fall_amplitude:.3f}V, Ratio: {fall_ratio:.2%}")
-            
-            # 添加ROI信息到日志
-            edge_info.append(f"ROI Range: {config.roi_start_tenths}%-{config.roi_end_tenths}%")
-            edge_info.append(f"ROI Mid: {config.roi_mid_tenths}%")
-            
-            if edge_info:
-                self.log_message("边沿分析结果:", "INFO")
-                for info in edge_info:
-                    self.log_message(info, "INFO")
+            self._log_edge_analysis_results(edge_times, edge_amplitudes, edge_ratios, config)
             
             self.log_message("已添加边缘位置标记线", "INFO")
         
@@ -516,42 +441,135 @@ class DataAnalysisController(QObject):
             self.errorOccurred.emit(f"添加边缘标记线失败: {str(e)}")
             self.log_message(f"添加边缘标记线失败: {str(e)}", "ERROR")
 
+    def _get_edge_times(self, results):
+        """获取边缘时间信息"""
+        return {
+            'first_rise_time': results.get('first_rise_pos_time'),
+            'second_rise_time': results.get('second_rise_pos_time'),
+            'fall_time': results.get('fall_pos_time'),
+            'rise_midpoint_time': results.get('rise_midpoint_time'),
+            'fall_midpoint_time': results.get('fall_midpoint_time'),
+            'second_fall_midpoint_time': results.get('second_fall_midpoint_time')
+        }
+    
+    def _get_edge_amplitudes(self, results):
+        """获取边缘幅度信息并转换为电压值"""
+        adc_max_value = 2**19  # 262144
+        return {
+            'first_amplitude': (results.get('first_rise_amplitude', 0)/adc_max_value) * 3,
+            'second_amplitude': (results.get('second_rise_amplitude', 0)/adc_max_value) * 3,
+            'fall_amplitude': (results.get('fall_amplitude', 0)/adc_max_value) * 3
+        }
+    
+    def _get_edge_ratios(self, results):
+        """获取边缘比率信息"""
+        return {
+            'first_rise_ratio': results.get('first_rise_ratio', 0),
+            'rise_ratio': results.get('rise_ratio', 0),
+            'fall_ratio': results.get('fall_ratio', 0)
+        }
+    
+    def _create_edge_markers(self, edge_times, edge_amplitudes, edge_ratios, config, t_full_us, y_avg_voltage):
+        """创建边缘标记线"""
+        markers = []
+        
+        # 边缘标记线
+        if edge_times['first_rise_time'] is not None:
+            time_idx = np.argmin(np.abs(t_full_us - edge_times['first_rise_time']))
+            x_idx = config.n_roi(time_idx)
+            y_position = y_avg_voltage[time_idx+15] if time_idx < len(y_avg_voltage) else np.mean(y_avg_voltage)
+            markers.append((edge_times['first_rise_time'], y_position, "#D2A5A5", 'dashed', 
+                        f'Rise\n({y_position:.3f}V {round(x_idx,2)}%)', 3))
+        
+        if edge_times['second_rise_time'] is not None:
+            time_idx = np.argmin(np.abs(t_full_us - edge_times['second_rise_time']))
+            x_idx = config.n_roi(time_idx)
+            y_position = y_avg_voltage[time_idx+25] if time_idx < len(y_avg_voltage) else np.mean(y_avg_voltage)
+            markers.append((edge_times['second_rise_time'], y_position, "#49A333", 'dashed', 
+                        f'2nd Rise\n({y_position:.3f}V,{round(x_idx,2)}%)', 3))
+        
+        if edge_times['fall_time'] is not None:
+            time_idx = np.argmin(np.abs(t_full_us - edge_times['fall_time']))
+            x_idx = config.n_roi(time_idx)
+            y_position = y_avg_voltage[time_idx+25] if time_idx < len(y_avg_voltage) else np.mean(y_avg_voltage)
+            markers.append((edge_times['fall_time'], y_position, '#00AA00', 'dashed', 
+                        f'Fall\n({y_position:.3f}V,{round(x_idx,2)}%)', 3))
+        
+        # 中点标记线
+        if edge_times['rise_midpoint_time'] is not None:
+            time_idx = np.argmin(np.abs(t_full_us - edge_times['rise_midpoint_time']))
+            x_idx = config.n_roi(time_idx)
+            y_position = y_avg_voltage[time_idx] if time_idx < len(y_avg_voltage) else np.mean(y_avg_voltage)
+            markers.append((edge_times['rise_midpoint_time'], y_position, '#FFA500', 'dashed', 
+                        f'Rise-2nd\n({y_position:.3f}V {round(x_idx,2)}%)', 2))
+        
+        if edge_times['fall_midpoint_time'] is not None:
+            time_idx = np.argmin(np.abs(t_full_us - edge_times['fall_midpoint_time']))
+            x_idx = config.n_roi(time_idx)
+            y_position = y_avg_voltage[time_idx] if time_idx < len(y_avg_voltage) else np.mean(y_avg_voltage)
+            markers.append((edge_times['fall_midpoint_time'], y_position, '#800080', 'dashed', 
+                        f'Rise-Fall\n({y_position:.3f}V{round(x_idx,2)}%)', 2))
+        
+        if edge_times['second_fall_midpoint_time'] is not None:
+            time_idx = np.argmin(np.abs(t_full_us - edge_times['second_fall_midpoint_time']))
+            x_idx = config.n_roi(time_idx)
+            y_position = y_avg_voltage[time_idx] if time_idx < len(y_avg_voltage) else np.mean(y_avg_voltage)
+            markers.append((edge_times['second_fall_midpoint_time'], y_position, '#00FFFF', 'dashed', 
+                        f'2ndRise\n({y_position:.3f}V {round(x_idx,2)}%)', 2))
+        
+        return markers
+    
+    def _create_roi_markers(self, config, y_avg_voltage):
+        """创建ROI标记线"""
+        markers = []
+        
+        # ROI标记线
+        roi_start_time = config.roi_start * config.ts_eff * 1e6
+        roi_mid_time = config.roi_mid * config.ts_eff * 1e6
+        roi_end_time = config.roi_end * config.ts_eff * 1e6
+        
+        # 添加ROI标记线，使用平均Y值作为位置
+        avg_y = np.mean(y_avg_voltage)
+        markers.append((roi_start_time, avg_y, '#FF00FF', 'dashdot', f'ROI Start\n({config.roi_start_tenths}%)', 2))
+        markers.append((roi_mid_time, avg_y, "#94B814", 'dashdot', f'ROI Mid\n({config.roi_mid_tenths}%)', 2))
+        markers.append((roi_end_time, avg_y, '#00FFFF', 'dashdot', f'ROI End\n({config.roi_end_tenths}%)', 2))
+        
+        return markers
+    
+    def _add_sorted_markers(self, plot_controller, all_markers, y_avg_voltage):
+        """按时间排序并添加标记线"""
+        # 按时间排序标记线
+        all_markers.sort(key=lambda x: x[0])
+        
+        # 使用交替位置方案添加标记线
+        for i, (x_position, y_position, color, style, label, width) in enumerate(all_markers):
+            # 在Y坐标基础上添加小偏移以避免标签重叠
+            y_offset = 0.1 * (i % 3 - 1) * (np.max(y_avg_voltage) - np.min(y_avg_voltage))
+            final_y_position = y_position + y_offset
+            
+            plot_controller.add_marker_line(x_position, final_y_position, color, style, label, width)
 
-    def add_vertical_line_at_position(self, plot_controller, x_position, color, style, label, width, y_position):
-        """在指定位置添加垂直标记线 - 设置较低的Z值确保在背景层"""
-        try:
-            plot_widget = plot_controller.view.plot_widget
-            pen_style = pg.QtCore.Qt.DashLine if style == 'dashed' else \
-                    pg.QtCore.Qt.DotLine if style == 'dotted' else \
-                    pg.QtCore.Qt.DashDotLine if style == 'dashdot' else \
-                    pg.QtCore.Qt.SolidLine
-            
-            # 创建无限线，设置较低的Z值确保在背景层
-            line = pg.InfiniteLine(pos=x_position, angle=90, 
-                                pen=pg.mkPen(color, width=width, style=pen_style))
-            line.setZValue(-10)  # 设置较低的Z值，确保在背景层
-            
-            plot_widget.addItem(line)
-            
-            if label:
-                # 添加文本标签，也设置较低的Z值
-                text = pg.TextItem(text=label, color=color, anchor=(0.5, 1))
-                text.setPos(x_position, y_position)
-                text.setZValue(-5)  # 文本也设置较低的Z值，但比线稍高
-                
-                # 设置字体样式
-                font = text.textItem.font()
-                font.setPointSize(8)  # 使用稍小的字体
-                font.setBold(True)
-                text.textItem.setFont(font)
-                
-                plot_widget.addItem(text)
-            
-            return line
-            
-        except Exception as e:
-            print(f"添加标记线失败: {e}")
-            return None
+    def _log_edge_analysis_results(self, edge_times, edge_amplitudes, edge_ratios, config):
+        """记录边沿分析结果到日志"""
+        edge_info = []
+        
+        if edge_times['first_rise_time'] is not None:
+            edge_info.append(f"First Rise: {edge_times['first_rise_time']:.3f}ns, Amp: {edge_amplitudes['first_amplitude']:.3f}V")
+        
+        if edge_times['second_rise_time'] is not None:
+            edge_info.append(f"Second Rise: {edge_times['second_rise_time']:.3f}ns, Amp: {edge_amplitudes['second_amplitude']:.3f}V, Ratio: {edge_ratios['rise_ratio']:.2%}")
+        
+        if edge_times['fall_time'] is not None:
+            edge_info.append(f"Fall: {edge_times['fall_time']:.3f}ns, Amp: {edge_amplitudes['fall_amplitude']:.3f}V, Ratio: {edge_ratios['fall_ratio']:.2%}")
+        
+        # 添加ROI信息到日志
+        edge_info.append(f"ROI Range: {config.roi_start_tenths}%-{config.roi_end_tenths}%")
+        edge_info.append(f"ROI Mid: {config.roi_mid_tenths}%")
+        
+        if edge_info:
+            self.log_message("边沿分析结果:", "INFO")
+            for info in edge_info:
+                self.log_message(info, "INFO")
 
     def clear_all_markers(self):
         """清除所有绘图标记"""
@@ -565,50 +583,6 @@ class DataAnalysisController(QObject):
         except Exception as e:
             self.errorOccurred.emit(f"清除标记失败: {str(e)}")
             self.log_message(f"清除标记失败: {str(e)}", "ERROR")
-
-    def add_vertical_line(self, plot_controller, x_position, color='red', style='dashed', label='', width=2):
-        """添加垂直标记线 - 支持宽度参数"""
-        try:
-            # 创建无限线
-            plot_widget = plot_controller.view.plot_widget
-            pen_style = pg.QtCore.Qt.DashLine if style == 'dashed' else pg.QtCore.Qt.DotLine if style == 'dotted' else pg.QtCore.Qt.SolidLine
-        
-            # 使用指定的宽度
-            line = pg.InfiniteLine(pos=x_position, angle=90, 
-                                pen=pg.mkPen(color, width=width, style=pen_style))
-            plot_widget.addItem(line)
-        
-            if label:
-                # 获取当前Y轴数据范围
-                y_range = plot_widget.getViewBox().viewRange()[1]
-            
-                # 计算最大数据值并添加余量
-                if hasattr(self.model, 'y_data') and self.model.y_data:
-                    # 如果有数据，使用最大值的1.2倍作为高度
-                    max_y = max(self.model.y_data)
-                    y_position = max_y * 1.0
-                else:
-                    # 如果没有数据，使用Y轴范围的90%位置
-                    y_position = y_range[1] * 0.9
-            
-                # 确保位置在可见范围内
-                y_position = min(y_position, y_range[1] * 0.95)
-            
-                # 添加文本标签 - 使用更醒目的字体
-                text = pg.TextItem(text=label, color=color, anchor=(0.5, 1))
-                text.setPos(x_position, y_position)
-                # 设置字体大小和样式
-                font = text.textItem.font()
-                font.setPointSize(10)
-                font.setBold(True)
-                text.textItem.setFont(font)
-                plot_widget.addItem(text)
-            return line
-        
-        except Exception as e:
-            print(f"添加标记线失败: {e}")
-            return None
-
 
     def create_additional_plot_tabs(self):
         """创建额外的绘图标签页"""

@@ -2,6 +2,7 @@
 from PyQt5.QtCore import QObject
 import numpy as np
 import pyqtgraph as pg
+from PyQt5.QtCore import Qt
 
 class PlotWidgetController(QObject):
     def __init__(self, model, view):
@@ -14,6 +15,8 @@ class PlotWidgetController(QObject):
         self.roi_start = None
         self.roi_end = None
         self.roi_lines = []  # 存储ROI标记线
+        self.marker_lines = []  # 存储所有标记线
+        self.marker_texts = []  # 存储所有标记文本
     
     def setup_default_alignment(self):
         """设置默认的坐标轴对齐方式"""
@@ -96,42 +99,45 @@ class PlotWidgetController(QObject):
         self.view.set_labels(x_label, y_label, units_x, units_y)
         self.view.plot_widget.setTitle("差分频域信号", color='b', size='12pt')
 
-    def add_vertical_line(self, x_position, color='red', style='dashed', label=''):
-        """添加垂直标记线"""
+    def add_marker_line(self, x_position, y_position=None, color='red', style='dashed', label='', width=2, angle=90):
+        """添加标记线 - 支持垂直或水平线，以及文本标签"""
         try:
             # 创建无限线
-            pen = pg.mkPen(color, width=1, style=pg.QtCore.Qt.DashLine if style == 'dashed' else pg.QtCore.Qt.SolidLine)
-            line = pg.InfiniteLine(pos=x_position, angle=90, pen=pen, movable=False)
+            pen_style = Qt.DashLine if style == 'dashed' else \
+                        Qt.DotLine if style == 'dotted' else \
+                        Qt.DashDotLine if style == 'dashdot' else \
+                        Qt.SolidLine
+            
+            # 创建无限线，设置较低的Z值确保在背景层
+            line = pg.InfiniteLine(pos=x_position if angle == 90 else y_position, 
+                                angle=angle, 
+                                pen=pg.mkPen(color, width=width, style=pen_style))
+            line.setZValue(-10)  # 设置较低的Z值，确保在背景层
+            
             self.view.plot_widget.addItem(line)
+            self.marker_lines.append(line)
             
             if label:
-                # 添加文本标签
-                text = pg.TextItem(text=label, color=color, anchor=(0.5, 1))
-                y_range = self.view.plot_widget.getViewBox().viewRange()[1]
-                text.setPos(x_position, y_range[1] * 0.9)  # 放在y轴90%的位置
-                self.view.plot_widget.addItem(text)
+                # 添加文本标签，也设置较低的Z值
+                text = pg.TextItem(text=label, color=color, anchor=(0.5, 1) if angle == 90 else (1, 0.5))
                 
-            return line
-            
-        except Exception as e:
-            print(f"添加标记线失败: {e}")
-            return None
-
-    def add_horizontal_line(self, y_position, color='red', style='dashed', label=''):
-        """添加水平标记线"""
-        try:
-            # 创建无限线
-            pen = pg.mkPen(color, width=1, style=pg.QtCore.Qt.DashLine if style == 'dashed' else pg.QtCore.Qt.SolidLine)
-            line = pg.InfiniteLine(pos=y_position, angle=0, pen=pen, movable=False)
-            self.view.plot_widget.addItem(line)
-            
-            if label:
-                # 添加文本标签
-                text = pg.TextItem(text=label, color=color, anchor=(1, 0.5))
-                x_range = self.view.plot_widget.getViewBox().viewRange()[0]
-                text.setPos(x_range[1] * 0.9, y_position)  # 放在x轴90%的位置
-                self.view.plot_widget.addItem(text)
+                # 设置文本位置
+                if angle == 90:  # 垂直线
+                    text.setPos(x_position, y_position if y_position is not None else 0)
+                else:  # 水平线
+                    text.setPos(x_position if x_position is not None else 0, y_position)
                 
+                text.setZValue(-5)  # 文本也设置较低的Z值，但比线稍高
+                
+                # 设置字体样式
+                font = text.textItem.font()
+                font.setPointSize(8)  # 使用稍小的字体
+                font.setBold(True)
+                text.textItem.setFont(font)
+                
+                self.view.plot_widget.addItem(text)
+                self.marker_texts.append(text)
+            
             return line
             
         except Exception as e:
@@ -139,20 +145,26 @@ class PlotWidgetController(QObject):
             return None
 
     def clear_markers(self):
-        """清除所有标记线"""
+        """清除所有标记线和文本"""
         try:
-            # 获取所有无限线并移除
-            for item in self.view.plot_widget.allChildItems():
-                if isinstance(item, pg.InfiniteLine):
-                    self.view.plot_widget.removeItem(item)
-                elif isinstance(item, pg.TextItem):
-                    self.view.plot_widget.removeItem(item)
+            # 移除所有标记线
+            for line in self.marker_lines:
+                self.view.plot_widget.removeItem(line)
+            
+            # 移除所有标记文本
+            for text in self.marker_texts:
+                self.view.plot_widget.removeItem(text)
+            
+            # 清空列表
+            self.marker_lines = []
+            self.marker_texts = []
+            
+            # 同时清除ROI标记
+            self.clear_roi_markers()
                     
         except Exception as e:
             print(f"清除标记线失败: {e}")
 
-
-    
     def set_custom_alignment(self, horizontal='center', vertical='center', 
                            left_pos='left', bottom_pos='bottom'):
         """
@@ -217,8 +229,8 @@ class PlotWidgetController(QObject):
         
         if self.roi_start is not None and self.roi_end is not None:
             # 添加ROI开始和结束的垂直标记线
-            start_line = self.add_vertical_line(self.roi_start, color='green', style='dashed', label='ROI Start')
-            end_line = self.add_vertical_line(self.roi_end, color='red', style='dashed', label='ROI End')
+            start_line = self.add_marker_line(self.roi_start, color='green', style='dashed', label='ROI Start')
+            end_line = self.add_marker_line(self.roi_end, color='red', style='dashed', label='ROI End')
             
             if start_line:
                 self.roi_lines.append(start_line)
