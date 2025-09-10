@@ -56,13 +56,15 @@ class DataAnalyzer:
         try:
             # 1. 提取ADC数据
             bit31, adc_full = self.data_processor.extract_adc_data(u32_arr, self.config.use_signed18)
-        
+
+            self.debug_plotter.simple_plot(bit31)
             # 2. 检测有效数据
             rise_idx = self.data_processor.detect_valid_data(bit31, self.config.edge_search_start)
+            print("rise_idx",rise_idx)
             if rise_idx is None:
                 logger.warning(f"数据索引 {data_index}: 未检测到有效数据")
                 return None
-        
+            
             # 3. 截取数据段
             segment_adc = self.data_processor.extract_data_segment(
                 adc_full, rise_idx, self.config.start_index, self.config.n_points
@@ -76,7 +78,6 @@ class DataAnalyzer:
             y_sorted, _ = self.data_processor.sort_data_by_period(
                 segment_adc, self.config.t_sample, self.config.t_trig
             )
-            
             # 5. 搜索边沿位置（如果未提供目标对齐位置）
             if target_idx is None:
                 # 搜索所有边沿位置,第一上升沿，第二上升沿，下降沿
@@ -300,54 +301,69 @@ class DataAnalyzer:
         """
         try:
             # 检查输入数据
-            if not isinstance(u32_arr_dict, dict) or 'adc1' not in u32_arr_dict:
+            if not isinstance(u32_arr_dict, dict) or ('adc1' not in u32_arr_dict and 'adc2' not in u32_arr_dict):
                 logger.error(f"文件索引 {file_index}: 输入数据格式不正确")
                 return None
             
-            adc1_data = u32_arr_dict['adc1']
+            adc1_data = u32_arr_dict.get('adc1', None)
             adc2_data = u32_arr_dict.get('adc2', None)
             
-            # 处理ADC1数据
-            adc1_basic_result = self.extract_basic_segment(adc1_data, file_index)
-            if adc1_basic_result is None:
+            # 检查ADC数据是否都为空
+            if adc1_data is None and adc2_data is None:
+                logger.warning(f"文件索引 {file_index}: ADC1和ADC2数据都为空")
                 return None
             
-            # 获取ADC1的目标对齐位置
-            target_idx = adc1_basic_result.get('rise_pos')
+            # 处理ADC1数据（如果存在）
+            adc1_basic_result = None
+            target_idx = None
+            
+            if adc1_data is not None:
+                adc1_basic_result = self.extract_basic_segment(adc1_data, file_index)
+                if adc1_basic_result is not None:
+                    target_idx = adc1_basic_result.get('rise_pos')
             
             # 处理ADC2数据（如果存在）
             adc2_basic_result = None
             if adc2_data is not None:
-                # 使用ADC1的目标对齐位置来处理ADC2数据
+                # 使用ADC1的目标对齐位置来处理ADC2数据（如果存在）
                 adc2_basic_result = self.extract_basic_segment(adc2_data, file_index, target_idx)
+            
+            # 如果两个通道的基本结果都为空，返回None
+            if adc1_basic_result is None and adc2_basic_result is None:
+                logger.warning(f"文件索引 {file_index}: 两个通道的基本处理结果都为空")
+                return None
             
             # 根据校准模式选择不同的处理方法
             if self.config.cal_mode in [CalibrationMode.THRU, CalibrationMode.LOAD]:
                 # THRU和LOAD模式使用标准处理
-                adc1_result = self.process_thru_load_mode(adc1_basic_result)
+                adc1_result = self.process_thru_load_mode(adc1_basic_result) if adc1_basic_result else None
                 adc2_result = self.process_thru_load_mode(adc2_basic_result) if adc2_basic_result else None
             elif self.config.cal_mode == CalibrationMode.SHORT:
                 # SHORT模式特殊处理
-                adc1_result = self.process_thru_load_mode(adc1_basic_result)
+                adc1_result = self.process_thru_load_mode(adc1_basic_result) if adc1_basic_result else None
                 adc2_result = self.process_thru_load_mode(adc2_basic_result) if adc2_basic_result else None
             elif self.config.cal_mode == CalibrationMode.OPEN:
                 # OPEN模式特殊处理
-                adc1_result = self.process_thru_load_mode(adc1_basic_result)
+                adc1_result = self.process_thru_load_mode(adc1_basic_result) if adc1_basic_result else None
                 adc2_result = self.process_thru_load_mode(adc2_basic_result) if adc2_basic_result else None
             else:
                 logger.error(f"未知的校准模式: {self.config.cal_mode}")
                 return None
             
             # 返回嵌套字典结果
-            result = {'adc1': adc1_result}
+            result = {}
+            if adc1_result is not None:
+                result['adc1'] = adc1_result
             if adc2_result is not None:
                 result['adc2'] = adc2_result
             
-            return result
+            return result if result else None
             
         except Exception as e:
             logger.error(f"处理文件索引 {file_index} 时出错: {e}")
             return None
+
+
 
     def batch_process_files(self, file_list: List[str]) -> Dict[str, Any]:
         """
