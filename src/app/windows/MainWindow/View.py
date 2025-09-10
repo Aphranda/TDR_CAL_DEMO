@@ -268,7 +268,8 @@ class MainWindowView(QMainWindow):
     def add_plot_tab(self, widget, title):
         """添加绘图标签页"""
         widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        self.plot_area.addTab(widget, title)
+        index = self.plot_area.addTab(widget, title)
+        return index
 
     def clear_plot_tabs(self):
         """清除所有绘图标签页"""
@@ -359,3 +360,35 @@ class MainWindowView(QMainWindow):
             if self.plot_area.tabText(i) == tab_name:
                 self.plot_area.removeTab(i)
                 break
+
+    def set_plot_tab_color(self, index, color):
+        """设置绘图标签页的颜色 - 使用 QTabBar 的方法"""
+        try:
+            if 0 <= index < self.plot_area.count():
+                # 获取 QTabBar 并设置标签颜色
+                tab_bar = self.plot_area.tabBar()
+                if hasattr(tab_bar, 'setTabTextColor'):
+                    # 将颜色字符串转换为 QColor
+                    from PyQt5.QtGui import QColor
+                    qcolor = QColor(color)
+                    tab_bar.setTabTextColor(index, qcolor)
+                else:
+                    # 备选方案：使用样式表设置特定标签的颜色
+                    tab_name = self.plot_area.tabText(index)
+                    current_style = self.plot_area.styleSheet()
+                    new_style = f"""
+                        QTabBar::tab:selected[text="{tab_name}"] {{ 
+                            color: {color}; 
+                        }}
+                        QTabBar::tab:!selected[text="{tab_name}"] {{ 
+                            color: {color}; 
+                        }}
+                    """
+                    self.plot_area.setStyleSheet(current_style + new_style)
+        except Exception as e:
+            print(f"设置标签颜色失败: {e}")
+
+
+
+
+

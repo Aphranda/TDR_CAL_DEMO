@@ -44,6 +44,7 @@ class DataAnalysisController(QObject):
         # 文件操作按钮
         self.view.load_button.clicked.connect(self.on_load_file)
         self.view.clear_button.clicked.connect(self.on_clear_files)
+        self.view.clear_plot.clicked.connect(self.on_clear_plots)  # 新增：连接清除绘图按钮
       
         # 分析类型变化
         self.view.analysis_combo.currentTextChanged.connect(self.on_analysis_type_changed)
@@ -62,6 +63,11 @@ class DataAnalysisController(QObject):
 
         # 连接分析进度信号
         self.analysisProgress.connect(self.on_analysis_progress)
+
+    def on_clear_plots(self):
+        """清除所有绘图"""
+        self.clear_all_plot_tabs()
+        self.log_message("已清除所有绘图", "INFO")
 
     def on_analysis_progress(self, current, total, message):
         """处理分析进度更新"""
@@ -335,7 +341,7 @@ class DataAnalysisController(QObject):
         """生成绘图数据 - 支持双通道"""
         try:
             # 移除主界面默认的绘图页
-            self.remove_default_plot_tabs()
+            self.clear_all_plot_tabs()
             
             # 清除所有现有的标记线
             self.clear_all_markers()
@@ -349,24 +355,87 @@ class DataAnalysisController(QObject):
             self.errorOccurred.emit(f"生成绘图数据失败: {str(e)}")
             self.log_message(f"生成绘图数据失败: {str(e)}", "ERROR")
 
-    def remove_default_plot_tabs(self):
-        """移除主界面默认的绘图页"""
+    def create_plot_tab(self, plot_name, plot_title):
+        """创建绘图标签页，并根据类型设置不同颜色"""
+        if not hasattr(self, 'main_window_controller') or not self.main_window_controller:
+            return None
+        
+        main_window_view = self.main_window_controller.view
+        
+        # 检查是否已存在同名的控制器，如果存在则先移除
+        if plot_name in self.main_window_controller.sub_controllers:
+            # 查找对应的标签页并移除
+            tab_name = plot_title.replace(" ", "")
+            for i in range(main_window_view.plot_area.count()):
+                if main_window_view.plot_area.tabText(i) == tab_name:
+                    main_window_view.plot_area.removeTab(i)
+                    break
+            
+            # 移除控制器引用
+            del self.main_window_controller.sub_controllers[plot_name]
+        
+        # 创建绘图控件
+        plot_view, plot_controller = create_plot_widget(plot_title)
+        
+        # 添加到主窗口
+        tab_name = plot_title.replace(" ", "")
+        index = main_window_view.add_plot_tab(plot_view, tab_name)
+        
+        # 根据绘图类型设置标签颜色
+        if "时域" in plot_title and "差分" not in plot_title:
+            color = "#3498DB"  # 蓝色 - 时域信号
+        elif "频域" in plot_title and "差分" not in plot_title:
+            color = "#27AE60"  # 绿色 - 频域信号
+        elif "差分时域" in plot_title:
+            color = "#E67E22"  # 橙色 - 差分时域
+        elif "差分频域" in plot_title:
+            color = "#9B59B6"  # 紫色 - 差分频域
+        else:
+            color = "#7F8C8D"  # 灰色 - 默认
+        
+        # 设置标签颜色
+        try:
+            main_window_view.set_plot_tab_color(index, color)
+        except Exception as e:
+            self.log_message(f"设置标签颜色失败: {str(e)}", "WARNING")
+        
+        # 保存控制器引用
+        self.main_window_controller.sub_controllers[plot_name] = plot_controller
+        
+        return plot_controller
+
+
+
+    def clear_all_plot_tabs(self):
+        """移除所有绘图标签页，并清除对应的控制器引用"""
         if not hasattr(self, 'main_window_controller') or not self.main_window_controller:
             return
         
         main_window_view = self.main_window_controller.view
         
-        # 移除默认的时域和频域绘图页
-        default_tabs = ["时域", "频域"]
-        for tab_name in default_tabs:
-            if tab_name in self.main_window_controller.sub_controllers:
-                # 移除控制器引用
-                del self.main_window_controller.sub_controllers[tab_name]
-            
-            # 从界面移除标签页
+        # 获取左侧绘图区域的所有标签页名称
+        plot_tab_names = []
+        for i in range(main_window_view.plot_area.count()):
+            tab_name = main_window_view.plot_area.tabText(i)
+            plot_tab_names.append(tab_name)
+        
+        # 移除所有绘图标签页
+        for tab_name in plot_tab_names:
             main_window_view.remove_plot_tab(tab_name)
         
-        self.log_message("已移除默认绘图页", "INFO")
+        # 清除所有绘图控制器的引用
+        keys_to_remove = [key for key in self.main_window_controller.sub_controllers.keys() 
+                        if key.startswith('plot_')]
+        for key in keys_to_remove:
+            del self.main_window_controller.sub_controllers[key]
+        
+        # 强制垃圾回收
+        import gc
+        gc.collect()
+        
+        self.log_message("已移除所有绘图页和控制器引用", "INFO")
+
+
 
     def _generate_channel_plot_data(self, channel, results, averages, config):
         """生成单个通道的绘图数据"""
@@ -481,24 +550,8 @@ class DataAnalysisController(QObject):
             
             diff_freq_controller.plot_diff_frequency_domain(freq_d_ghz, mag_d_db, "频率", "差分幅度", "GHz", "dB")
 
-    def create_plot_tab(self, plot_name, plot_title):
-        """创建绘图标签页"""
-        if not hasattr(self, 'main_window_controller') or not self.main_window_controller:
-            return None
-        
-        main_window_view = self.main_window_controller.view
-        
-        # 创建绘图控件
-        plot_view, plot_controller = create_plot_widget(plot_title)
-        
-        # 添加到主窗口
-        tab_name = plot_title.replace(" ", "")
-        main_window_view.add_plot_tab(plot_view, tab_name)
-        
-        # 保存控制器引用
-        self.main_window_controller.sub_controllers[plot_name] = plot_controller
-        
-        return plot_controller
+
+
 
     def add_edge_markers(self, plot_controller, results, config, t_full_us, y_avg_voltage):
         """添加边缘位置标记线 - 使用交替位置方案避免标签重叠"""
@@ -673,22 +726,6 @@ class DataAnalysisController(QObject):
             self.errorOccurred.emit(f"清除标记失败: {str(e)}")
             self.log_message(f"清除标记失败: {str(e)}", "ERROR")
 
-    def create_additional_plot_tabs(self):
-        """创建额外的绘图标签页"""
-        if not hasattr(self, 'main_window_controller') or not self.main_window_controller:
-            return
-      
-        main_window_view = self.main_window_controller.view
-      
-        # 创建差分时域绘图
-        diff_time_view, diff_time_controller = create_plot_widget("差分时域信号")
-        main_window_view.add_plot_tab(diff_time_view, "差分时域")
-        self.main_window_controller.sub_controllers['plot_diff_time'] = diff_time_controller
-      
-        # 创建差分频域绘图
-        diff_freq_view, diff_freq_controller = create_plot_widget("差分频域信号")
-        main_window_view.add_plot_tab(diff_freq_view, "差分频域")
-        self.main_window_controller.sub_controllers['plot_diff_freq'] = diff_freq_controller
 
     def export_plots(self, base_path):
         """导出所有绘图到以base_path为基础的文件名"""
