@@ -2,6 +2,7 @@
 import socket, select
 import time
 
+
 class TcpClient:
     """带超时重发机制的TCP客户端"""
     def __init__(self):
@@ -78,6 +79,7 @@ class TcpClient:
         if last_exception:
             error_msg += f": {str(last_exception)}"
         return False, error_msg
+
 
     def receive(self, bufsize=4096, max_retries=3, base_timeout=1.0):
         """

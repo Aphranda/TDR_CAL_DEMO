@@ -56,7 +56,6 @@ class DataAnalyzer:
         try:
             # 1. 提取ADC数据
             bit31, adc_full = self.data_processor.extract_adc_data(u32_arr, self.config.use_signed18)
-
             # 2. 检测有效数据
             rise_idx = self.data_processor.detect_valid_data(bit31, self.config.edge_search_start)
             print("rise_idx",rise_idx)
@@ -69,6 +68,8 @@ class DataAnalyzer:
                 adc_full, rise_idx, self.config.start_index, self.config.n_points
             )
             
+            self.debug_plotter.simple_plot(segment_adc)
+
             if segment_adc is None:
                 logger.warning(f"数据索引 {data_index}: 数据段截取失败")
                 return None
@@ -78,7 +79,7 @@ class DataAnalyzer:
                 segment_adc, self.config.t_sample, self.config.t_trig
             )
 
-           
+
             # 5. 搜索边沿位置（如果未提供目标对齐位置）
             if target_idx is None:
                 # 搜索所有边沿位置,第一上升沿，第二上升沿，下降沿

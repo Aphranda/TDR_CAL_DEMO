@@ -52,6 +52,7 @@ class ADCSample:
         """检查是否已连接"""
         return self.tcp_client and self.tcp_client.connected
     
+    @timeit
     def send_command(self, command, max_retries=3):
         """发送命令并获取响应"""
         if not self.is_connected():
@@ -65,6 +66,7 @@ class ADCSample:
         success, response_data = self.tcp_client.receive(max_retries=max_retries)
         return success, response_data
     
+    @timeit
     def receive_binary_data(self, max_retries=3, base_timeout=1.0):
         """
         专门用于接收二进制数据的方法
@@ -133,6 +135,7 @@ class ADCSample:
         # 返回两个ADC的数据字典
         return True, {'adc1': adc1_data, 'adc2': adc2_data}
     
+    @timeit
     def perform_single_test(self, test_num):
         """执行单次测试并返回数据"""
         if not self.is_connected():

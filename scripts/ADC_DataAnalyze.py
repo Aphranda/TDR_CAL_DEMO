@@ -11,7 +11,7 @@ SearchCenter_Rising = 1
 SearchCenter_Max = 2
 
 # ===== 参数 =====
-input_dir         = 'CSV_Data0818_testonly'  # 要处理的文件夹
+input_dir         = 'scripts\\temp\\test_raw'  # 要处理的文件夹
 recursive         = True                  # 是否递归子文件夹
 clock_freq        = 39.53858777e6         # 采样时钟 Hz
 trigger_freq      = 10e6                  # 触发频率 Hz
@@ -30,7 +30,7 @@ roi_end_tenths    = 30
 
 
 # 输出CSV
-output_csv        = 'Cable_S23.csv'
+output_csv        = 'scripts\\temp\\test_raw\\Cable_S23.csv'
 
 # ===== 推导量 =====
 T_sample = 1.0 / clock_freq

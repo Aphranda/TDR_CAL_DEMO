@@ -1,23 +1,24 @@
 # src/app/threads/ADCSampleWorker.py
 import os
 import time
+from matplotlib.pylab import f
 import numpy as np
-from PyQt5.QtCore import QObject, pyqtSignal, pyqtSlot
+from PyQt5.QtCore import QObject, pyqtSignal, QThread,pyqtSlot
 from app.core.ADCSample import ADCSample
 from app.core.FileManager import FileManager
-from memory_profiler import profile
+from .DataSaverWorker import DataSaverWorker
 
 class ADCSampleWorker(QObject):
-    """ADC采样工作线程 - 使用生成器优化内存"""
+    """ADC采样工作线程 - 使用异步保存优化性能"""
     progress = pyqtSignal(int, int, str)
     finished = pyqtSignal(bool, str)
     sampleData = pyqtSignal(dict)  # 发送字典，包含两个ADC的数据
     dataSaved = pyqtSignal(str, str)
+    saveError = pyqtSignal(str)
     
     def __init__(self, tcp_client, count, interval, save_raw_data=True, output_dir=None, filename_prefix=None):
         super().__init__()
         self.adc_sample = ADCSample()
-        self.file_manager = FileManager()
         self.adc_sample.set_tcp_client(tcp_client)
         self.count = count
         self.interval = interval
@@ -26,15 +27,31 @@ class ADCSampleWorker(QObject):
         self.filename_prefix = filename_prefix or 'adc_raw_data'
         self.running = False
         self._should_stop = False
+        
+        # 创建异步保存线程
+        self.saver_thread = QThread()
+        self.data_saver = DataSaverWorker(max_queue_size=5)  # 限制队列大小防止内存占用过高
+        self.data_saver.moveToThread(self.saver_thread)
+        
+        # 连接信号槽
+        self.data_saver.dataSaved.connect(self.dataSaved)
+        self.data_saver.errorOccurred.connect(self.saveError)
+        self.saver_thread.started.connect(self.data_saver.run)
+        self.data_saver.finished.connect(self.saver_thread.quit)
+        self.data_saver.finished.connect(self.data_saver.deleteLater)
+        self.saver_thread.finished.connect(self.saver_thread.deleteLater)
     
     def _initialize_sampling(self):
         """初始化采样环境"""
         self.running = True
         self._should_stop = False
         
+        # 启动保存线程
+        self.saver_thread.start()
+        
         # 确保输出目录存在
         if self.save_raw_data:
-            self.file_manager.ensure_dir_exists(self.output_dir)
+            self.data_saver.file_manager.ensure_dir_exists(self.output_dir)
         
         return True
     
@@ -56,7 +73,7 @@ class ADCSampleWorker(QObject):
             
             # 等待间隔
             time.sleep(self.interval)
-    
+
     def _perform_single_sample(self, sample_index):
         """执行单次采样操作"""
         try:
@@ -83,24 +100,25 @@ class ADCSampleWorker(QObject):
         
         return processed_dict
     
-    def _save_sample_data(self, sample_data, sample_index):
-        """保存采样数据"""
-        filename_prefix = f'{self.filename_prefix}_{sample_index + 1:04d}'
-        success, message = self.adc_sample.save_test_result(
-            sample_index, sample_data, filename_prefix, self.output_dir
-        )
+    def _async_save_sample_data(self, sample_data, sample_index):
+        """异步保存采样数据"""
+        if not self.save_raw_data:
+            return True
         
-        if success:
-            # 发送两个ADC文件的保存消息
-            for adc_name in sample_data.keys():
-                filename = f'{filename_prefix}_{adc_name}.bin'  # 修改为.bin文件
-                self.dataSaved.emit(os.path.join(self.output_dir, filename), 
-                                   f"数据已保存: {filename}")
-        else:
-            self.progress.emit(sample_index + 1, self.count, 
-                              f"数据保存失败: {message}")
-        
-        return success
+        try:
+            # 复制数据以避免在异步保存过程中被修改
+            data_copy = {}
+            for adc_name, data in sample_data.items():
+                data_copy[adc_name] = data.copy()
+            
+            # 添加到保存队列
+            self.data_saver.add_save_task(
+                data_copy, sample_index, self.output_dir, self.filename_prefix
+            )
+            return True
+        except Exception as e:
+            self.saveError.emit(f"添加到保存队列失败: {str(e)}")
+            return False
     
     def _force_release_memory(self, obj):
         """强制释放对象内存"""
@@ -149,9 +167,9 @@ class ADCSampleWorker(QObject):
                 # 发送双ADC数据字典
                 self.sampleData.emit(sample_data)
                 
-                # 保存原始数据
+                # 异步保存原始数据
                 if self.save_raw_data:
-                    self._save_sample_data(sample_data, sample_index)
+                    self._async_save_sample_data(sample_data, sample_index)
                 
                 # 清理当前采样数据
                 self._cleanup_sample_resources(sample_data)
@@ -167,15 +185,20 @@ class ADCSampleWorker(QObject):
     def cleanup_resources(self):
         """清理工作线程资源"""
         try:
+            # 停止保存线程
+            if hasattr(self, 'data_saver') and self.data_saver:
+                self.data_saver.stop()
+            
+            if hasattr(self, 'saver_thread') and self.saver_thread.isRunning():
+                self.saver_thread.quit()
+                self.saver_thread.wait(5000)  # 等待5秒
+            
             if hasattr(self, 'adc_sample') and self.adc_sample:
                 if hasattr(self.adc_sample, 'file_manager'):
                     self.adc_sample.file_manager = None
                 if hasattr(self.adc_sample, 'tcp_client'):
                     self.adc_sample.tcp_client = None
                 self.adc_sample = None
-            
-            if hasattr(self, 'file_manager'):
-                self.file_manager = None
             
             self.running = False
             self._should_stop = False
@@ -192,3 +215,4 @@ class ADCSampleWorker(QObject):
         """停止采样"""
         self.running = False
         self._should_stop = True
+        self.cleanup_resources()
