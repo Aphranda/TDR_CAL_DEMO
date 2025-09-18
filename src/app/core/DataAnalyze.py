@@ -68,7 +68,6 @@ class DataAnalyzer:
                 adc_full, rise_idx, self.config.start_index, self.config.n_points
             )
             
-            self.debug_plotter.simple_plot(segment_adc)
 
             if segment_adc is None:
                 logger.warning(f"数据索引 {data_index}: 数据段截取失败")
