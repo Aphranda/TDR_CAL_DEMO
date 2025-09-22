@@ -16,16 +16,16 @@ class DataAnalysisView(QWidget):
         main_layout = QVBoxLayout()
         main_layout.setSpacing(8)
         main_layout.setContentsMargins(6, 6, 6, 6)
-
-        # # 设置窗口属性以避免递归重绘
-        # self.setAttribute(Qt.WA_OpaquePaintEvent)
-        # self.setAttribute(Qt.WA_PaintOnScreen)
-        
         # 数据文件选择
         file_group = QGroupBox("数据分析")
         file_layout = QVBoxLayout()
         file_layout.setSpacing(6)
         file_layout.setContentsMargins(8, 12, 8, 12)
+        
+        # 段数信息显示
+        self.segment_info_label = QLabel("数据段数: 未加载数据")
+        self.segment_info_label.setStyleSheet("QLabel { color: #3498DB; font-weight: bold; }")
+        file_layout.addWidget(self.segment_info_label)
         
         # 文件操作按钮
         file_control_layout = QHBoxLayout()
@@ -82,6 +82,14 @@ class DataAnalysisView(QWidget):
         
         # 初始显示ADC数据分析选项
         self.options_stack.setCurrentIndex(2)
+
+    def update_segment_info(self, total_segments, adc1_files, adc2_files):
+        """更新段数信息显示"""
+        adc1_segments = sum(file_info['segments'] for file_info in self.controller.model.data_files['adc1'])
+        adc2_segments = sum(file_info['segments'] for file_info in self.controller.model.data_files['adc2'])
+        
+        info_text = f"数据段数: 总共 {total_segments} 段 (ADC1: {adc1_segments}段, ADC2: {adc2_segments}段)"
+        self.segment_info_label.setText(info_text)
     
     def create_s_parameter_options(self):
         """创建S参数选项"""

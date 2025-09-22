@@ -103,26 +103,31 @@ class DataAnalysisController(QObject):
             if file_paths:
                 # 清空当前数据文件字典
                 self.model.data_files = {'adc1': [], 'adc2': []}
+                total_segments = 0
                 
                 for file_path in file_paths:
                     # 根据文件名判断是adc1还是adc2的数据
                     filename = os.path.basename(file_path).lower()
                     
+                    # 检测文件中的段数
+                    segments = self.detect_segments_in_file(file_path)
+                    total_segments += segments
+                    
                     if 'adc1' in filename or 'ch1' in filename or 'channel1' in filename:
-                        self.model.data_files['adc1'].append(file_path)
+                        self.model.data_files['adc1'].append({'path': file_path, 'segments': segments})
                         file_format = FileManager().detect_file_format(file_path)
-                        display_name = f"[ADC1] {os.path.basename(file_path)} [{file_format}]"
+                        display_name = f"[ADC1] {os.path.basename(file_path)} [{file_format}] - {segments}段"
                         self.view.file_list.addItem(display_name)
                     elif 'adc2' in filename or 'ch2' in filename or 'channel2' in filename:
-                        self.model.data_files['adc2'].append(file_path)
+                        self.model.data_files['adc2'].append({'path': file_path, 'segments': segments})
                         file_format = FileManager().detect_file_format(file_path)
-                        display_name = f"[ADC2] {os.path.basename(file_path)} [{file_format}]"
+                        display_name = f"[ADC2] {os.path.basename(file_path)} [{file_format}] - {segments}段"
                         self.view.file_list.addItem(display_name)
                     else:
                         # 如果无法确定是哪个ADC的数据，默认添加到adc1
-                        self.model.data_files['adc1'].append(file_path)
+                        self.model.data_files['adc1'].append({'path': file_path, 'segments': segments})
                         file_format = FileManager().detect_file_format(file_path)
-                        display_name = f"[ADC1] {os.path.basename(file_path)} [{file_format}]"
+                        display_name = f"[ADC1] {os.path.basename(file_path)} [{file_format}] - {segments}段"
                         self.view.file_list.addItem(display_name)
                         self.log_message(f"警告: 无法确定文件 {os.path.basename(file_path)} 属于哪个ADC，已默认添加到ADC1", "WARNING")
                 
@@ -133,19 +138,52 @@ class DataAnalysisController(QObject):
                 if adc1_count != adc2_count:
                     self.log_message(f"警告: ADC1和ADC2的文件数量不匹配 (ADC1: {adc1_count}, ADC2: {adc2_count})", "WARNING")
                 
-                msg = f"成功加载 {len(file_paths)} 个文件 (ADC1: {adc1_count}, ADC2: {adc2_count})"
+                # 在文件列表上方添加段数信息
+                self.view.update_segment_info(total_segments, adc1_count, adc2_count)
+                
+                msg = f"成功加载 {len(file_paths)} 个文件 (ADC1: {adc1_count}, ADC2: {adc2_count}), 共 {total_segments} 段数据"
                 self.dataLoaded.emit(msg)
                 self.log_message(msg, "INFO")
         except Exception as e:
             error_msg = f"加载文件失败: {str(e)}"
             self.errorOccurred.emit(error_msg)
             self.log_message(error_msg, "ERROR")
+    # 添加检测文件段数的方法
+    def detect_segments_in_file(self, file_path):
+        """检测文件中的数据段数"""
+        try:
+            file_format = FileManager().detect_file_format(file_path)
+            
+            if file_format == 'binary' or file_format == 'raw':
+                # 对于二进制文件，通过文件大小和已知结构估算段数
+                file_size = os.path.getsize(file_path)
+                # 假设每段数据包含81920个18位采样点
+                segment_size = 81920 * 3  # 每个采样点3字节（18位=2.25字节，向上取整为3）
+                segments = max(1, file_size // segment_size)
+                return segments
+            elif file_format == 'csv' or file_format == 'txt':
+                # 对于文本文件，通过行数估算段数
+                with open(file_path, 'r') as f:
+                    lines = sum(1 for _ in f)
+                # 假设每段数据有81920行，加上可能的标题行
+                segments = max(1, lines // 81920)
+                return segments
+            else:
+                # 对于其他格式，默认1段
+                return 1
+        except:
+            # 如果检测失败，默认1段
+            return 1
   
+    # 在on_clear_files方法中清除段数信息
     def on_clear_files(self):
         """清除文件列表"""
         self.model.data_files = {'adc1': [], 'adc2': []}
         self.model.current_data = None
         self.view.file_list.clear()
+        
+        # 清除段数信息显示
+        self.view.segment_info_label.setText("数据段数: 未加载数据")
         
         # 清理分析数据
         self.cleanup_analysis()
@@ -153,6 +191,7 @@ class DataAnalysisController(QObject):
         msg = "已清除文件列表和分析数据"
         self.dataLoaded.emit(msg)
         self.log_message(msg, "INFO")
+
   
     def on_analysis_type_changed(self, analysis_type):
         """分析类型变化"""

@@ -17,7 +17,7 @@ SERVER_IP = '192.168.1.10'
 SERVER_PORT = 15000
 REQUEST_DATA = b'\x01'  # 任意一个字节
 CHUNK_SIZE = 32768
-TEST_COUNT = 10  # 测试次数
+TEST_COUNT = 1  # 测试次数
 OUTPUT_DIR = 'scripts\\temp\\test_raw'  # 结果保存目录
 
 
@@ -35,7 +35,7 @@ def perform_test(test_num):
         s.connect((SERVER_IP, SERVER_PORT))
 
         # 发送 sample 指令
-        s.sendall(b'sample')
+        s.sendall(b'sample 10')
         response = s.recv(128)
         print(f"测试 {test_num + 1}: sample 响应: {response.strip().decode()}")
 

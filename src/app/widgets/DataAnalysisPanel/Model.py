@@ -71,7 +71,7 @@ class ADCConfig:
 class DataAnalysisModel:
     def __init__(self):
         self.analysis_type = "ADC数据分析"
-        self.data_files = {'adc1': [], 'adc2': []}
+        self.data_files = {'adc1': [], 'adc2': []}  # 每个元素将是字典: {'path': 文件路径, 'segments': 段数}
         self.current_data = None
         self.results = {}
         self.adc_config = ADCConfig()

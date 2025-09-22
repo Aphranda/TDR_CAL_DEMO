@@ -143,7 +143,7 @@ class ADCSample:
         
         try:
             # 发送sample指令
-            success, response = self.send_command('sample')
+            success, response = self.send_command('sample 10')
             if not success:
                 return None, f"采样指令发送失败: {response}"
             
