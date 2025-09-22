@@ -105,27 +105,44 @@ class DataAnalysisController(QObject):
                 self.model.data_files = {'adc1': [], 'adc2': []}
                 total_segments = 0
                 
+                # 存储每个文件的段数信息
+                file_segments = {}
+                
                 for file_path in file_paths:
                     # 根据文件名判断是adc1还是adc2的数据
                     filename = os.path.basename(file_path).lower()
                     
-                    # 检测文件中的段数
-                    segments = self.detect_segments_in_file(file_path)
+                    # 检测文件中的段数和详细信息
+                    segments, segment_info = self.extract_adc_data_from_binary(file_path)
                     total_segments += segments
                     
+                    # 存储段数信息
+                    file_segments[filename] = segments
+                    
+                    # 为每个段创建索引列表
+                    segment_indices = list(range(segments))
+                    
+                    # 创建文件信息字典，包含路径、段数、段索引和段详细信息
+                    file_info = {
+                        'path': file_path, 
+                        'segments': segments,
+                        'segment_indices': segment_indices,
+                        'segment_info': segment_info  # 包含上升沿位置等详细信息
+                    }
+                    
                     if 'adc1' in filename or 'ch1' in filename or 'channel1' in filename:
-                        self.model.data_files['adc1'].append({'path': file_path, 'segments': segments})
+                        self.model.data_files['adc1'].append(file_info)
                         file_format = FileManager().detect_file_format(file_path)
                         display_name = f"[ADC1] {os.path.basename(file_path)} [{file_format}] - {segments}段"
                         self.view.file_list.addItem(display_name)
                     elif 'adc2' in filename or 'ch2' in filename or 'channel2' in filename:
-                        self.model.data_files['adc2'].append({'path': file_path, 'segments': segments})
+                        self.model.data_files['adc2'].append(file_info)
                         file_format = FileManager().detect_file_format(file_path)
                         display_name = f"[ADC2] {os.path.basename(file_path)} [{file_format}] - {segments}段"
                         self.view.file_list.addItem(display_name)
                     else:
                         # 如果无法确定是哪个ADC的数据，默认添加到adc1
-                        self.model.data_files['adc1'].append({'path': file_path, 'segments': segments})
+                        self.model.data_files['adc1'].append(file_info)
                         file_format = FileManager().detect_file_format(file_path)
                         display_name = f"[ADC1] {os.path.basename(file_path)} [{file_format}] - {segments}段"
                         self.view.file_list.addItem(display_name)
@@ -138,8 +155,11 @@ class DataAnalysisController(QObject):
                 if adc1_count != adc2_count:
                     self.log_message(f"警告: ADC1和ADC2的文件数量不匹配 (ADC1: {adc1_count}, ADC2: {adc2_count})", "WARNING")
                 
-                # 在文件列表上方添加段数信息
-                self.view.update_segment_info(total_segments, adc1_count, adc2_count)
+                # 检查对应文件的段数是否匹配
+                self.check_segment_matching(file_segments)
+                
+                # 打印详细的文件信息，用于调试
+                self.log_loaded_file_details()
                 
                 msg = f"成功加载 {len(file_paths)} 个文件 (ADC1: {adc1_count}, ADC2: {adc2_count}), 共 {total_segments} 段数据"
                 self.dataLoaded.emit(msg)
@@ -148,22 +168,278 @@ class DataAnalysisController(QObject):
             error_msg = f"加载文件失败: {str(e)}"
             self.errorOccurred.emit(error_msg)
             self.log_message(error_msg, "ERROR")
-    # 添加检测文件段数的方法
+
+    def log_loaded_file_details(self):
+        """记录加载文件的详细信息，用于调试"""
+        self.log_message("加载的文件详细信息:", "DEBUG")
+        self.log_message("=" * 50, "DEBUG")
+        
+        for channel in ['adc1', 'adc2']:
+            if self.model.data_files[channel]:
+                self.log_message(f"{channel.upper()} 文件:", "DEBUG")
+                for i, file_info in enumerate(self.model.data_files[channel]):
+                    self.log_message(f"  文件 {i+1}: {os.path.basename(file_info['path'])}", "DEBUG")
+                    self.log_message(f"    段数: {file_info['segments']}", "DEBUG")
+                    self.log_message(f"    段索引: {file_info['segment_indices']}", "DEBUG")
+                    
+                    # 如果有段信息，记录上升沿位置
+                    if 'segment_info' in file_info and 'rise_edge_positions' in file_info['segment_info']:
+                        rise_edges = file_info['segment_info']['rise_edge_positions']
+                        if len(rise_edges) > 0:
+                            self.log_message(f"    上升沿位置(前5个): {rise_edges[:5]}", "DEBUG")
+                    
+                    if 'segment_info' in file_info and 'segment_lengths' in file_info['segment_info']:
+                        seg_lengths = file_info['segment_info']['segment_lengths']
+                        if len(seg_lengths) > 0:
+                            self.log_message(f"    段长度统计: 最小={min(seg_lengths)}, 最大={max(seg_lengths)}, 平均={np.mean(seg_lengths):.1f}", "DEBUG")
+
+    def check_segment_matching(self, file_segments):
+        """检查ADC1和ADC2文件的段数是否匹配"""
+        adc1_files = [f for f in file_segments.keys() if 'adc1' in f or 'ch1' in f or 'channel1' in f]
+        adc2_files = [f for f in file_segments.keys() if 'adc2' in f or 'ch2' in f or 'channel2' in f]
+        
+        # 如果两个ADC的文件数量不同，无法进行一一匹配
+        if len(adc1_files) != len(adc2_files):
+            self.log_message("ADC1和ADC2文件数量不同，无法进行段数匹配检查", "WARNING")
+            return
+        
+        # 对文件进行排序，确保匹配正确的文件对
+        adc1_files.sort()
+        adc2_files.sort()
+        
+        # 检查每对文件的段数是否匹配
+        for i, (adc1_file, adc2_file) in enumerate(zip(adc1_files, adc2_files)):
+            adc1_segments = file_segments[adc1_file]
+            adc2_segments = file_segments[adc2_file]
+            
+            if adc1_segments != adc2_segments:
+                self.log_message(f"警告: 文件对 {adc1_file} 和 {adc2_file} 的段数不匹配 (ADC1: {adc1_segments}, ADC2: {adc2_segments})", "WARNING")
+            else:
+                self.log_message(f"文件对 {adc1_file} 和 {adc2_file} 的段数匹配: {adc1_segments} 段", "INFO")
+
+
+    def extract_adc_data_from_binary(self, file_path, max_read_size=10*1024*1024):
+        """
+        从二进制文件中提取ADC数据并检测段数
+        修改：使用固定段长81920进行分段
+        
+        Args:
+            file_path: 二进制文件路径
+            max_read_size: 最大读取大小（字节），默认10MB
+            
+        Returns:
+            段数和数据信息字典
+        """
+        try:
+            file_size = os.path.getsize(file_path)
+            read_size = min(file_size, max_read_size)
+            
+            # 读取文件
+            with open(file_path, 'rb') as f:
+                data = f.read(read_size)
+            
+            # 将字节数据转换为uint32数组
+            num_uint32 = len(data) // 4
+            if num_uint32 == 0:
+                self.log_message(f"文件 {file_path} 太小或格式不正确", "WARNING")
+                return 1, {"error": "文件太小或格式不正确"}
+            
+            uint32_arr = np.frombuffer(data[:num_uint32*4], dtype=np.uint32)
+            
+            # 提取bit31
+            bit31 = (uint32_arr >> 31) & 1
+            
+            # 打印bit31的基本统计信息
+            self.log_message(f"文件 {os.path.basename(file_path)}: bit31统计 - 总点数: {len(bit31)}, 1的数量: {np.sum(bit31)}, 0的数量: {len(bit31) - np.sum(bit31)}", "DEBUG")
+            
+            # 检测上升沿：使用新的固定段长方法
+            rise_edges = self.detect_valid_data_segments(bit31)
+            
+            # 计算段数
+            segments = len(rise_edges)
+            
+            # 提取ADC数据（低18位）
+            adc_data = uint32_arr & 0x3FFFF  # 0x3FFFF = 2^18-1
+            
+            # 计算每段的长度（应该是固定的81920）
+            segment_lengths = []
+            if len(rise_edges) > 1:
+                for i in range(len(rise_edges)-1):
+                    segment_lengths.append(rise_edges[i+1] - rise_edges[i])
+            
+            # 如果只有一段，使用文件长度减去第一个上升沿位置
+            if segments == 1 and rise_edges:
+                segment_lengths.append(len(uint32_arr) - rise_edges[0])
+            
+            # 打印段长度信息
+            if segment_lengths:
+                self.log_message(f"文件 {os.path.basename(file_path)}: 段长度统计 - 最小: {min(segment_lengths)}, 最大: {max(segment_lengths)}, 平均: {np.mean(segment_lengths):.1f}", "DEBUG")
+                # 检查段长度是否接近81920
+                expected_length = 81920 * 3
+                for i, length in enumerate(segment_lengths):
+                    if abs(length - expected_length) > 100:  # 允许100个点的误差
+                        self.log_message(f"警告: 段 {i} 长度 {length} 与期望值 {expected_length} 相差较大", "WARNING")
+            
+            # 创建详细的段信息
+            segment_details = []
+            for i in range(segments):
+                start_idx = rise_edges[i] if i < len(rise_edges) else 0
+                end_idx = rise_edges[i+1] if i < len(rise_edges)-1 else len(uint32_arr)
+                segment_length = end_idx - start_idx
+                
+                segment_details.append({
+                    'segment_index': i,
+                    'start_position': start_idx,
+                    'end_position': end_idx,
+                    'length': segment_length,
+                    'expected_length': 81920 * 3,
+                    'length_diff': segment_length - (81920 *3)
+                })
+            
+            result = {
+                "total_samples": len(uint32_arr),
+                "rise_edge_positions": rise_edges,
+                "segment_lengths": segment_lengths,
+                "segment_details": segment_details,
+                "avg_segment_length": np.mean(segment_lengths) if segment_lengths else len(uint32_arr),
+                "adc_data_sample": adc_data[:100].tolist(),  # 前100个采样点作为示例
+                "segmentation_method": "fixed_length_81920"  # 标记使用的分段方法
+            }
+            
+            self.log_message(f"文件 {os.path.basename(file_path)}: 检测到 {segments} 段数据（使用固定段长81920）", "INFO")
+            
+            return max(1, segments), result
+            
+        except Exception as e:
+            self.log_message(f"提取ADC数据失败: {str(e)}", "ERROR")
+            return 1, {"error": str(e)}
+
+
+    def detect_valid_data_segments(self, bit31_data, start_index=0):
+        """
+        检测有效数据段（基于bit31的上升沿）
+        修改：找到第一个valid index后，后续的valid index都是在前一个基础上加上81920固定长度
+        
+        Args:
+            bit31_data: bit31数据数组
+            start_index: 开始检测的索引
+            
+        Returns:
+            上升沿位置列表
+        """
+        try:
+            # 检测第一个上升沿：从0变为1的位置
+            diff = np.diff(bit31_data)
+            first_rise_edge = None
+            
+            # 从start_index开始寻找第一个上升沿
+            for i in range(start_index, len(diff)):
+                if diff[i] == 1:
+                    first_rise_edge = i + 1  # +1 因为diff使索引偏移
+                    break
+            
+            if first_rise_edge is None:
+                self.log_message("未找到有效的上升沿", "WARNING")
+                return []
+            
+            # 计算总长度
+            total_length = len(bit31_data)
+            segment_length = 81920 * 3  # 固定段长度
+            
+            # 生成所有上升沿位置
+            rise_edges = []
+            current_edge = first_rise_edge
+            
+            while current_edge < total_length:
+                rise_edges.append(current_edge)
+                current_edge += segment_length
+            
+            self.log_message(f"检测到第一个上升沿位置: {first_rise_edge}", "DEBUG")
+            self.log_message(f"基于固定段长度 {segment_length} 生成了 {len(rise_edges)} 个段", "DEBUG")
+            self.log_message(f"上升沿位置: {rise_edges[:5]}{'...' if len(rise_edges) > 5 else ''}", "DEBUG")
+            
+            return rise_edges
+            
+        except Exception as e:
+            self.log_message(f"检测有效数据段失败: {str(e)}", "ERROR")
+            return []
+
+
+    def analyze_binary_file_segments(self, file_path):
+        """
+        分析二进制文件中的段结构
+        
+        Args:
+            file_path: 二进制文件路径
+            
+        Returns:
+            段分析结果字典
+        """
+        try:
+            # 读取文件前1MB进行分析
+            with open(file_path, 'rb') as f:
+                data = f.read(1024*1024)  # 读取1MB
+            
+            # 将字节数据转换为uint32数组
+            num_uint32 = len(data) // 4
+            if num_uint32 == 0:
+                return {"error": "文件太小或格式不正确"}
+            
+            uint32_arr = np.frombuffer(data[:num_uint32*4], dtype=np.uint32)
+            
+            # 提取bit31
+            bit31 = (uint32_arr >> 31) & 1
+            
+            # 检测上升沿
+            rise_edges = self.detect_valid_data_segments(bit31)
+            
+            # 分析段结构
+            segment_info = []
+            for i in range(len(rise_edges)):
+                start = rise_edges[i]
+                end = rise_edges[i+1] if i < len(rise_edges)-1 else len(bit31)
+                length = end - start
+                
+                # 提取该段的bit31模式
+                segment_bit31 = bit31[start:end]
+                ones_count = np.sum(segment_bit31)
+                zeros_count = len(segment_bit31) - ones_count
+                
+                segment_info.append({
+                    "segment_index": i,
+                    "start_position": start,
+                    "length": length,
+                    "ones_count": ones_count,
+                    "zeros_count": zeros_count,
+                    "ones_ratio": ones_count / length if length > 0 else 0
+                })
+            
+            result = {
+                "total_samples": len(uint32_arr),
+                "total_segments": len(rise_edges),
+                "rise_edge_positions": rise_edges,
+                "segment_info": segment_info,
+                "bit31_pattern": bit31[:100].tolist()  # 前100个点的bit31模式
+            }
+            
+            return result
+            
+        except Exception as e:
+            self.log_message(f"分析二进制文件段结构失败: {str(e)}", "ERROR")
+            return {"error": str(e)}
+    # 修改detect_segments_in_file方法，使用新的二进制文件分析功能
     def detect_segments_in_file(self, file_path):
         """检测文件中的数据段数"""
         try:
             file_format = FileManager().detect_file_format(file_path)
             
             if file_format == 'binary' or file_format == 'raw':
-                # 对于二进制文件，通过文件大小和已知结构估算段数
-                file_size = os.path.getsize(file_path)
-                # 假设每段数据包含81920个18位采样点
-                segment_size = 81920 * 3  # 每个采样点3字节（18位=2.25字节，向上取整为3）
-                segments = max(1, file_size // segment_size)
+                # 使用新的二进制文件分析方法
+                segments, _ = self.extract_adc_data_from_binary(file_path)
                 return segments
             elif file_format == 'csv' or file_format == 'txt':
                 # 对于文本文件，通过行数估算段数
-                with open(file_path, 'r') as f:
+                with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
                     lines = sum(1 for _ in f)
                 # 假设每段数据有81920行，加上可能的标题行
                 segments = max(1, lines // 81920)
@@ -174,7 +450,43 @@ class DataAnalysisController(QObject):
         except:
             # 如果检测失败，默认1段
             return 1
-  
+    # 添加一个方法来显示详细的段信息
+    def show_segment_details(self, file_path):
+        """显示文件的详细段信息"""
+        try:
+            file_format = FileManager().detect_file_format(file_path)
+            
+            if file_format == 'binary' or file_format == 'raw':
+                # 分析二进制文件段结构
+                segment_info = self.analyze_binary_file_segments(file_path)
+                
+                if "error" in segment_info:
+                    self.log_message(f"无法分析文件段结构: {segment_info['error']}", "ERROR")
+                    return
+                
+                # 记录段信息到日志
+                self.log_message(f"文件 {os.path.basename(file_path)} 段分析结果:", "INFO")
+                self.log_message(f"总采样点数: {segment_info['total_samples']}", "INFO")
+                self.log_message(f"总段数: {segment_info['total_segments']}", "INFO")
+                
+                for seg in segment_info['segment_info']:
+                    self.log_message(
+                        f"段 {seg['segment_index']}: 起始位置={seg['start_position']}, "
+                        f"长度={seg['length']}, 1的比例={seg['ones_ratio']:.2%}",
+                        "INFO"
+                    )
+                
+                # 如果有主窗口控制器，可以在界面上显示更详细的信息
+                if hasattr(self, 'main_window_controller') and self.main_window_controller:
+                    # 可以在这里添加代码，将段信息显示在界面上
+                    pass
+                    
+            else:
+                self.log_message("段详细信息仅支持二进制文件格式", "INFO")
+                
+        except Exception as e:
+            self.log_message(f"显示段详细信息失败: {str(e)}", "ERROR")
+
     # 在on_clear_files方法中清除段数信息
     def on_clear_files(self):
         """清除文件列表"""
@@ -182,9 +494,7 @@ class DataAnalysisController(QObject):
         self.model.current_data = None
         self.view.file_list.clear()
         
-        # 清除段数信息显示
-        self.view.segment_info_label.setText("数据段数: 未加载数据")
-        
+
         # 清理分析数据
         self.cleanup_analysis()
         
@@ -324,7 +634,6 @@ class DataAnalysisController(QObject):
             # 格式化结果
             config = self.model.adc_config
             analysis_results = {
-                "processed_files": f"{results['success_count']}/{results['total_files']}",
                 "clock_frequency": f"{config.clock_freq/1e6:.2f} MHz",
                 "trigger_frequency": f"{config.trigger_freq/1e6:.2f} MHz",
                 "roi_range": f"{config.roi_start_tenths}%-{config.roi_end_tenths}%",
@@ -336,7 +645,7 @@ class DataAnalysisController(QObject):
             self.model.results = analysis_results
             self.analysisCompleted.emit(analysis_results)
         
-            self.log_message(f"分析完成! 成功处理 {results['success_count']}/{results['total_files']} 个文件", "INFO")
+            self.log_message("分析完成! 成功处理")
             
         finally:
             # 清理工作线程引用
@@ -442,7 +751,6 @@ class DataAnalysisController(QObject):
         self.main_window_controller.sub_controllers[plot_name] = plot_controller
         
         return plot_controller
-
 
 
     def clear_all_plot_tabs(self):

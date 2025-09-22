@@ -12,15 +12,15 @@ from app.core.FileManager import FileManager
 
 
 class ADCProcessWorker(QObject):
-    """ADC数据处理工作线程 - 支持双通道(adc1和adc2)处理"""
+    """ADC数据处理工作线程 - 支持双通道(adc1和adc2)处理和多段数据处理"""
     progress = pyqtSignal(int, int, str)
     finished = pyqtSignal(dict, dict)  # 传递结果和平均值
     error = pyqtSignal(str)
     log_message = pyqtSignal(str, str)
   
-    def __init__(self, file_dict: Dict[str, List[str]], config: AnalysisConfig):
+    def __init__(self, file_dict: Dict[str, List[Dict]], config: AnalysisConfig):
         super().__init__()
-        self.file_dict = file_dict  # 字典格式 {'adc1': [], 'adc2': []}
+        self.file_dict = file_dict  # 字典格式 {'adc1': [file_info1, file_info2], 'adc2': [...]}
         self.config = config
         self.analyzer = DataAnalyzer(config)
         self.running = False
@@ -41,10 +41,10 @@ class ADCProcessWorker(QObject):
             self._log_start_message()
             
             # 处理所有文件并获取结果
-            final_results = self._process_all_files()
+            final_results = self._process_all_files_and_segments()
             
             if final_results is None or final_results['success_count'] == 0:
-                raise RuntimeError("没有文件成功处理")
+                raise RuntimeError("没有文件或数据段成功处理")
           
             # 计算平均值
             averages = self._calculate_averages(final_results)
@@ -64,17 +64,33 @@ class ADCProcessWorker(QObject):
         """记录开始处理的消息"""
         adc1_count = len(self.file_dict.get('adc1', []))
         adc2_count = len(self.file_dict.get('adc2', []))
-        self.log_message.emit(f"开始处理 {adc1_count + adc2_count} 个文件 (ADC1: {adc1_count}, ADC2: {adc2_count})", "INFO")
+        
+        # 计算总段数
+        total_segments = self._get_total_segment_count()
+        
+        self.log_message.emit(
+            f"开始处理 {adc1_count + adc2_count} 个文件，共 {total_segments} 段数据 "
+            f"(ADC1: {adc1_count}文件, ADC2: {adc2_count}文件)", 
+            "INFO"
+        )
 
-    def _process_all_files(self) -> Optional[Dict[str, Any]]:
-        """处理所有文件并返回结果"""
+    def _get_total_segment_count(self) -> int:
+        """获取总段数"""
+        total_segments = 0
+        for channel in ['adc1', 'adc2']:
+            for file_info in self.file_dict.get(channel, []):
+                total_segments += file_info.get('segments', 1)
+        return total_segments
+
+    def _process_all_files_and_segments(self) -> Optional[Dict[str, Any]]:
+        """处理所有文件和段并返回结果"""
         results = self._initialize_results()
         
-        # 使用生成器处理文件对
-        file_pair_gen = self._file_pair_generator()
-        results_gen = self._process_results_generator(file_pair_gen, results)
+        # 使用生成器处理文件和段
+        segment_gen = self._file_segment_generator()
+        results_gen = self._process_results_generator(segment_gen, results)
         
-        # 处理所有文件对
+        # 处理所有文件和段
         final_results = None
         for results in results_gen:
             final_results = results
@@ -97,17 +113,11 @@ class ADCProcessWorker(QObject):
                 'freq_ref': None, 'freq_d_ref': None, 'sum_Xd': None,
             },
             'success_count': 0, 
-            'total_files': self._get_total_file_count(),
+            'total_segments': self._get_total_segment_count(),
         }
 
-    def _get_total_file_count(self) -> int:
-        """获取总文件数量"""
-        adc1_count = len(self.file_dict.get('adc1', []))
-        adc2_count = len(self.file_dict.get('adc2', []))
-        return adc1_count + adc2_count
-
-    def _file_pair_generator(self) -> Generator[Tuple[int, Dict[str, Any]], None, None]:
-        """文件对处理生成器，支持单个ADC通道处理"""
+    def _file_segment_generator(self) -> Generator[Tuple[int, int, Dict[str, Any]], None, None]:
+        """文件和段处理生成器"""
         adc1_files = self.file_dict.get('adc1', [])
         adc2_files = self.file_dict.get('adc2', [])
         
@@ -117,57 +127,73 @@ class ADCProcessWorker(QObject):
         # 如果两个通道文件数量不同，记录警告
         if len(adc1_files) != len(adc2_files):
             self.log_message.emit(
-                f"注意: ADC1和ADC2文件数量不匹配 (ADC1: {len(adc1_files)}, ADC2: {len(adc2_files)})，"
-                f"将处理{file_count}个文件", 
+                f"注意: ADC1和ADC2文件数量不匹配 (ADC1: {len(adc1_files)}, ADC2: {len(adc2_files)})", 
                 "WARNING"
             )
         
-        for i in range(file_count):
+        segment_counter = 0
+        
+        for file_idx in range(file_count):
             if self._should_stop:
                 break
                 
             # 获取当前索引的文件（如果存在）
-            adc1_file = adc1_files[i] if i < len(adc1_files) else None
-            adc2_file = adc2_files[i] if i < len(adc2_files) else None
+            adc1_file_info = adc1_files[file_idx] if file_idx < len(adc1_files) else None
+            adc2_file_info = adc2_files[file_idx] if file_idx < len(adc2_files) else None
             
-            self._emit_progress(i, adc1_file, adc2_file)
+            # 确定要处理的段数（取两个文件的最大值）
+            adc1_segments = adc1_file_info.get('segments', 1) if adc1_file_info else 0
+            adc2_segments = adc2_file_info.get('segments', 1) if adc2_file_info else 0
+            segment_count = max(adc1_segments, adc2_segments)
             
-            try:
-                result = self._process_file_pair(adc1_file, adc2_file, i)
-                if result is not None:
-                    yield i, result
-                else:
-                    self._log_file_skip_warning(adc1_file, adc2_file)
+            # 如果两个文件的段数不同，记录警告
+            if adc1_segments != adc2_segments and adc1_file_info and adc2_file_info:
+                self.log_message.emit(
+                    f"文件 {file_idx}: ADC1和ADC2段数不匹配 "
+                    f"(ADC1: {adc1_segments}, ADC2: {adc2_segments})", 
+                    "WARNING"
+                )
+            
+            for segment_idx in range(segment_count):
+                if self._should_stop:
+                    break
                     
-            except Exception as e:
-                self._log_file_error(adc1_file, adc2_file, e)
-                continue
+                segment_counter += 1
+                
+                self._emit_progress(segment_counter, file_idx, segment_idx, adc1_file_info, adc2_file_info)
+                
+                try:
+                    result = self._process_file_segment(adc1_file_info, adc2_file_info, file_idx, segment_idx)
+                    if result is not None:
+                        yield file_idx, segment_idx, result
+                    else:
+                        self._log_segment_skip_warning(file_idx, segment_idx, adc1_file_info, adc2_file_info)
+                        
+                except Exception as e:
+                    self._log_segment_error(file_idx, segment_idx, adc1_file_info, adc2_file_info, e)
+                    continue
 
-
-    def _emit_progress(self, index: int, adc1_file: Optional[str], adc2_file: Optional[str]):
-        """发射进度信号 - 支持单个ADC通道"""
-        adc1_name = os.path.basename(adc1_file) if adc1_file else "无文件"
-        adc2_name = os.path.basename(adc2_file) if adc2_file else "无文件"
+    def _emit_progress(self, segment_counter: int, file_idx: int, segment_idx: int, 
+                      adc1_file_info: Optional[Dict], adc2_file_info: Optional[Dict]):
+        """发射进度信号"""
+        adc1_name = os.path.basename(adc1_file_info['path']) if adc1_file_info else "无文件"
+        adc2_name = os.path.basename(adc2_file_info['path']) if adc2_file_info else "无文件"
         
         self.progress.emit(
-            index + 1, 
-            max(len(self.file_dict.get('adc1', [])), len(self.file_dict.get('adc2', []))), 
-            f"处理文件: ADC1={adc1_name}, ADC2={adc2_name}"
+            segment_counter, 
+            self._get_total_segment_count(), 
+            f"处理文件{file_idx}段{segment_idx}: ADC1={adc1_name}, ADC2={adc2_name}"
         )
 
-
-    def _process_file_pair(self, adc1_file: str, adc2_file: str, index: int) -> Optional[Dict[str, Any]]:
-        """处理文件对 (adc1和adc2) - 支持单个通道处理"""
-        # 加载ADC数据，允许其中一个为空
-        adc1_data = self.load_u32_data(adc1_file) if adc1_file else None
-        adc2_data = self.load_u32_data(adc2_file) if adc2_file else None
+    def _process_file_segment(self, adc1_file_info: Optional[Dict], adc2_file_info: Optional[Dict], 
+                            file_idx: int, segment_idx: int) -> Optional[Dict[str, Any]]:
+        """处理文件段 (adc1和adc2的对应段)"""
+        # 加载ADC数据段，允许其中一个为空
+        adc1_data = self.load_segment_data(adc1_file_info, segment_idx) if adc1_file_info else None
+        adc2_data = self.load_segment_data(adc2_file_info, segment_idx) if adc2_file_info else None
         
         # 检查是否两个通道都为空
         if adc1_data is None and adc2_data is None:
-            self.log_message.emit(
-                f"文件索引 {index}: ADC1和ADC2数据都为空，跳过处理", 
-                "WARNING"
-            )
             return None
         
         # 将ADC的数据作为字典传递给处理函数
@@ -177,34 +203,87 @@ class ADCProcessWorker(QObject):
         if adc2_data is not None:
             adc_data['adc2'] = adc2_data
         
-        return self.analyzer.process_single_file(adc_data, index)
+        return self.analyzer.process_single_file(adc_data, file_idx * 1000 + segment_idx)  # 使用唯一ID
 
+    def load_segment_data(self, file_info: Dict, segment_idx: int) -> Optional[np.ndarray]:
+        """加载特定段的数据"""
+        try:
+            file_path = file_info['path']
+            segments = file_info.get('segments', 1)
+            
+            # 检查段索引是否有效
+            if segment_idx >= segments:
+                self.log_message.emit(
+                    f"文件 {os.path.basename(file_path)}: 段索引 {segment_idx} 超出范围 (0-{segments-1})", 
+                    "WARNING"
+                )
+                return None
+            
+            # 加载整个文件数据
+            full_data = self.load_u32_data(file_path)
+            if full_data is None:
+                return None
+            
+            # 根据段信息提取特定段的数据
+            segment_info = file_info.get('segment_info', {})
+            rise_edge_positions = segment_info.get('rise_edge_positions', [])
+            
+            if rise_edge_positions:
+                # 使用上升沿位置分段
+                start_idx = rise_edge_positions[segment_idx] if segment_idx < len(rise_edge_positions) else 0
+                end_idx = (rise_edge_positions[segment_idx + 1] 
+                          if segment_idx + 1 < len(rise_edge_positions) 
+                          else len(full_data))
+            else:
+                # 如果没有上升沿信息，平均分段
+                segment_length = len(full_data) // segments
+                start_idx = segment_idx * segment_length
+                end_idx = start_idx + segment_length if segment_idx < segments - 1 else len(full_data)
+            
+            # 提取段数据
+            segment_data = full_data[start_idx:end_idx]
+            
+            self.log_message.emit(
+                f"文件 {os.path.basename(file_path)} 段 {segment_idx}: "
+                f"加载数据点 {start_idx}-{end_idx} (长度: {len(segment_data)})", 
+                "DEBUG"
+            )
+            
+            return segment_data
+            
+        except Exception as e:
+            self.log_message.emit(
+                f"加载文件段失败 {os.path.basename(file_info['path'])} 段 {segment_idx}: {str(e)}", 
+                "ERROR"
+            )
+            return None
 
-    def _log_file_skip_warning(self, adc1_file: Optional[str], adc2_file: Optional[str]):
-        """记录文件跳过警告 - 支持单个ADC通道"""
-        adc1_name = os.path.basename(adc1_file) if adc1_file else "无文件"
-        adc2_name = os.path.basename(adc2_file) if adc2_file else "无文件"
+    def _log_segment_skip_warning(self, file_idx: int, segment_idx: int, 
+                                adc1_file_info: Optional[Dict], adc2_file_info: Optional[Dict]):
+        """记录段跳过警告"""
+        adc1_name = os.path.basename(adc1_file_info['path']) if adc1_file_info else "无文件"
+        adc2_name = os.path.basename(adc2_file_info['path']) if adc2_file_info else "无文件"
         
         self.log_message.emit(
-            f"文件 ADC1={adc1_name}, ADC2={adc2_name} 处理失败，跳过", 
+            f"文件{file_idx}段{segment_idx} ADC1={adc1_name}, ADC2={adc2_name} 处理失败，跳过", 
             "WARNING"
         )
 
-    def _log_file_error(self, adc1_file: Optional[str], adc2_file: Optional[str], error: Exception):
-        """记录文件处理错误 - 支持单个ADC通道"""
-        adc1_name = os.path.basename(adc1_file) if adc1_file else "无文件"
-        adc2_name = os.path.basename(adc2_file) if adc2_file else "无文件"
+    def _log_segment_error(self, file_idx: int, segment_idx: int, 
+                          adc1_file_info: Optional[Dict], adc2_file_info: Optional[Dict], error: Exception):
+        """记录段处理错误"""
+        adc1_name = os.path.basename(adc1_file_info['path']) if adc1_file_info else "无文件"
+        adc2_name = os.path.basename(adc2_file_info['path']) if adc2_file_info else "无文件"
         
         self.log_message.emit(
-            f"处理文件 ADC1={adc1_name}, ADC2={adc2_name} 失败: {str(error)}", 
+            f"处理文件{file_idx}段{segment_idx} ADC1={adc1_name}, ADC2={adc2_name} 失败: {str(error)}", 
             "WARNING"
         )
 
-
-    def _process_results_generator(self, results_gen: Generator, results: Dict[str, Any]) -> Generator[Dict[str, Any], None, None]:
+    def _process_results_generator(self, segment_gen: Generator, results: Dict[str, Any]) -> Generator[Dict[str, Any], None, None]:
         """处理结果生成器，累积计算结果"""
-        for i, res in results_gen:
-            self._update_results_with_file_data(results, res)
+        for file_idx, segment_idx, res in segment_gen:
+            self._update_results_with_segment_data(results, res)
             
             # 定期清理内存
             if results['success_count'] % 10 == 0:
@@ -212,12 +291,12 @@ class ADCProcessWorker(QObject):
                 
             yield results
 
-    def _update_results_with_file_data(self, results: Dict[str, Any], file_result: Dict[str, Any]):
-        """使用文件结果更新总结果 - 支持嵌套字典结构"""
-        # 假设 file_result 是一个嵌套字典，包含 'adc1' 和 'adc2' 键
+    def _update_results_with_segment_data(self, results: Dict[str, Any], segment_result: Dict[str, Any]):
+        """使用段结果更新总结果"""
+        # 假设 segment_result 是一个嵌套字典，包含 'adc1' 和 'adc2' 键
         for adc_channel in ['adc1', 'adc2']:
-            if adc_channel in file_result:
-                channel_result = file_result[adc_channel]
+            if adc_channel in segment_result:
+                channel_result = segment_result[adc_channel]
                 
                 # 从字典中提取数据
                 y_full = channel_result['y_full']
@@ -292,13 +371,14 @@ class ADCProcessWorker(QObject):
         
             # 复数FFT平均值
             averages[adc_channel]['avg_Xd'] = results[adc_channel]['sum_Xd'] / results['success_count']
+        
         return averages
 
     def _emit_calculating_averages(self):
         """发射计算平均值的进度信号"""
         self.progress.emit(
-            self._get_total_file_count(), 
-            self._get_total_file_count(), 
+            self._get_total_segment_count(), 
+            self._get_total_segment_count(), 
             "计算平均值..."
         )
         self.log_message.emit("计算平均值...", "INFO")
@@ -350,8 +430,8 @@ class ADCProcessWorker(QObject):
     def _emit_edge_analysis_progress(self):
         """发射边沿分析进度信号"""
         self.progress.emit(
-            self._get_total_file_count(), 
-            self._get_total_file_count(), 
+            self._get_total_segment_count(), 
+            self._get_total_segment_count(), 
             "进行边沿分析..."
         )
         self.log_message.emit("进行边沿分析...", "INFO")

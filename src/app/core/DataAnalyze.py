@@ -3,6 +3,7 @@
 import numpy as np
 from typing import Dict, Any, List, Optional, Tuple
 import logging
+from pandas import date_range
 from tqdm import tqdm
 
 try:
@@ -57,8 +58,8 @@ class DataAnalyzer:
             # 1. 提取ADC数据
             bit31, adc_full = self.data_processor.extract_adc_data(u32_arr, self.config.use_signed18)
             # 2. 检测有效数据
-            rise_idx = self.data_processor.detect_valid_data(bit31, self.config.edge_search_start)
-            print("rise_idx",rise_idx)
+            # rise_idx = self.data_processor.detect_valid_data(bit31, self.config.edge_search_start)
+            rise_idx = 0
             if rise_idx is None:
                 logger.warning(f"数据索引 {data_index}: 未检测到有效数据")
                 return None
@@ -79,15 +80,20 @@ class DataAnalyzer:
             )
 
 
+
             # 5. 搜索边沿位置（如果未提供目标对齐位置）
             if target_idx is None:
                 # 搜索所有边沿位置,第一上升沿，第二上升沿，下降沿
                 rise_pos = self.edge_detector.find_rise_position(
                     y_sorted, self.config.search_method, np.mean(adc_full), self.config.min_edge_amplitude_ratio
                 )
+                print("rise_pos:", rise_pos)
+                # self.debug_plotter.simple_plot(y_sorted, title="ADC1", data_range=(0.39,0.41))
             else:
                 # 使用提供的目标对齐位置
                 rise_pos = target_idx
+                print("target_idx:", rise_pos)
+                # self.debug_plotter.simple_plot(y_sorted, title="ADC2",data_range=(0.39,0.41))
 
             # 6. 数据对齐
             if target_idx is None:
@@ -98,26 +104,12 @@ class DataAnalyzer:
             # 7. 提取ROI
             y_roi = self.data_processor.extract_roi(y_full, self.config.roi_start, self.config.roi_end)
 
-            # 搜索所有上升沿位置（如果未提供目标对齐位置）
-            if target_idx is None:
-                edges_dict = self.analyze_edges(y_roi)
-                rise_pos = edges_dict["first_rise_pos"]
-                second_rise_pos = edges_dict["second_rise_pos"]
-                fall_pos = edges_dict['fall_pos']
-            else:
-                # 对于使用目标对齐位置的情况，设置默认边沿位置
-                rise_pos = target_idx
-                second_rise_pos = None
-                fall_pos = None
-            
-            # 返回字典格式的结果
+
             return {
                 'adc_full': adc_full,
                 'y_roi': y_roi,
                 'adc_full_mean': np.mean(adc_full),
                 'rise_pos': rise_pos,
-                'second_rise_pos': second_rise_pos,
-                'fall_pos': fall_pos,
                 'y_sorted': y_sorted,
                 'y_full': y_full
             }
