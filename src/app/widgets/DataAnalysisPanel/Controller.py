@@ -218,10 +218,10 @@ class DataAnalysisController(QObject):
                 self.log_message(f"文件对 {adc1_file} 和 {adc2_file} 的段数匹配: {adc1_segments} 段", "INFO")
 
 
-    def extract_adc_data_from_binary(self, file_path, max_read_size=10*1024*1024):
+    def extract_adc_data_from_binary(self, file_path, max_read_size=100*1024*1024):
         """
         从二进制文件中提取ADC数据并检测段数
-        修改：使用固定段长81920进行分段
+        修改：使用固定段长81920进行分段，尾部+100个点
         
         Args:
             file_path: 二进制文件路径
@@ -261,40 +261,41 @@ class DataAnalysisController(QObject):
             # 提取ADC数据（低18位）
             adc_data = uint32_arr & 0x3FFFF  # 0x3FFFF = 2^18-1
             
-            # 计算每段的长度（应该是固定的81920）
+            # 计算每段的长度（应该是固定的81920 + 100）
             segment_lengths = []
-            if len(rise_edges) > 1:
-                for i in range(len(rise_edges)-1):
-                    segment_lengths.append(rise_edges[i+1] - rise_edges[i])
-            
-            # 如果只有一段，使用文件长度减去第一个上升沿位置
-            if segments == 1 and rise_edges:
-                segment_lengths.append(len(uint32_arr) - rise_edges[0])
-            
-            # 打印段长度信息
-            if segment_lengths:
-                self.log_message(f"文件 {os.path.basename(file_path)}: 段长度统计 - 最小: {min(segment_lengths)}, 最大: {max(segment_lengths)}, 平均: {np.mean(segment_lengths):.1f}", "DEBUG")
-                # 检查段长度是否接近81920
-                expected_length = 81920 * 3
-                for i, length in enumerate(segment_lengths):
-                    if abs(length - expected_length) > 100:  # 允许100个点的误差
-                        self.log_message(f"警告: 段 {i} 长度 {length} 与期望值 {expected_length} 相差较大", "WARNING")
-            
-            # 创建详细的段信息
             segment_details = []
+            
             for i in range(segments):
-                start_idx = rise_edges[i] if i < len(rise_edges) else 0
-                end_idx = rise_edges[i+1] if i < len(rise_edges)-1 else len(uint32_arr)
+                start_idx = rise_edges[i]
+                # 计算结束位置：起点 + 固定段长 + 100
+                end_idx = start_idx + 81920 + 100
+                
+                # 如果超出数组长度，调整到数组末尾
+                if end_idx > len(uint32_arr):
+                    end_idx = len(uint32_arr)
+                
                 segment_length = end_idx - start_idx
+                segment_lengths.append(segment_length)
                 
                 segment_details.append({
                     'segment_index': i,
                     'start_position': start_idx,
                     'end_position': end_idx,
                     'length': segment_length,
-                    'expected_length': 81920 * 3,
-                    'length_diff': segment_length - (81920 *3)
+                    'expected_length': 81920 + 100,  # 固定段长 + 100
+                    'length_diff': segment_length - (81920 + 100),
+                    'data_points_available': segment_length
                 })
+            
+            # 打印段长度信息
+            if segment_lengths:
+                self.log_message(f"文件 {os.path.basename(file_path)}: 段长度统计 - 最小: {min(segment_lengths)}, 最大: {max(segment_lengths)}, 平均: {np.mean(segment_lengths):.1f}", "DEBUG")
+                
+                # 检查段长度是否接近期望值
+                expected_length = 81920 + 100
+                for i, length in enumerate(segment_lengths):
+                    if abs(length - expected_length) > 200:  # 允许200个点的误差
+                        self.log_message(f"警告: 段 {i} 长度 {length} 与期望值 {expected_length} 相差较大", "WARNING")
             
             result = {
                 "total_samples": len(uint32_arr),
@@ -303,17 +304,16 @@ class DataAnalysisController(QObject):
                 "segment_details": segment_details,
                 "avg_segment_length": np.mean(segment_lengths) if segment_lengths else len(uint32_arr),
                 "adc_data_sample": adc_data[:100].tolist(),  # 前100个采样点作为示例
-                "segmentation_method": "fixed_length_81920"  # 标记使用的分段方法
+                "segmentation_method": "fixed_length_81920_plus_100"  # 标记使用的分段方法
             }
             
-            self.log_message(f"文件 {os.path.basename(file_path)}: 检测到 {segments} 段数据（使用固定段长81920）", "INFO")
+            self.log_message(f"文件 {os.path.basename(file_path)}: 检测到 {segments} 段数据（使用固定段长81920+100）", "INFO")
             
             return max(1, segments), result
             
         except Exception as e:
             self.log_message(f"提取ADC数据失败: {str(e)}", "ERROR")
             return 1, {"error": str(e)}
-
 
     def detect_valid_data_segments(self, bit31_data, start_index=0):
         """
@@ -344,7 +344,7 @@ class DataAnalysisController(QObject):
             
             # 计算总长度
             total_length = len(bit31_data)
-            segment_length = 81920 * 3  # 固定段长度
+            segment_length = 81920  # 固定段长度（不包括尾部的100个点）
             
             # 生成所有上升沿位置
             rise_edges = []

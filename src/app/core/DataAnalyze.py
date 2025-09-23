@@ -78,6 +78,36 @@ class DataAnalyzer:
             y_sorted, _ = self.data_processor.sort_data_by_period(
                 segment_adc, self.config.t_sample, self.config.t_trig
             )
+            
+            enable_spike_removal = False
+
+            # 4.5 去除奇异点（新增步骤）- 使用DataProcessor的方法
+            if enable_spike_removal:  # 可以在配置中添加这个开关
+                y_sorted_cleaned, spikes_detected = self.data_processor.remove_spikes_robust(
+                    y_sorted, 
+                    method="Hampel",  # "Hampel", "Z-score", "IQR"
+                    threshold=3,    # 默认3.0
+                    window_size=5 # 默认5
+                )
+                
+                # 记录奇异点信息
+                if spikes_detected:
+                    logger.info(f"数据索引 {data_index}: 检测到 {len(spikes_detected)} 个奇异点，已使用中位数替换")
+                    
+                    # 记录前几个奇异点的详细信息
+                    if len(spikes_detected) > 0 and logger.isEnabledFor(logging.DEBUG):
+                        spike_details = []
+                        for spike_pos in spikes_detected[:3]:
+                            if 0 <= spike_pos < len(y_sorted):
+                                original_val = y_sorted[spike_pos]
+                                cleaned_val = y_sorted_cleaned[spike_pos]
+                                spike_details.append(f"位置{spike_pos}:{original_val:.1f}→{cleaned_val:.1f}")
+                        
+                        logger.debug(f"奇异点替换详情: {'; '.join(spike_details)}")
+                
+                y_sorted = y_sorted_cleaned
+            else:
+                spikes_detected = []
 
 
 

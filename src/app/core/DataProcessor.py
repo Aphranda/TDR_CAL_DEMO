@@ -238,3 +238,112 @@ class DataProcessor:
     def extract_roi(self, aligned_data: np.ndarray, roi_start: int, roi_end: int) -> np.ndarray:
         """从对齐后的数据中提取感兴趣区域(ROI)"""
         return aligned_data[roi_start:roi_end]
+
+
+
+
+    def remove_spikes_robust(self, data: np.ndarray, method: str = "Hampel", 
+                            window_size: int = 5, threshold: float = 3.0) -> Tuple[np.ndarray, List[int]]:
+        """
+        使用稳健方法去除奇异点
+        
+        Args:
+            data: 输入数据
+            method: 检测方法 ("Hampel", "Z-score", "IQR")
+            threshold: 阈值（标准差倍数）
+            window_size: 窗口大小
+            
+        Returns:
+            Tuple[清理后的数据, 奇异点位置列表]
+        """
+        if len(data) < window_size * 2 + 1:
+            return data, []
+        
+        spikes_detected = []
+        cleaned_data = data.copy().astype(np.float64)
+        
+        for i in range(window_size, len(data) - window_size):
+            # 获取窗口数据（排除当前点）
+            window_indices = list(range(i - window_size, i)) + list(range(i + 1, i + window_size + 1))
+            window_data = data[window_indices]
+            
+            if method == "Hampel":
+                # Hampel标识器：基于中位数绝对偏差（对异常值更鲁棒）
+                median = np.median(window_data)
+                mad = np.median(np.abs(window_data - median))
+                
+                if mad > 0:
+                    # 使用一致估计量缩放
+                    z_score = 0.6745 * (data[i] - median) / mad
+                    if abs(z_score) > threshold:
+                        spikes_detected.append(i)
+                        # 使用窗口的中位数代替奇异点
+                        cleaned_data[i] = median
+                        
+            elif method == "Z-score":
+                # 基于Z-score的方法（对高斯分布数据效果好）
+                mean = np.mean(window_data)
+                std = np.std(window_data)
+                
+                if std > 0:
+                    z_score = (data[i] - mean) / std
+                    if abs(z_score) > threshold:
+                        spikes_detected.append(i)
+                        cleaned_data[i] = mean
+                        
+            elif method == "IQR":
+                # 基于四分位距的方法（对偏态分布鲁棒）
+                q75, q25 = np.percentile(window_data, [75, 25])
+                iqr = q75 - q25
+                
+                if iqr > 0:
+                    lower_bound = q25 - threshold * iqr
+                    upper_bound = q75 + threshold * iqr
+                    
+                    if data[i] < lower_bound or data[i] > upper_bound:
+                        spikes_detected.append(i)
+                        cleaned_data[i] = np.median(window_data)
+        
+        return cleaned_data, spikes_detected
+
+    def remove_spikes_simple(self, data: np.ndarray, threshold_ratio: float = 2.0, 
+                            window_size: int = 5) -> np.ndarray:
+        """
+        简单的奇异点去除方法
+        
+        Args:
+            data: 输入数据
+            threshold_ratio: 阈值比例
+            window_size: 窗口大小
+            
+        Returns:
+            清理后的数据
+        """
+        try:
+            if len(data) < window_size * 2 + 1:
+                return data
+                
+            cleaned_data = data.copy().astype(np.float64)
+            
+            for i in range(window_size, len(data) - window_size):
+                # 获取周围数据
+                left_window = data[i - window_size:i]
+                right_window = data[i + 1:i + window_size + 1]
+                surrounding_data = np.concatenate([left_window, right_window])
+                
+                # 计算统计信息
+                surrounding_mean = np.mean(surrounding_data)
+                surrounding_std = np.std(surrounding_data)
+                
+                if surrounding_std > 0:
+                    z_score = abs(data[i] - surrounding_mean) / surrounding_std
+                    
+                    if z_score > threshold_ratio:
+                        # 使用中位数代替（对异常值更鲁棒）
+                        cleaned_data[i] = np.median(surrounding_data)
+            
+            return cleaned_data
+            
+        except Exception as e:
+            logger.error(f"去除奇异点时出错: {e}")
+            return data

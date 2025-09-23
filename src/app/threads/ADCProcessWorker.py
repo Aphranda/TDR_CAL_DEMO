@@ -80,7 +80,7 @@ class ADCProcessWorker(QObject):
         for channel in ['adc1', 'adc2']:
             for file_info in self.file_dict.get(channel, []):
                 total_segments += file_info.get('segments', 1)
-        return total_segments
+        return int(total_segments/2)
 
     def _process_all_files_and_segments(self) -> Optional[Dict[str, Any]]:
         """处理所有文件和段并返回结果"""
@@ -187,7 +187,7 @@ class ADCProcessWorker(QObject):
 
     def _process_file_segment(self, adc1_file_info: Optional[Dict], adc2_file_info: Optional[Dict], 
                             file_idx: int, segment_idx: int) -> Optional[Dict[str, Any]]:
-        """处理文件段 (adc1和adc2的对应段)"""
+        """处理文件段 (adc1和adc2的对应段)，确保数据长度一致"""
         # 加载ADC数据段，允许其中一个为空
         adc1_data = self.load_segment_data(adc1_file_info, segment_idx) if adc1_file_info else None
         adc2_data = self.load_segment_data(adc2_file_info, segment_idx) if adc2_file_info else None
@@ -195,6 +195,20 @@ class ADCProcessWorker(QObject):
         # 检查是否两个通道都为空
         if adc1_data is None and adc2_data is None:
             return None
+        
+        # 确保两个通道的数据长度一致（如果都存在）
+        if adc1_data is not None and adc2_data is not None:
+            min_length = min(len(adc1_data), len(adc2_data))
+            
+            # 如果长度不一致，截取到相同长度
+            if len(adc1_data) != len(adc2_data):
+                self.log_message.emit(
+                    f"文件{file_idx}段{segment_idx}: ADC1和ADC2数据长度不一致 "
+                    f"(ADC1: {len(adc1_data)}, ADC2: {len(adc2_data)}), 将截取到最小长度{min_length}", 
+                    "WARNING"
+                )
+                adc1_data = adc1_data[:min_length]
+                adc2_data = adc2_data[:min_length]
         
         # 将ADC的数据作为字典传递给处理函数
         adc_data = {}
@@ -206,7 +220,7 @@ class ADCProcessWorker(QObject):
         return self.analyzer.process_single_file(adc_data, file_idx * 1000 + segment_idx)  # 使用唯一ID
 
     def load_segment_data(self, file_info: Dict, segment_idx: int) -> Optional[np.ndarray]:
-        """加载特定段的数据"""
+        """加载特定段的数据，使用固定段长81920 + 100个点"""
         try:
             file_path = file_info['path']
             segments = file_info.get('segments', 1)
@@ -227,27 +241,60 @@ class ADCProcessWorker(QObject):
             # 根据段信息提取特定段的数据
             segment_info = file_info.get('segment_info', {})
             rise_edge_positions = segment_info.get('rise_edge_positions', [])
+            segment_details = segment_info.get('segment_details', [])
             
-            if rise_edge_positions:
-                # 使用上升沿位置分段
-                start_idx = rise_edge_positions[segment_idx] if segment_idx < len(rise_edge_positions) else 0
-                end_idx = (rise_edge_positions[segment_idx + 1] 
-                          if segment_idx + 1 < len(rise_edge_positions) 
-                          else len(full_data))
+            if rise_edge_positions and segment_details:
+                # 使用段详细信息
+                if segment_idx < len(segment_details):
+                    seg_detail = segment_details[segment_idx]
+                    start_idx = seg_detail['start_position']
+                    end_idx = seg_detail['end_position']
+                    expected_length = seg_detail['expected_length']
+                    actual_length = seg_detail['length']
+                    
+                    # 记录段信息
+                    self.log_message.emit(
+                        f"文件 {os.path.basename(file_path)} 段 {segment_idx}: "
+                        f"起始位置={start_idx}, 结束位置={end_idx}, "
+                        f"期望长度={expected_length}, 实际长度={actual_length}", 
+                        "DEBUG"
+                    )
+                else:
+                    # 如果没有详细的段信息，使用上升沿位置分段
+                    start_idx = rise_edge_positions[segment_idx] if segment_idx < len(rise_edge_positions) else 0
+                    # 计算结束位置：起点 + 81920 + 100
+                    end_idx = start_idx + 81920 + 100
+                    if end_idx > len(full_data):
+                        end_idx = len(full_data)
             else:
-                # 如果没有上升沿信息，平均分段
-                segment_length = len(full_data) // segments
+                # 如果没有上升沿信息，平均分段（使用固定长度）
+                segment_length = 81920 + 100  # 固定段长 + 100
                 start_idx = segment_idx * segment_length
                 end_idx = start_idx + segment_length if segment_idx < segments - 1 else len(full_data)
+                
+                # 如果超出数组长度，调整到数组末尾
+                if end_idx > len(full_data):
+                    end_idx = len(full_data)
             
             # 提取段数据
             segment_data = full_data[start_idx:end_idx]
             
+            # 记录实际加载的数据长度
+            actual_length = len(segment_data)
             self.log_message.emit(
                 f"文件 {os.path.basename(file_path)} 段 {segment_idx}: "
-                f"加载数据点 {start_idx}-{end_idx} (长度: {len(segment_data)})", 
+                f"加载数据点 {start_idx}-{end_idx} (长度: {actual_length})", 
                 "DEBUG"
             )
+            
+            # 检查数据长度是否符合预期
+            expected_min_length = 81920  # 最小需要81920个点
+            if actual_length < expected_min_length:
+                self.log_message.emit(
+                    f"警告: 文件 {os.path.basename(file_path)} 段 {segment_idx} "
+                    f"数据长度不足 (期望至少{expected_min_length}, 实际{actual_length})", 
+                    "WARNING"
+                )
             
             return segment_data
             
@@ -257,6 +304,7 @@ class ADCProcessWorker(QObject):
                 "ERROR"
             )
             return None
+
 
     def _log_segment_skip_warning(self, file_idx: int, segment_idx: int, 
                                 adc1_file_info: Optional[Dict], adc2_file_info: Optional[Dict]):
