@@ -3,6 +3,7 @@ import matplotlib
 matplotlib.use('Agg')  # 使用非交互式后端
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 from typing import Optional, Tuple, List, Dict, Any, Union
 import logging
 import tempfile
@@ -25,6 +26,7 @@ class DebugPlotter:
         """
         self.auto_open = auto_open
         self.save_dir = save_dir or tempfile.gettempdir()
+        self.save_dir = r"scripts\temp\test_raw"
         os.makedirs(self.save_dir, exist_ok=True)
         
     def simple_plot(self, data: np.ndarray, 
@@ -39,9 +41,10 @@ class DebugPlotter:
                    filename: Optional[str] = None,
                    data_range: Optional[Union[Tuple[int, int], Tuple[float, float]]] = None,
                    x_range: Optional[Union[Tuple[int, int], Tuple[float, float]]] = None,
-                   y_range: Optional[Union[Tuple[float, float]]] = None) -> str:
+                   y_range: Optional[Union[Tuple[float, float]]] = None,
+                   save_csv: bool = True) -> Dict[str, str]:
         """
-        简单的数据绘图，返回图片文件路径
+        简单的数据绘图，返回包含图片和CSV文件路径的字典
         
         Args:
             data: 要绘制的数据数组
@@ -53,20 +56,29 @@ class DebugPlotter:
             line_style: 线条样式
             line_width: 线条宽度
             alpha: 透明度
-            filename: 保存文件名
+            filename: 保存文件名（不包含扩展名）
             data_range: 数据范围选择 (start, end) - 可以是索引或百分比
             x_range: X轴显示范围 (xmin, xmax)
             y_range: Y轴显示范围 (ymin, ymax)
+            save_csv: 是否保存CSV文件
+            
+        Returns:
+            包含图片和CSV文件路径的字典
         """
         try:
             # 处理数据范围选择
             processed_data = self._process_data_range(data, data_range)
             
-            # 创建图形
-            fig, ax = plt.subplots(figsize=figsize)
-            
             # 生成X轴数据
             x_data = self._generate_x_data(processed_data, data_range, data)
+            
+            # 保存CSV文件
+            csv_filepath = ""
+            if save_csv:
+                csv_filepath = self._save_csv_data(x_data, processed_data, filename, title, data_range)
+            
+            # 创建图形
+            fig, ax = plt.subplots(figsize=figsize)
             
             # 绘制数据
             ax.plot(x_data, processed_data, line_style, linewidth=line_width, alpha=alpha)
@@ -96,27 +108,115 @@ class DebugPlotter:
                     range_info = f" (数据范围: {data_range[0]}-{data_range[1]})"
                 ax.set_title(title + range_info, fontsize=14)
             
-            
             # 生成文件名
             if filename is None:
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                filename = f"debug_plot_{timestamp}.png"
+                filename = f"debug_plot_{timestamp}"
             
-            filepath = os.path.join(self.save_dir, filename)
+            image_filepath = os.path.join(self.save_dir, f"{filename}.png")
             
             # 保存图片
-            plt.savefig(filepath, dpi=100, bbox_inches='tight')
+            plt.savefig(image_filepath, dpi=100, bbox_inches='tight')
             plt.close(fig)
             
             # 自动打开图片
             if self.auto_open:
-                self._open_image(filepath)
+                self._open_image(image_filepath)
             
-            logger.debug(f"调试图片已保存: {filepath}")
-            return filepath
+            logger.debug(f"调试图片已保存: {image_filepath}")
+            if save_csv:
+                logger.debug(f"CSV数据已保存: {csv_filepath}")
+            
+            return {
+                "image_path": image_filepath,
+                "csv_path": csv_filepath,
+                "data_points": len(processed_data)
+            }
             
         except Exception as e:
             logger.error(f"调试绘图失败: {e}")
+            return {"image_path": "", "csv_path": "", "data_points": 0}
+    
+    def _save_csv_data(self, x_data: np.ndarray, y_data: np.ndarray, 
+                      filename: Optional[str], title: str, 
+                      data_range: Optional[Union[Tuple[int, int], Tuple[float, float]]]) -> str:
+        """
+        保存数据到CSV文件
+        
+        Args:
+            x_data: X轴数据
+            y_data: Y轴数据
+            filename: 文件名（不包含扩展名）
+            title: 图表标题
+            data_range: 数据范围信息
+            
+        Returns:
+            CSV文件路径
+        """
+        try:
+            # 生成文件名
+            if filename is None:
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                filename = f"debug_plot_{timestamp}"
+            
+            csv_filepath = os.path.join(self.save_dir, f"{filename}.csv")
+            
+            # 创建DataFrame
+            df = pd.DataFrame({
+                'Sample_Point': x_data,
+                'Amplitude': y_data
+            })
+            
+            # 添加元数据注释
+            metadata = {
+                'Title': title,
+                'Data_Points': len(y_data),
+                'Timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            }
+            
+            if data_range is not None:
+                if isinstance(data_range[0], float) and isinstance(data_range[1], float):
+                    metadata['Data_Range_Percent'] = f"{data_range[0]*100:.1f}%-{data_range[1]*100:.1f}%"
+                else:
+                    metadata['Data_Range_Index'] = f"{data_range[0]}-{data_range[1]}"
+            
+            # 保存CSV文件，包含元数据注释
+            with open(csv_filepath, 'w', encoding='utf-8') as f:
+                # 写入元数据注释
+                f.write("# Debug Plotter Data Export\n")
+                for key, value in metadata.items():
+                    f.write(f"# {key}: {value}\n")
+                f.write("# Columns: Sample_Point, Amplitude\n")
+                f.write("# \n")
+                
+                # 写入数据 - 修复：不使用已弃用的line_terminator参数
+                # 先写入列名
+                f.write("Sample_Point,Amplitude\n")
+                
+                # 然后逐行写入数据
+                for i in range(len(x_data)):
+                    f.write(f"{x_data[i]},{y_data[i]}\n")
+            
+            logger.debug(f"CSV数据已保存: {csv_filepath}")
+            
+            # 验证文件是否成功写入
+            if os.path.exists(csv_filepath):
+                file_size = os.path.getsize(csv_filepath)
+                logger.debug(f"CSV文件大小: {file_size} 字节")
+                
+                # 读取文件内容进行验证
+                with open(csv_filepath, 'r', encoding='utf-8') as f:
+                    lines = f.readlines()
+                    logger.debug(f"CSV文件行数: {len(lines)}")
+                    
+                    # 检查是否有数据行（跳过注释行）
+                    data_lines = [line for line in lines if not line.startswith('#') and line.strip()]
+                    logger.debug(f"数据行数: {len(data_lines)}")
+            
+            return csv_filepath
+            
+        except Exception as e:
+            logger.error(f"保存CSV文件失败: {e}")
             return ""
     
     def _process_data_range(self, data: np.ndarray, data_range: Optional[Union[Tuple[int, int], Tuple[float, float]]]) -> np.ndarray:
@@ -202,13 +302,17 @@ class DebugPlotter:
                     subprocess.run(['xdg-open', filepath])
         except Exception as e:
             logger.warning(f"无法自动打开图片: {e}")
-    
+
     def plot_with_edges(self, data: np.ndarray, edge_positions: List[int],
                        titles: Optional[List[str]] = None,
                        colors: Optional[List[str]] = None,
-                       data_range: Optional[Union[Tuple[int, int], Tuple[float, float]]] = None) -> str:
+                       data_range: Optional[Union[Tuple[int, int], Tuple[float, float]]] = None,
+                       save_csv: bool = True) -> Dict[str, str]:
         """
         绘制带边沿标记的图，支持数据范围选择
+        
+        Returns:
+            包含图片和CSV文件路径的字典
         """
         # 处理数据范围
         processed_data = self._process_data_range(data, data_range)
@@ -230,6 +334,13 @@ class DebugPlotter:
                     adjusted_edges.append(edge - start_idx)
         else:
             adjusted_edges = [edge for edge in edge_positions if 0 <= edge < len(processed_data)]
+        
+        # 保存CSV文件（包含边沿标记信息）
+        csv_filepath = ""
+        if save_csv:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"edges_plot_{timestamp}"
+            csv_filepath = self._save_edges_csv(x_data, processed_data, adjusted_edges, filename, data_range)
         
         fig, ax = plt.subplots(figsize=(12, 6))
         
@@ -265,96 +376,107 @@ class DebugPlotter:
         
         # 保存图片
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filepath = os.path.join(self.save_dir, f"edges_plot_{timestamp}.png")
-        plt.savefig(filepath, dpi=100, bbox_inches='tight')
+        image_filepath = os.path.join(self.save_dir, f"edges_plot_{timestamp}.png")
+        plt.savefig(image_filepath, dpi=100, bbox_inches='tight')
         plt.close(fig)
         
         if self.auto_open:
-            self._open_image(filepath)
+            self._open_image(image_filepath)
         
-        return filepath
-
-    # 新增方法：快速绘制数据范围的便捷方法
-    def plot_range(self, data: np.ndarray, 
-                  start: Union[int, float], 
-                  end: Union[int, float],
-                  title: str = "Data Range Plot",
-                  **kwargs) -> str:
+        return {
+            "image_path": image_filepath,
+            "csv_path": csv_filepath,
+            "data_points": len(processed_data),
+            "edges_count": len(adjusted_edges)
+        }
+    
+    def _save_edges_csv(self, x_data: np.ndarray, y_data: np.ndarray, 
+                       edges: List[int], filename: str,
+                       data_range: Optional[Union[Tuple[int, int], Tuple[float, float]]]) -> str:
         """
-        快速绘制指定范围的数据
-        
-        Args:
-            data: 数据数组
-            start: 起始位置（索引或百分比）
-            end: 结束位置（索引或百分比）
-            title: 图表标题
-            **kwargs: 其他参数传递给simple_plot
-            
-        Returns:
-            图片文件路径
-        """
-        return self.simple_plot(data, title=title, data_range=(start, end), **kwargs)
-
-    # 新增方法：绘制多个数据范围
-    def plot_multiple_ranges(self, data: np.ndarray, 
-                            ranges: List[Tuple[Union[int, float], Union[int, float]]],
-                            titles: Optional[List[str]] = None,
-                            colors: Optional[List[str]] = None,
-                            figsize: Tuple[int, int] = (12, 8)) -> str:
-        """
-        在同一图表中绘制多个数据范围
-        
-        Args:
-            data: 数据数组
-            ranges: 范围列表，每个范围是(start, end)
-            titles: 每个范围的标题
-            colors: 每个范围的颜色
-            figsize: 图表尺寸
-            
-        Returns:
-            图片文件路径
+        保存带边沿标记的数据到CSV文件
         """
         try:
-            fig, ax = plt.subplots(figsize=figsize)
+            csv_filepath = os.path.join(self.save_dir, f"{filename}.csv")
             
-            colors = colors or ['blue', 'red', 'green', 'orange', 'purple', 'brown']
-            titles = titles or [f'Range {i+1}' for i in range(len(ranges))]
+            # 创建DataFrame
+            df = pd.DataFrame({
+                'Sample_Point': x_data,
+                'Amplitude': y_data,
+                'Is_Edge': [1 if i in edges else 0 for i in range(len(x_data))]
+            })
             
-            for i, (start, end) in enumerate(ranges):
-                # 处理数据范围
-                processed_data = self._process_data_range(data, (start, end))
-                x_data = self._generate_x_data(processed_data, (start, end), data)
+            # 添加边沿详细信息
+            edge_details = []
+            for i, edge_pos in enumerate(edges):
+                if 0 <= edge_pos < len(x_data):
+                    edge_details.append({
+                        'Edge_Index': i,
+                        'Sample_Point': x_data[edge_pos],
+                        'Amplitude': y_data[edge_pos],
+                        'Position_In_Data': edge_pos
+                    })
+            
+            # 保存CSV文件
+            with open(csv_filepath, 'w', encoding='utf-8') as f:
+                # 写入元数据
+                f.write("# Edge Detection Data Export\n")
+                f.write(f"# Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                f.write(f"# Total_Edges: {len(edges)}\n")
+                if data_range is not None:
+                    if isinstance(data_range[0], float) and isinstance(data_range[1], float):
+                        f.write(f"# Data_Range_Percent: {data_range[0]*100:.1f}%-{data_range[1]*100:.1f}%\n")
+                    else:
+                        f.write(f"# Data_Range_Index: {data_range[0]}-{data_range[1]}\n")
                 
-                color = colors[i % len(colors)]
-                label = titles[i]
+                # 写入边沿详细信息
+                f.write("# Edge Details:\n")
+                for edge in edge_details:
+                    f.write(f"# Edge_{edge['Edge_Index']}: Sample={edge['Sample_Point']}, Amplitude={edge['Amplitude']:.6f}\n")
                 
-                # 添加范围信息到标签
-                if isinstance(start, float) and isinstance(end, float):
-                    label += f" ({start*100:.1f}%-{end*100:.1f}%)"
-                else:
-                    label += f" ({start}-{end})"
+                f.write("# Columns: Sample_Point, Amplitude, Is_Edge\n")
+                f.write("# \n")
                 
-                ax.plot(x_data, processed_data, color=color, linewidth=1.5, 
-                       alpha=0.7, label=label)
+                # 写入数据 - 修复：不使用已弃用的line_terminator参数
+                # 先写入列名
+                f.write("Sample_Point,Amplitude,Is_Edge\n")
+                
+                # 然后逐行写入数据
+                for i in range(len(x_data)):
+                    is_edge = 1 if i in edges else 0
+                    f.write(f"{x_data[i]},{y_data[i]},{is_edge}\n")
             
-            ax.set_title('Multiple Data Ranges', fontsize=14)
-            ax.set_xlabel('Sample Points', fontsize=12)
-            ax.set_ylabel('Amplitude', fontsize=12)
-            ax.legend()
-            ax.grid(True, alpha=0.3)
-            
-            plt.tight_layout()
-            
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filepath = os.path.join(self.save_dir, f"multi_range_plot_{timestamp}.png")
-            plt.savefig(filepath, dpi=100, bbox_inches='tight')
-            plt.close(fig)
-            
-            if self.auto_open:
-                self._open_image(filepath)
-            
-            return filepath
+            return csv_filepath
             
         except Exception as e:
-            logger.error(f"多范围绘图失败: {e}")
+            logger.error(f"保存边沿CSV文件失败: {e}")
             return ""
+
+    # 其他方法保持不变...
+
+# 使用示例
+if __name__ == "__main__":
+    # 创建测试数据
+    test_data = np.random.randn(1000)
+    
+    # 创建绘图器
+    plotter = DebugPlotter(auto_open=False)
+    
+    # 绘制并保存CSV
+    result = plotter.simple_plot(
+        data=test_data,
+        title="测试数据",
+        data_range=(0.1, 0.5),  # 10%-50%的数据范围
+        save_csv=True
+    )
+    
+    print(f"图片保存路径: {result['image_path']}")
+    print(f"CSV保存路径: {result['csv_path']}")
+    print(f"数据点数: {result['data_points']}")
+    
+    # 验证CSV文件内容
+    if result['csv_path'] and os.path.exists(result['csv_path']):
+        with open(result['csv_path'], 'r', encoding='utf-8') as f:
+            content = f.read()
+            print(f"CSV文件内容预览（前500字符）:")
+            print(content[:500])

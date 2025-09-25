@@ -138,9 +138,9 @@ class ADCSamplingController(QObject):
         # 获取当前选中的S参数模式
         current_mode = self.view.get_selected_s_mode()
         
-        
         # 获取采样参数
         count = self.view.sample_count_spin.value()
+        sample_number = self.view.get_sample_number()  # 新增：获取单次采样数量
         interval = self.view.sample_interval_spin.value()
         save_raw_data = True
         output_dir = self.view.output_dir_edit.text() or 'data\\results\\test'
@@ -148,19 +148,27 @@ class ADCSamplingController(QObject):
         
         # 更新模型
         self.model.sample_count = count
+        self.model.sample_number = sample_number  # 新增：设置单次采样数量
         self.model.sample_interval = interval
         self.model.save_raw_data = save_raw_data
         self.model.output_dir = output_dir
         self.model.filename_prefix = filename_prefix
         
-        # 创建工作线程，传入TCP客户端
+        # 创建工作线程，传入TCP客户端和单次采样数量
         self.adc_thread = QThread()
         
         # 设置可追溯的线程名称
         thread_name = f"ADC采样线程_{filename_prefix}_{int(time.time())}"
         self.adc_thread.setObjectName(thread_name)
-
-        self.adc_worker = ADCSampleWorker(self.tcp_client, count, interval, save_raw_data, output_dir, filename_prefix)
+        self.adc_worker = ADCSampleWorker(
+            self.tcp_client, 
+            count, 
+            interval, 
+            save_raw_data, 
+            output_dir, 
+            filename_prefix,
+            sample_number  # 新增：传递单次采样数量参数
+        )
         self.adc_worker.moveToThread(self.adc_thread)
         
         # 连接信号
@@ -175,7 +183,7 @@ class ADCSamplingController(QObject):
         
         # 启动线程
         self.adc_thread.start()
-        self.log_message(f"开始ADC采样，模式: {current_mode}, 次数: {count}, 间隔: {interval}s", "INFO")
+        self.log_message(f"开始ADC采样，模式: {current_mode}, 次数: {count}, 单次采样数: {sample_number}, 间隔: {interval}s", "INFO")
     
     def on_sampling_finished(self, success, message):
         """采样完成"""

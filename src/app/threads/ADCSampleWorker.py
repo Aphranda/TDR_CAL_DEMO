@@ -16,7 +16,7 @@ class ADCSampleWorker(QObject):
     dataSaved = pyqtSignal(str, str)
     saveError = pyqtSignal(str)
     
-    def __init__(self, tcp_client, count, interval, save_raw_data=True, output_dir=None, filename_prefix=None):
+    def __init__(self, tcp_client, count, interval, save_raw_data=True, output_dir=None, filename_prefix=None,sample_number = 10):
         super().__init__()
         self.adc_sample = ADCSample()
         self.adc_sample.set_tcp_client(tcp_client)
@@ -25,6 +25,7 @@ class ADCSampleWorker(QObject):
         self.save_raw_data = save_raw_data
         self.output_dir = output_dir or 'data\\results\\test'
         self.filename_prefix = filename_prefix or 'adc_raw_data'
+        self.sample_number = sample_number  # 新增：保存单次采样数量
         self.running = False
         self._should_stop = False
         
@@ -78,7 +79,7 @@ class ADCSampleWorker(QObject):
         """执行单次采样操作"""
         try:
             # ADCSample.perform_single_test 返回 (processed_data, error)
-            processed_data, error = self.adc_sample.perform_single_test(sample_index)
+            processed_data, error = self.adc_sample.perform_single_test(sample_index,self.sample_number)
             return processed_data, error
         except Exception as e:
             return None, f"采样异常: {str(e)}"

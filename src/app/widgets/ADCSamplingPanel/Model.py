@@ -11,6 +11,7 @@ class ADCSamplingModel:
         self.adc_ip = "192.168.1.10"
         self.adc_port = 15000
         self.sample_count = 10
+        self.sample_number = 10  # 新增：单次采样数量，默认值10
         self.sample_interval = 0.1
         self.output_dir = "data\\results\\test"
         self.filename_prefix = "adc_data"
@@ -22,6 +23,13 @@ class ADCSamplingModel:
 
     def set_adc_connection_status(self, connected: bool):
         self.adc_connected = connected
+
+    def set_sample_number(self, sample_number: int):
+        """设置单次采样数量"""
+        self.sample_number = sample_number
+    def get_sample_number(self) -> int:
+        """获取单次采样数量"""
+        return self.sample_number
 
     def add_adc_sample(self, sample_data):
         """添加ADC采样数据，使用内存友好的方式"""

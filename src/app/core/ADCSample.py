@@ -30,6 +30,11 @@ class ADCSample:
         self.server_port = self.tcp_client.server_port if self.tcp_client and self.tcp_client.server_port else 15000
         self.chunk_size = 32768
         self.output_dir = 'data\\results\\test'
+        self.sample_number = 10  # 新增：默认单次采样数量为10
+
+    def set_sample_number(self, sample_number: int):
+        """设置单次采样数量"""
+        self.sample_number = sample_number
     
     def set_tcp_client(self, tcp_client):
         """设置外部TcpClient实例"""
@@ -136,38 +141,38 @@ class ADCSample:
         return True, {'adc1': adc1_data, 'adc2': adc2_data}
     
     @timeit
-    def perform_single_test(self, test_num):
+    def perform_single_test(self, test_num, sample_number=None):
         """执行单次测试并返回数据"""
         if not self.is_connected():
             return None, "未连接到服务器"
         
+        # 使用传入的sample_number或默认值
+        current_sample_number = sample_number if sample_number is not None else self.sample_number
+        
         try:
-            # 发送sample指令
-            success, response = self.send_command('sample 10')
+            # 发送sample指令，使用动态的采样数量
+            success, response = self.send_command(f'sample {current_sample_number}')
             if not success:
                 return None, f"采样指令发送失败: {response}"
             
-            logger.info(f"测试 {test_num + 1}: sample 响应: {response.strip()}")
+            logger.info(f"测试 {test_num + 1}: sample {current_sample_number} 响应: {response.strip()}")
             
             if 'ok' not in response.lower():
                 return None, f"采样失败: {response}"
             
-            # 接收采样数据 - 使用专门的二进制接收方法
+            # 接收采样数据
             success, data_dict = self.receive_binary_data(max_retries=5)
             if not success:
                 return None, f"数据接收失败: {data_dict}"
             
             logger.info(f"测试 {test_num + 1}: 接收 ADC1 {len(data_dict['adc1'])} 字节, ADC2 {len(data_dict['adc2'])} 字节")
             
-            # 分别处理两个ADC的数据
+            # 处理数据
             processed_data = {}
             for adc_name, data in data_dict.items():
-                # 检查数据长度是否为4的倍数
                 if len(data) % 4 != 0:
-                    # 截断到最近的4的倍数
                     data = data[:len(data) - (len(data) % 4)]
                 
-                # 将数据解析为小端 uint32
                 num_values = len(data) // 4
                 if num_values == 0:
                     logger.warning(f"ADC {adc_name} 未接收到有效数据")

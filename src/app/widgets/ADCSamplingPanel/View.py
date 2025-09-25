@@ -80,16 +80,31 @@ class ADCSamplingView(QWidget):
         status_layout.addWidget(self.status_label)
         instrument_layout.addLayout(status_layout)
         
-        # 采样设置
+        # 采样设置 - 修改这里：添加单次采样数量
         sample_layout = QHBoxLayout()
         sample_layout.setSpacing(4)
-        sample_layout.addWidget(QLabel("次数:"))
+        
+        # 采样次数
+        sample_layout.addWidget(QLabel("NSa"))
         self.sample_count_spin = QSpinBox()
         self.sample_count_spin.setRange(1, 1000)
         self.sample_count_spin.setValue(10)
         self.sample_count_spin.setMinimumWidth(70)
         self.sample_count_spin.setMaximumWidth(100)
+        self.sample_count_spin.setToolTip("每次采样命令发送的样本数量0")
         sample_layout.addWidget(self.sample_count_spin)
+        
+        # 单次采样数量 - 新增控件
+        sample_layout.addWidget(QLabel("SaN:"))
+        self.sample_number_spin = QSpinBox()
+        self.sample_number_spin.setRange(1, 1000)  # 根据实际需求调整范围
+        self.sample_number_spin.setValue(10)  # 默认值10，与原来的'sample 10'一致
+        self.sample_number_spin.setMinimumWidth(70)
+        self.sample_number_spin.setMaximumWidth(100)
+        self.sample_number_spin.setToolTip("每次采样命令发送的样本数量")
+        sample_layout.addWidget(self.sample_number_spin)
+        
+        # 采样间隔
         sample_layout.addWidget(QLabel("间隔(s):"))
         self.sample_interval_spin = QDoubleSpinBox()
         self.sample_interval_spin.setRange(0.1, 10.0)
@@ -97,6 +112,7 @@ class ADCSamplingView(QWidget):
         self.sample_interval_spin.setMinimumWidth(70)
         self.sample_interval_spin.setMaximumWidth(100)
         sample_layout.addWidget(self.sample_interval_spin)
+        
         instrument_layout.addLayout(sample_layout)
           
         # 文件名设置
@@ -142,6 +158,10 @@ class ADCSamplingView(QWidget):
         elif self.s22_radio.isChecked():
             return "S22"
         return "S11"  # 默认返回S11
+    
+    def get_sample_number(self) -> int:
+        """获取单次采样数量"""
+        return self.sample_number_spin.value()
     
     def update_adc_connection_status(self, connected: bool, message: str = ""):
         """更新ADC连接状态"""

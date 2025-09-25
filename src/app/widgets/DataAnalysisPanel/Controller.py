@@ -218,7 +218,7 @@ class DataAnalysisController(QObject):
                 self.log_message(f"文件对 {adc1_file} 和 {adc2_file} 的段数匹配: {adc1_segments} 段", "INFO")
 
 
-    def extract_adc_data_from_binary(self, file_path, max_read_size=100*1024*1024):
+    def extract_adc_data_from_binary(self, file_path, max_read_size=0.3*1024*1024):
         """
         从二进制文件中提取ADC数据并检测段数
         修改：使用固定段长81920进行分段，尾部+100个点
