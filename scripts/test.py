@@ -70,14 +70,191 @@ class SimpleCSVPlotter:
         ttk.Button(button_frame, text="显示统计", 
                   command=self.show_stats).grid(row=0, column=2, padx=5)
         
+        ttk.Button(button_frame, text="检测上升沿", 
+                  command=self.detect_rising_edges).grid(row=0, column=3, padx=5)
+        
         ttk.Button(button_frame, text="清除图形", 
-                  command=self.clear_plot).grid(row=0, column=3, padx=5)
+                  command=self.clear_plot).grid(row=0, column=4, padx=5)
         
         # 配置权重
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(0, weight=1)
         main_frame.columnconfigure(0, weight=1)
         main_frame.rowconfigure(3, weight=1)
+    
+    def detect_rising_edges(self):
+        """检测并打印上升沿位置及间距"""
+        if self.data is None:
+            messagebox.showwarning("警告", "请先选择CSV文件")
+            return
+        
+        try:
+            # 获取数据列
+            columns = list(self.data.columns)
+            
+            # 找出数字列（排除可能的索引列）
+            numeric_columns = []
+            for col in columns:
+                if self.data[col].dtype in [np.int64, np.float64]:
+                    numeric_columns.append(col)
+            
+            if not numeric_columns:
+                messagebox.showwarning("警告", "未找到数字数据列")
+                return
+            
+            # 创建新窗口显示上升沿信息
+            edge_window = tk.Toplevel(self.root)
+            edge_window.title("上升沿检测结果")
+            edge_window.geometry("700x500")
+            
+            # 创建文本框和滚动条
+            text_frame = ttk.Frame(edge_window, padding="10")
+            text_frame.pack(fill=tk.BOTH, expand=True)
+            
+            text_widget = tk.Text(text_frame, wrap=tk.WORD)
+            scrollbar = ttk.Scrollbar(text_frame, orient=tk.VERTICAL, command=text_widget.yview)
+            text_widget.configure(yscrollcommand=scrollbar.set)
+            
+            text_widget.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+            scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+            
+            # 检测每个数字列的上升沿
+            result_text = "上升沿检测结果:\n\n"
+            
+            for col in numeric_columns:
+                result_text += f"列 '{col}' 的上升沿分析:\n"
+                result_text += "="*50 + "\n"
+                
+                # 检测上升沿
+                rising_edges = self._find_rising_edges(self.data[col])
+                
+                if len(rising_edges) > 0:
+                    # 计算上升沿间距
+                    edge_distances = self._calculate_edge_distances(rising_edges)
+                    
+                    # 显示每个上升沿的详细信息
+                    for i, edge_idx in enumerate(rising_edges):
+                        # 获取上升沿前后的值
+                        prev_val = self.data[col].iloc[edge_idx-1] if edge_idx > 0 else "N/A"
+                        curr_val = self.data[col].iloc[edge_idx]
+                        
+                        result_text += f"上升沿 {i+1}: 位置 {edge_idx}, "
+                        result_text += f"值变化 {prev_val} -> {curr_val}\n"
+                    
+                    result_text += "\n上升沿间距分析:\n"
+                    result_text += "-"*30 + "\n"
+                    
+                    # 显示间距信息
+                    total_distance = 0
+                    valid_distances = []
+                    
+                    for i, distance in enumerate(edge_distances):
+                        if distance is not None:
+                            result_text += f"间距 {i+1}: 上升沿 {i+1} 到 {i+2} 的距离 = {distance} 个样本点\n"
+                            total_distance += distance
+                            valid_distances.append(distance)
+                    
+                    # 显示统计信息
+                    if valid_distances:
+                        result_text += "\n间距统计:\n"
+                        result_text += f"总间距数: {len(valid_distances)}\n"
+                        result_text += f"平均间距: {np.mean(valid_distances):.2f} 个样本点\n"
+                        result_text += f"最大间距: {np.max(valid_distances)} 个样本点\n"
+                        result_text += f"最小间距: {np.min(valid_distances)} 个样本点\n"
+                        result_text += f"间距标准差: {np.std(valid_distances):.2f} 个样本点\n"
+                    
+                    result_text += f"\n总共找到 {len(rising_edges)} 个上升沿\n\n"
+                else:
+                    result_text += "未找到上升沿\n\n"
+                
+                result_text += "\n" + "="*50 + "\n\n"
+            
+            # 在数据中添加上升沿标记（用于绘图）
+            self._mark_edges_in_data(numeric_columns[0])  # 默认标记第一列
+            
+            text_widget.insert(tk.END, result_text)
+            text_widget.config(state=tk.DISABLED)  # 设置为只读
+            
+            # 添加按钮框架
+            button_frame = ttk.Frame(edge_window)
+            button_frame.pack(pady=10)
+            
+            # 添加复制按钮
+            copy_button = ttk.Button(button_frame, text="复制结果", 
+                                   command=lambda: self._copy_to_clipboard(result_text))
+            copy_button.grid(row=0, column=0, padx=5)
+            
+            # 添加保存按钮
+            save_button = ttk.Button(button_frame, text="保存结果", 
+                                   command=lambda: self._save_edge_analysis(result_text))
+            save_button.grid(row=0, column=1, padx=5)
+            
+        except Exception as e:
+            messagebox.showerror("错误", f"检测上升沿失败: {e}")
+    
+    def _find_rising_edges(self, data_series):
+        """在数据序列中查找上升沿位置"""
+        rising_edges = []
+        
+        for i in range(1, len(data_series)):
+            # 检测从0到1的跳变
+            if data_series.iloc[i-1] == 0 and data_series.iloc[i] == 1:
+                rising_edges.append(i)
+        
+        return rising_edges
+    
+    def _calculate_edge_distances(self, rising_edges):
+        """计算相邻上升沿之间的距离"""
+        distances = []
+        
+        if len(rising_edges) < 2:
+            return distances
+        
+        for i in range(len(rising_edges) - 1):
+            distance = rising_edges[i + 1] - rising_edges[i]
+            distances.append(distance)
+        
+        return distances
+    
+    def _mark_edges_in_data(self, column_name):
+        """在数据中标记上升沿位置"""
+        if 'Is_Edge' in self.data.columns:
+            self.data = self.data.drop('Is_Edge', axis=1)
+        
+        # 检测上升沿
+        rising_edges = self._find_rising_edges(self.data[column_name])
+        
+        # 创建边缘标记列
+        self.data['Is_Edge'] = 0
+        for edge_idx in rising_edges:
+            self.data.at[edge_idx, 'Is_Edge'] = 1
+    
+    def _copy_to_clipboard(self, text):
+        """复制文本到剪贴板"""
+        self.root.clipboard_clear()
+        self.root.clipboard_append(text)
+        messagebox.showinfo("成功", "结果已复制到剪贴板")
+    
+    def _save_edge_analysis(self, text):
+        """保存上升沿分析结果到文件"""
+        if self.current_file is None:
+            messagebox.showwarning("警告", "没有文件可参考保存路径")
+            return
+        
+        filepath = filedialog.asksaveasfilename(
+            title="保存上升沿分析结果",
+            defaultextension=".txt",
+            filetypes=[("Text files", "*.txt"), ("All files", "*.*")],
+            initialfile=f"{os.path.splitext(os.path.basename(self.current_file))[0]}_edge_analysis.txt"
+        )
+        
+        if filepath:
+            try:
+                with open(filepath, 'w', encoding='utf-8') as f:
+                    f.write(text)
+                messagebox.showinfo("成功", f"分析结果已保存到:\n{filepath}")
+            except Exception as e:
+                messagebox.showerror("错误", f"保存文件失败: {e}")
     
     def load_csv_file(self):
         """加载CSV文件"""
@@ -241,6 +418,7 @@ class SimpleCSVPlotter:
         scrollbar = ttk.Scrollbar(text_frame, orient=tk.VERTICAL, command=text_widget.yview)
         text_widget.configure(yscrollcommand=scrollbar.set)
         
+
         text_widget.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         
@@ -268,7 +446,7 @@ def main():
     # 检查命令行参数
     if len(sys.argv) > 1:
         # 命令行模式
-        filepath = "sys.argv[1]"
+        filepath = sys.argv[1]
         plotter = SimpleCSVPlotter()
         
         # 直接加载文件
@@ -278,6 +456,8 @@ def main():
                 plotter.current_file = filepath
                 plotter.file_label.config(text=os.path.basename(filepath))
                 
+                # 自动检测上升沿
+                plotter.detect_rising_edges()
                 # 自动绘图
                 plotter.plot_data()
             except Exception as e:

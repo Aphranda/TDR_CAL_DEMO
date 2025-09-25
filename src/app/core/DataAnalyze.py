@@ -57,7 +57,7 @@ class DataAnalyzer:
         try:
             # 1. 提取ADC数据
             bit31, adc_full = self.data_processor.extract_adc_data(u32_arr, self.config.use_signed18)
-            self.debug_plotter.simple_plot(bit31,"Vaild")
+            # self.debug_plotter.simple_plot(bit31,"Vaild")
             # 2. 检测有效数据
             # rise_idx = self.data_processor.detect_valid_data(bit31, self.config.edge_search_start)
             rise_idx = 0
@@ -118,12 +118,12 @@ class DataAnalyzer:
                 rise_pos = self.edge_detector.find_rise_position(
                     y_sorted, self.config.search_method, np.mean(adc_full), self.config.min_edge_amplitude_ratio
                 )
-                print("rise_pos:", rise_pos)
+                print("ADC1_idx:", rise_pos)
                 # self.debug_plotter.simple_plot(y_sorted, title="ADC1", data_range=(0.39,0.41))
             else:
                 # 使用提供的目标对齐位置
                 rise_pos = target_idx
-                print("target_idx:", rise_pos)
+                print("ADC1_idx:", rise_pos)
                 # self.debug_plotter.simple_plot(y_sorted, title="ADC2",data_range=(0.39,0.41))
 
             # 6. 数据对齐
@@ -343,14 +343,18 @@ class DataAnalyzer:
             
             if adc1_data is not None:
                 adc1_basic_result = self.extract_basic_segment(adc1_data, file_index)
+                
                 if adc1_basic_result is not None:
                     target_idx = adc1_basic_result.get('rise_pos')
-            
+
+
+
             # 处理ADC2数据（如果存在）
             adc2_basic_result = None
             if adc2_data is not None:
                 # 使用ADC1的目标对齐位置来处理ADC2数据（如果存在）
                 adc2_basic_result = self.extract_basic_segment(adc2_data, file_index, target_idx)
+
             
             # 如果两个通道的基本结果都为空，返回None
             if adc1_basic_result is None and adc2_basic_result is None:
