@@ -15,6 +15,7 @@ build/
 *.xlsx
 *.lock
 *.exe
+*.png
 
 # VSCode
 .vscode/
