@@ -17,6 +17,7 @@ class ADCSamplingController(QObject):
     finished = pyqtSignal(bool, str)
     adcStatusChanged = pyqtSignal(bool, str)  # ADC连接状态变化信号
     samplingProgress = pyqtSignal(int, int, str)  # 采样进度信号
+    savingProgress = pyqtSignal(int, int, str)    # 保存进度信号 - 新增
     dataSaved = pyqtSignal(str, str)  # 数据保存信号
     clockModeChanged = pyqtSignal(str, str)  # 时钟模式变化信号 (模式, 消息)
     
@@ -173,7 +174,8 @@ class ADCSamplingController(QObject):
         
         # 连接信号
         self.adc_thread.started.connect(self.adc_worker.run)
-        self.adc_worker.progress.connect(self.samplingProgress)
+        self.adc_worker.samplingProgress.connect(self.samplingProgress)
+        self.adc_worker.savingProgress.connect(self.savingProgress)
         self.adc_worker.finished.connect(self.on_sampling_finished)
         self.adc_worker.finished.connect(self.adc_thread.quit)
         self.adc_worker.finished.connect(self.adc_worker.deleteLater)

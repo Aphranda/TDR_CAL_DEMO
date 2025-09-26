@@ -1,4 +1,6 @@
 # src/app/windows/MainWindow/Controller.py
+from PyQt5.QtCore import QTimer
+
 from app.widgets.CalibrationPanel import create_calibration_panel
 from app.widgets.LogWidget import create_log_widget
 from app.widgets.InstrumentPanel import create_instrument_panel
@@ -274,6 +276,9 @@ class MainWindowController:
         adc_controller = self.sub_controllers.get('adc_sampling')
         if adc_controller and hasattr(adc_controller, 'samplingProgress'):
             adc_controller.samplingProgress.connect(self._handle_adc_progress)
+
+        if adc_controller and hasattr(adc_controller, 'savingProgress'):
+            adc_controller.savingProgress.connect(self._handle_saving_progress)
         
         # 连接数据分析进度信号
         data_analysis_controller = self.sub_controllers.get('data_analysis')
@@ -300,6 +305,28 @@ class MainWindowController:
         # 自动显示进度面板
         if not self.view.is_progress_panel_visible():
             self.view.show_progress_panel()
+
+    def _handle_saving_progress(self, current, total, message):
+        """处理数据保存进度"""
+        progress_id = "data_saving"
+        label = "数据保存"
+        
+        # 确保进度条存在
+        if not self.progress_controller.get_progress(progress_id):
+            self.progress_controller.add_progress_bar(progress_id, label, total, ProgressBarStyle.BLUE)
+        
+        # 更新进度
+        self.progress_controller.update_progress(progress_id, current, total, message)
+        
+        # 自动显示进度面板
+        if not self.view.is_progress_panel_visible():
+            self.view.show_progress_panel()
+        
+        # 如果保存完成，可以添加完成后的处理
+        if current >= total:
+            self.log_controller.log("数据保存完成", "INFO")
+            # 可以选择在保存完成后延迟一段时间再移除进度条
+            QTimer.singleShot(2000, lambda: self.remove_progress(progress_id))
     
     def _handle_analysis_progress(self, current, total, message):
         """处理数据分析进度"""

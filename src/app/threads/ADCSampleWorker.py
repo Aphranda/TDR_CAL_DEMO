@@ -1,22 +1,24 @@
 # src/app/threads/ADCSampleWorker.py
 import os
 import time
-from matplotlib.pylab import f
 import numpy as np
-from PyQt5.QtCore import QObject, pyqtSignal, QThread,pyqtSlot
+from PyQt5.QtCore import QObject, pyqtSignal, QThread, pyqtSlot
 from app.core.ADCSample import ADCSample
 from app.core.FileManager import FileManager
 from .DataSaverWorker import DataSaverWorker
 
 class ADCSampleWorker(QObject):
-    """ADC采样工作线程 - 使用异步保存优化性能"""
-    progress = pyqtSignal(int, int, str)
+    """ADC采样工作线程 - 支持双进度条（采样进度和保存进度）"""
+    # 采样进度信号
+    samplingProgress = pyqtSignal(int, int, str)  # (current, total, message)
+    # 保存进度信号
+    savingProgress = pyqtSignal(int, int, str)    # (current, total, message)
     finished = pyqtSignal(bool, str)
     sampleData = pyqtSignal(dict)  # 发送字典，包含两个ADC的数据
     dataSaved = pyqtSignal(str, str)
     saveError = pyqtSignal(str)
     
-    def __init__(self, tcp_client, count, interval, save_raw_data=True, output_dir=None, filename_prefix=None,sample_number = 10):
+    def __init__(self, tcp_client, count, interval, save_raw_data=True, output_dir=None, filename_prefix=None, sample_number=10):
         super().__init__()
         self.adc_sample = ADCSample()
         self.adc_sample.set_tcp_client(tcp_client)
@@ -25,27 +27,43 @@ class ADCSampleWorker(QObject):
         self.save_raw_data = save_raw_data
         self.output_dir = output_dir or 'data\\results\\test'
         self.filename_prefix = filename_prefix or 'adc_raw_data'
-        self.sample_number = sample_number  # 新增：保存单次采样数量
+        self.sample_number = sample_number
         self.running = False
         self._should_stop = False
         
+        # 保存任务计数器
+        self.save_tasks_total = count*2
+        self.save_tasks_completed = 0
+        
         # 创建异步保存线程
         self.saver_thread = QThread()
-        self.data_saver = DataSaverWorker(max_queue_size=5)  # 限制队列大小防止内存占用过高
+        self.data_saver = DataSaverWorker(max_queue_size=5)
         self.data_saver.moveToThread(self.saver_thread)
         
         # 连接信号槽
-        self.data_saver.dataSaved.connect(self.dataSaved)
+        self.data_saver.dataSaved.connect(self._on_data_saved)
         self.data_saver.errorOccurred.connect(self.saveError)
         self.saver_thread.started.connect(self.data_saver.run)
         self.data_saver.finished.connect(self.saver_thread.quit)
         self.data_saver.finished.connect(self.data_saver.deleteLater)
         self.saver_thread.finished.connect(self.saver_thread.deleteLater)
     
+    def _on_data_saved(self, filepath, message):
+        """处理数据保存完成事件"""
+        self.save_tasks_completed += 1
+        # 发射保存进度信号
+        self.savingProgress.emit(
+            self.save_tasks_completed, 
+            self.save_tasks_total, 
+            f"已保存 {self.save_tasks_completed}/{self.save_tasks_total} 个文件"
+        )
+        self.dataSaved.emit(filepath, message)
+    
     def _initialize_sampling(self):
         """初始化采样环境"""
         self.running = True
         self._should_stop = False
+        self.save_tasks_completed = 0
         
         # 启动保存线程
         self.saver_thread.start()
@@ -53,6 +71,9 @@ class ADCSampleWorker(QObject):
         # 确保输出目录存在
         if self.save_raw_data:
             self.data_saver.file_manager.ensure_dir_exists(self.output_dir)
+        
+        # 初始化保存进度条
+        self.savingProgress.emit(0, self.save_tasks_total, "等待数据保存...")
         
         return True
     
@@ -62,12 +83,13 @@ class ADCSampleWorker(QObject):
             if not self.running or self._should_stop:
                 break
             
-            self.progress.emit(i + 1, self.count, f"采样 {i + 1}/{self.count}")
+            # 发射采样进度信号
+            self.samplingProgress.emit(i + 1, self.count, f"采样 {i + 1}/{self.count}")
             
             # 执行单次采样
             processed_data, error = self._perform_single_sample(i)
             if error:
-                self.progress.emit(i + 1, self.count, f"采样失败: {error}")
+                self.samplingProgress.emit(i + 1, self.count, f"采样失败: {error}")
                 continue
             
             yield processed_data, i
@@ -78,8 +100,7 @@ class ADCSampleWorker(QObject):
     def _perform_single_sample(self, sample_index):
         """执行单次采样操作"""
         try:
-            # ADCSample.perform_single_test 返回 (processed_data, error)
-            processed_data, error = self.adc_sample.perform_single_test(sample_index,self.sample_number)
+            processed_data, error = self.adc_sample.perform_single_test(sample_index, self.sample_number)
             return processed_data, error
         except Exception as e:
             return None, f"采样异常: {str(e)}"
@@ -144,9 +165,36 @@ class ADCSampleWorker(QObject):
     
     def _finalize_sampling(self, successful_samples):
         """完成采样过程"""
+        # 等待所有保存任务完成
+        if self.save_raw_data and self.data_saver:
+            self._wait_for_save_completion()
+        
         success = successful_samples > 0
-        message = f"完成 {successful_samples}/{self.count} 次采样"
+        message = f"完成 {successful_samples}/{self.count} 次采样，保存 {self.save_tasks_completed} 个文件"
         self.finished.emit(success, message)
+    
+    def _wait_for_save_completion(self):
+        """等待所有保存任务完成"""
+        max_wait_time = 30  # 最大等待时间30秒
+        wait_interval = 0.5  # 检查间隔0.5秒
+        total_waited = 0
+        
+        while (self.data_saver.has_pending_tasks() and 
+               total_waited < max_wait_time and 
+               self.running and not self._should_stop):
+            time.sleep(wait_interval)
+            total_waited += wait_interval
+            
+            # 更新保存进度
+            pending = self.data_saver.get_pending_task_count()
+            completed = self.save_tasks_completed
+            total = completed + pending
+            
+            self.savingProgress.emit(
+                completed, 
+                total, 
+                f"等待保存完成... ({pending}个任务待处理)"
+            )
     
     @pyqtSlot()
     def run(self):
