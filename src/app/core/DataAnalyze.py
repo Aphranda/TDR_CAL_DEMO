@@ -121,9 +121,12 @@ class DataAnalyzer:
                 print("ADC1_idx:", rise_pos)
                 # self.debug_plotter.simple_plot(y_sorted, title="ADC1", data_range=(0.39,0.41))
             else:
+                rise_pos = self.edge_detector.find_rise_position(
+                    y_sorted, self.config.search_method, np.mean(adc_full), self.config.min_edge_amplitude_ratio
+                )
+                print("ADC2_idx:", rise_pos)
                 # 使用提供的目标对齐位置
                 rise_pos = target_idx
-                print("ADC1_idx:", rise_pos)
                 # self.debug_plotter.simple_plot(y_sorted, title="ADC2",data_range=(0.39,0.41))
 
             # 6. 数据对齐

@@ -1087,7 +1087,8 @@ class DataAnalysisController(QObject):
 
 
     def export_plots(self, base_path):
-        """导出所有绘图到以base_path为基础的文件名"""
+        """导出所有绘图到以base_path为基础的文件名 - 支持ADC1和ADC2双通道"""
+        # 定义绘图类型和对应的后缀
         plot_types = ['plot_time', 'plot_freq', 'plot_diff_time', 'plot_diff_freq']
         suffixes = {
             'plot_time': '_time_domain',
@@ -1095,21 +1096,54 @@ class DataAnalysisController(QObject):
             'plot_diff_time': '_diff_time_domain',
             'plot_diff_freq': '_diff_frequency_domain'
         }
-      
+        
+        # 定义通道映射
+        channels = ['adc1', 'adc2']
+        channel_names = {
+            'adc1': 'ADC1',
+            'adc2': 'ADC2'
+        }
+    
         # 确保目录存在
         output_dir = os.path.dirname(base_path)
         if output_dir and not os.path.exists(output_dir):
             os.makedirs(output_dir)
-      
-        for plot_type in plot_types:
-            controller = self.get_plot_controller(plot_type)
-            if controller:
-                file_path = f"{base_path}{suffixes[plot_type]}.png"
-                success = self.export_single_plot(controller, file_path)
-                if success:
-                    self.log_message(f"导出{plot_type}图片成功: {file_path}", "INFO")
-                else:
-                    self.log_message(f"导出{plot_type}图片失败", "WARNING")
+        
+        exported_count = 0
+        
+        # 遍历所有通道和绘图类型
+        for channel in channels:
+            for plot_type in plot_types:
+                plot_name = f'{plot_type}_{channel}'
+                controller = self.get_plot_controller(plot_name)
+                
+                if controller and hasattr(controller.view, 'plot_widget'):
+                    # 构建文件路径：基础路径_通道名_绘图类型.png
+                    channel_suffix = channel_names[channel].lower()
+                    file_path = f"{base_path}_{channel_suffix}{suffixes[plot_type]}.png"
+                    
+                    success = self.export_single_plot(controller, file_path)
+                    if success:
+                        self.log_message(f"导出{channel_names[channel]}{plot_type}图片成功: {file_path}", "INFO")
+                        exported_count += 1
+                    else:
+                        self.log_message(f"导出{channel_names[channel]}{plot_type}图片失败", "WARNING")
+        
+        # 如果没有找到任何绘图控制器，尝试导出基本的绘图类型（向后兼容）
+        if exported_count == 0:
+            self.log_message("未找到通道特定的绘图，尝试导出基本绘图类型", "WARNING")
+            for plot_type in plot_types:
+                controller = self.get_plot_controller(plot_type)
+                if controller:
+                    file_path = f"{base_path}{suffixes[plot_type]}.png"
+                    success = self.export_single_plot(controller, file_path)
+                    if success:
+                        self.log_message(f"导出{plot_type}图片成功: {file_path}", "INFO")
+                    else:
+                        self.log_message(f"导出{plot_type}图片失败", "WARNING")
+        
+        self.log_message(f"共导出 {exported_count} 个绘图文件", "INFO")
+
 
     def export_single_plot(self, plot_controller, file_path):
         """导出单个绘图到文件"""
@@ -1210,76 +1244,141 @@ class DataAnalysisController(QObject):
             self.log_message(f"CSV导出失败: {str(e)}", "ERROR")
 
     def export_additional_csv_data(self, file_path, results, averages):
-        """导出额外的CSV数据"""
+        """导出额外的CSV数据 - 支持ADC1和ADC2双通道"""
         try:
             # 创建基础文件名（不带扩展名）
             base_path = os.path.splitext(file_path)[0]
-          
-            # 保存全部时域数据
-            time_domain_file = f"{base_path}_time_domain.csv"
-            if 'y_full_avg' in averages:
-                t_full_us = (np.arange(len(averages['y_full_avg'])) * self.model.adc_config.ts_eff * 1e6)
-                time_data = np.column_stack((t_full_us, averages['y_full_avg']))
-                np.savetxt(time_domain_file, time_data, delimiter=',', 
-                        header='Time(us),Amplitude', comments='')
-                self.dataLoaded.emit(f"全部时域数据已保存到: {os.path.basename(time_domain_file)}")
-                self.log_message(f"全部时域数据已保存到: {os.path.basename(time_domain_file)}", "INFO")
             
-            # 保存ROI时域数据
-            time_domain_file = f"{base_path}_{self.view.adc_roi_start.value()}_{self.view.adc_roi_end.value()}_time_domain.csv"
-            if 'y_avg' in averages:
-                t_roi_us = (np.arange(len(averages['y_avg'])) * self.model.adc_config.ts_eff * 1e6)
-                time_data = np.column_stack((t_roi_us, averages['y_avg']))
-                np.savetxt(time_domain_file, time_data, delimiter=',', 
-                        header='Time(us),Amplitude', comments='')
-                self.dataLoaded.emit(f"时域数据已保存到: {os.path.basename(time_domain_file)}")
-                self.log_message(f"时域数据已保存到: {os.path.basename(time_domain_file)}", "INFO")
-          
-            # 保存频域数据
-            freq_domain_file = f"{base_path}_frequency_domain.csv"
-            if 'freq_ref' in results and 'mag_avg_db' in averages:
-                mask = results['freq_ref'] <= (self.model.adc_config.show_up_to_GHz * 1e9)
-                freq_data = np.column_stack((results['freq_ref'][mask] / 1e9, 
-                                        averages['mag_avg_db'][mask]))
-                np.savetxt(freq_domain_file, freq_data, delimiter=',', 
-                        header='Frequency(GHz),Magnitude(dB)', comments='')
-                self.dataLoaded.emit(f"频域数据已保存到: {os.path.basename(freq_domain_file)}")
-                self.log_message(f"频域数据已保存到: {os.path.basename(freq_domain_file)}", "INFO")
-          
-            # 保存全部差分时域数据
-            diff_time_file = f"{base_path}_diff_time_domain.csv"
-            if 'y_d_full_avg' in averages:
-                t_full_diff_us = (np.arange(len(averages['y_d_full_avg'])) * self.model.adc_config.ts_eff * 1e6)
-                diff_time_data = np.column_stack((t_full_diff_us, averages['y_d_full_avg']))
-                np.savetxt(diff_time_file, diff_time_data, delimiter=',', 
-                        header='Time(us),Differential_Amplitude', comments='')
-                self.dataLoaded.emit(f"全部差分时域数据已保存到: {os.path.basename(diff_time_file)}")
-                self.log_message(f"全部差分时域数据已保存到: {os.path.basename(diff_time_file)}", "INFO")
+            # 定义通道映射
+            channels = ['adc1', 'adc2']
+            channel_names = {
+                'adc1': 'ADC1',
+                'adc2': 'ADC2'
+            }
+            
+            # 为每个通道导出数据
+            for channel in channels:
+                if channel in results and channel in averages:
+                    channel_results = results[channel]
+                    channel_averages = averages[channel]
+                    channel_suffix = channel_names[channel].lower()
+                    
+                    # 保存全部时域数据
+                    time_domain_file = f"{base_path}_{channel_suffix}_time_domain.csv"
+                    if 'y_full_avg' in channel_averages:
+                        t_full_us = (np.arange(len(channel_averages['y_full_avg'])) * self.model.adc_config.ts_eff * 1e6)
+                        time_data = np.column_stack((t_full_us, channel_averages['y_full_avg']))
+                        np.savetxt(time_domain_file, time_data, delimiter=',', 
+                                header='Time(us),Amplitude', comments='')
+                        self.log_message(f"{channel_names[channel]}全部时域数据已保存到: {os.path.basename(time_domain_file)}", "INFO")
+                    
+                    # 保存ROI时域数据
+                    roi_time_domain_file = f"{base_path}_{channel_suffix}_{self.view.adc_roi_start.value()}_{self.view.adc_roi_end.value()}_time_domain.csv"
+                    if 'y_avg' in channel_averages:
+                        t_roi_us = (np.arange(len(channel_averages['y_avg'])) * self.model.adc_config.ts_eff * 1e6)
+                        time_data = np.column_stack((t_roi_us, channel_averages['y_avg']))
+                        np.savetxt(roi_time_domain_file, time_data, delimiter=',', 
+                                header='Time(us),Amplitude', comments='')
+                        self.log_message(f"{channel_names[channel]}时域数据已保存到: {os.path.basename(roi_time_domain_file)}", "INFO")
+                    
+                    # 保存频域数据
+                    freq_domain_file = f"{base_path}_{channel_suffix}_frequency_domain.csv"
+                    if 'freq_ref' in channel_results and 'mag_avg_db' in channel_averages:
+                        mask = channel_results['freq_ref'] <= (self.model.adc_config.show_up_to_GHz * 1e9)
+                        freq_data = np.column_stack((channel_results['freq_ref'][mask] / 1e9, 
+                                                channel_averages['mag_avg_db'][mask]))
+                        np.savetxt(freq_domain_file, freq_data, delimiter=',', 
+                                header='Frequency(GHz),Magnitude(dB)', comments='')
+                        self.log_message(f"{channel_names[channel]}频域数据已保存到: {os.path.basename(freq_domain_file)}", "INFO")
+                    
+                    # 保存全部差分时域数据
+                    diff_time_file = f"{base_path}_{channel_suffix}_diff_time_domain.csv"
+                    if 'y_d_full_avg' in channel_averages:
+                        t_full_diff_us = (np.arange(len(channel_averages['y_d_full_avg'])) * self.model.adc_config.ts_eff * 1e6)
+                        diff_time_data = np.column_stack((t_full_diff_us, channel_averages['y_d_full_avg']))
+                        np.savetxt(diff_time_file, diff_time_data, delimiter=',', 
+                                header='Time(us),Differential_Amplitude', comments='')
+                        self.log_message(f"{channel_names[channel]}全部差分时域数据已保存到: {os.path.basename(diff_time_file)}", "INFO")
 
-            # 保存ROI差分时域
-            diff_time_file = f"{base_path}_{self.view.adc_roi_start.value()}_{self.view.adc_roi_end.value()}_diff_time_domain.csv"
-            if 'y_d_avg' in averages:
-                t_diff_us = (np.arange(len(averages['y_d_avg'])) * self.model.adc_config.ts_eff * 1e6)
-                diff_time_data = np.column_stack((t_diff_us, averages['y_d_avg']))
-                np.savetxt(diff_time_file, diff_time_data, delimiter=',', 
-                        header='Time(us),Differential_Amplitude', comments='')
-                self.dataLoaded.emit(f"差分时域数据已保存到: {os.path.basename(diff_time_file)}")
-                self.log_message(f"差分时域数据已保存到: {os.path.basename(diff_time_file)}", "INFO")
+                    # 保存ROI差分时域
+                    roi_diff_time_file = f"{base_path}_{channel_suffix}_{self.view.adc_roi_start.value()}_{self.view.adc_roi_end.value()}_diff_time_domain.csv"
+                    if 'y_d_avg' in channel_averages:
+                        t_diff_us = (np.arange(len(channel_averages['y_d_avg'])) * self.model.adc_config.ts_eff * 1e6)
+                        diff_time_data = np.column_stack((t_diff_us, channel_averages['y_d_avg']))
+                        np.savetxt(roi_diff_time_file, diff_time_data, delimiter=',', 
+                                header='Time(us),Differential_Amplitude', comments='')
+                        self.log_message(f"{channel_names[channel]}差分时域数据已保存到: {os.path.basename(roi_diff_time_file)}", "INFO")
 
-            # 保存差分频域数据
-            diff_freq_file = f"{base_path}_diff_frequency_domain.csv"
-            if 'freq_d_ref' in results and 'mag_d_avg_db' in averages:
-                maskd = results['freq_d_ref'] <= (self.model.adc_config.show_up_to_GHz * 1e9)
-                diff_freq_data = np.column_stack((results['freq_d_ref'][maskd] / 1e9, 
-                                                averages['mag_d_avg_db'][maskd]))
-                np.savetxt(diff_freq_file, diff_freq_data, delimiter=',', 
-                        header='Frequency(GHz),Differential_Magnitude(dB)', comments='')
-                self.dataLoaded.emit(f"差分频域数据已保存到: {os.path.basename(diff_freq_file)}")
-                self.log_message(f"差分频域数据已保存到: {os.path.basename(diff_freq_file)}", "INFO")
-              
+                    # 保存差分频域数据
+                    diff_freq_file = f"{base_path}_{channel_suffix}_diff_frequency_domain.csv"
+                    if 'freq_d_ref' in channel_results and 'mag_d_avg_db' in channel_averages:
+                        maskd = channel_results['freq_d_ref'] <= (self.model.adc_config.show_up_to_GHz * 1e9)
+                        diff_freq_data = np.column_stack((channel_results['freq_d_ref'][maskd] / 1e9, 
+                                                        channel_averages['mag_d_avg_db'][maskd]))
+                        np.savetxt(diff_freq_file, diff_freq_data, delimiter=',', 
+                                header='Frequency(GHz),Differential_Magnitude(dB)', comments='')
+                        self.log_message(f"{channel_names[channel]}差分频域数据已保存到: {os.path.basename(diff_freq_file)}", "INFO")
+                    
+                    # 保存边沿分析结果
+                    edge_analysis_file = f"{base_path}_{channel_suffix}_edge_analysis.csv"
+                    self.export_edge_analysis_results(channel_results, edge_analysis_file, channel_names[channel])
+                    
+            # 保存差分通道数据（ADC1-ADC2）
+            if 'adc1' in results and 'adc2' in results:
+                diff_channel_file = f"{base_path}_adc1_adc2_difference.csv"
+                self.export_channel_difference_data(results, averages, diff_channel_file)
+                
         except Exception as e:
             self.errorOccurred.emit(f"附加数据导出失败: {str(e)}")
             self.log_message(f"附加数据导出失败: {str(e)}", "ERROR")
+
+    def export_edge_analysis_results(self, results, file_path, channel_name):
+        """导出边沿分析结果"""
+        try:
+            with open(file_path, 'w', encoding='utf-8') as f:
+                f.write(f"{channel_name}边沿分析结果\n")
+                f.write("=" * 50 + "\n")
+                
+                # 边沿时间信息
+                edge_times = self._get_edge_times(results)
+                for key, value in edge_times.items():
+                    if value is not None:
+                        f.write(f"{key}: {value:.3f} ns\n")
+                
+                # 边沿幅度信息
+                edge_amplitudes = self._get_edge_amplitudes(results)
+                for key, value in edge_amplitudes.items():
+                    f.write(f"{key}: {value:.3f} V\n")
+                
+                # 边沿比率信息
+                edge_ratios = self._get_edge_ratios(results)
+                for key, value in edge_ratios.items():
+                    f.write(f"{key}: {value:.4%}\n")
+            
+            self.log_message(f"{channel_name}边沿分析结果已保存到: {os.path.basename(file_path)}", "INFO")
+            
+        except Exception as e:
+            self.log_message(f"导出{channel_name}边沿分析结果失败: {str(e)}", "WARNING")
+
+    def export_channel_difference_data(self, results, averages, file_path):
+        """导出ADC1和ADC2的差异数据"""
+        try:
+            if 'adc1' in results and 'adc2' in results:
+                # 计算时域差异
+                if 'y_full_avg' in averages['adc1'] and 'y_full_avg' in averages['adc2']:
+                    min_len = min(len(averages['adc1']['y_full_avg']), len(averages['adc2']['y_full_avg']))
+                    diff_data = averages['adc1']['y_full_avg'][:min_len] - averages['adc2']['y_full_avg'][:min_len]
+                    t_full_us = (np.arange(min_len)) * self.model.adc_config.ts_eff * 1e6
+                    
+                    diff_data_combined = np.column_stack((t_full_us, diff_data))
+                    np.savetxt(file_path, diff_data_combined, delimiter=',', 
+                            header='Time(us),ADC1-ADC2_Difference', comments='')
+                    
+                    self.log_message(f"ADC1-ADC2差异数据已保存到: {os.path.basename(file_path)}", "INFO")
+                    
+        except Exception as e:
+            self.log_message(f"导出ADC1-ADC2差异数据失败: {str(e)}", "WARNING")
+
 
     def export_json_results(self, file_path):
         """导出JSON格式的结果"""

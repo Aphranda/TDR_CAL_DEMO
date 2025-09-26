@@ -217,7 +217,7 @@ class DataAnalysisView(QWidget):
         max_read_layout.addWidget(QLabel("读取大小:"))
         self.adc_max_read_size = QDoubleSpinBox()
         self.adc_max_read_size.setRange(0.1, 1000.0)  # 0.1 MB 到 1000 MB
-        self.adc_max_read_size.setValue(1.0)  # 默认1MB
+        self.adc_max_read_size.setValue(10.0)  # 默认1MB
         self.adc_max_read_size.setSingleStep(0.1)  # 步进0.1MB
         self.adc_max_read_size.setDecimals(1)  # 1位小数
         self.adc_max_read_size.setSuffix(" MB")
