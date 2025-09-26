@@ -200,8 +200,8 @@ class MainWindowView(QMainWindow):
         MAIN_SPLITTER_RATIO = 0.7
         INSTRUMENT_PANEL_RATIO = 0.2
         LOG_PANEL_RATIO = 0.8
-        ADC_SAMPLING_RATIO = 0.3
-        DATA_ANALYSIS_RATIO = 0.7
+        ADC_SAMPLING_RATIO = 0.4
+        DATA_ANALYSIS_RATIO = 0.6
         
         # 设置主水平分割器比例
         total_width = self.main_splitter.width()

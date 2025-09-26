@@ -32,7 +32,7 @@ class ADCSampleWorker(QObject):
         self._should_stop = False
         
         # 保存任务计数器
-        self.save_tasks_total = count*2
+        self.save_tasks_total = count*2 # 需要保存ADC1和ADC2的数据
         self.save_tasks_completed = 0
         
         # 创建异步保存线程
