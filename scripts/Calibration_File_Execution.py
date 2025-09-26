@@ -140,16 +140,21 @@ class EnhancedAnalysisSummarizer:
                     calibration_dirs.append(item)
                     self.logger.debug(f"找到校准目录(模式: {pattern}): {item.name}")
         
-        # 如果没有找到任何目录，尝试列出所有目录
-        if not calibration_dirs:
-            self.logger.warning("未找到匹配的校准目录，将列出所有目录供参考:")
-            for item in self.source_dir.iterdir():
-                if item.is_dir():
-                    self.logger.warning(f"  目录: {item.name}")
-                    calibration_dirs.append(item)  # 临时添加以便后续处理
-        
-        self.logger.info(f"找到 {len(calibration_dirs)} 个校准目录")
         return calibration_dirs
+    
+    def find_all_files_directly(self) -> List[Path]:
+        """直接查找所有文件，不依赖目录匹配"""
+        self.logger.info("放弃目录匹配，直接遍历所有文件...")
+        all_files = []
+        
+        for file_path in self.source_dir.rglob('*'):
+            if file_path.is_file() and not self.should_skip_file(file_path):
+                # 检查文件所在目录是否应该跳过
+                if not self.should_skip_directory(file_path.parent):
+                    all_files.append(file_path)
+        
+        self.logger.info(f"直接找到 {len(all_files)} 个有效文件")
+        return all_files
     
     def categorize_file(self, file_path: Path) -> Tuple[str, str]:
         """对文件进行分类"""
@@ -259,7 +264,7 @@ class EnhancedAnalysisSummarizer:
         
         return 'Statistical_Results', 'Basic_Stats'
     
-    def copy_file_to_summary(self, source_file: Path, calibration_dir: Path) -> bool:
+    def copy_file_to_summary(self, source_file: Path, source_name: str = "Direct_Files") -> bool:
         """复制文件到汇总目录"""
         # 首先检查是否应该跳过这个文件
         if self.should_skip_file(source_file):
@@ -271,8 +276,7 @@ class EnhancedAnalysisSummarizer:
             target_dir = self.output_dir / category / subcategory
             
             # 创建带有来源信息的文件名
-            cal_name = calibration_dir.name
-            new_filename = f"{cal_name}_{source_file.name}"
+            new_filename = f"{source_name}_{source_file.name}"
             
             target_file = target_dir / new_filename
             
@@ -314,13 +318,37 @@ class EnhancedAnalysisSummarizer:
                     files_skipped += 1
                     continue
                 
-                if self.copy_file_to_summary(file_path, cal_dir):
+                if self.copy_file_to_summary(file_path, cal_dir.name):
                     files_processed += 1
         
         self.logger.info(f"已处理 {files_processed} 个文件，跳过 {files_skipped} 个原始文件")
         return files_processed
     
-    def create_metadata_files(self):
+    def process_files_directly(self, files: List[Path]) -> int:
+        """直接处理文件列表"""
+        self.logger.info("开始直接处理文件...")
+        
+        files_processed = 0
+        files_skipped = 0
+        
+        for file_path in files:
+            # 检查是否应该跳过这个文件
+            if self.should_skip_file(file_path):
+                files_skipped += 1
+                continue
+            
+            # 检查文件所在目录是否应该跳过
+            if self.should_skip_directory(file_path.parent):
+                files_skipped += 1
+                continue
+            
+            if self.copy_file_to_summary(file_path, "Direct_Files"):
+                files_processed += 1
+        
+        self.logger.info(f"直接处理完成：已处理 {files_processed} 个文件，跳过 {files_skipped} 个原始文件")
+        return files_processed
+    
+    def create_metadata_files(self, use_direct_mode: bool = False):
         """创建元数据文件"""
         self.logger.info("创建元数据文件...")
         
@@ -330,7 +358,12 @@ class EnhancedAnalysisSummarizer:
         with open(metadata_dir / 'directory_structure.txt', 'w', encoding='utf-8') as f:
             f.write("分析汇总目录结构说明\n")
             f.write("=" * 50 + "\n\n")
-            f.write("注意：已跳过所有原始bin文件和Raw_ADC_Data目录\n\n")
+            f.write("注意：已跳过所有原始bin文件和Raw_ADC_Data目录\n")
+            if use_direct_mode:
+                f.write("处理模式：直接文件遍历（放弃目录匹配）\n")
+            else:
+                f.write("处理模式：校准目录匹配\n")
+            f.write("\n")
             
             for category, info in self.categories.items():
                 f.write(f"{category}/\n")
@@ -342,7 +375,7 @@ class EnhancedAnalysisSummarizer:
         self._create_file_statistics()
         
         # 创建跳过的文件列表
-        self._create_skipped_files_list()
+        self._create_skipped_files_list(use_direct_mode)
         
         self.logger.info("元数据文件创建完成")
     
@@ -371,14 +404,21 @@ class EnhancedAnalysisSummarizer:
                 f.write(f"{category},Total,{sum(subcats.values())}\n")
             f.write(f"Overall,Total,{total_files}\n")
     
-    def _create_skipped_files_list(self):
+    def _create_skipped_files_list(self, use_direct_mode: bool = False):
         """创建跳过的文件列表"""
         skipped_files = []
         
-        for cal_dir in self.find_all_calibration_data():
-            for file_path in cal_dir.rglob('*'):
+        if use_direct_mode:
+            # 直接模式下，扫描整个源目录
+            for file_path in self.source_dir.rglob('*'):
                 if file_path.is_file() and self.should_skip_file(file_path):
                     skipped_files.append(str(file_path.relative_to(self.source_dir)))
+        else:
+            # 目录匹配模式下，只扫描校准目录
+            for cal_dir in self.find_all_calibration_data():
+                for file_path in cal_dir.rglob('*'):
+                    if file_path.is_file() and self.should_skip_file(file_path):
+                        skipped_files.append(str(file_path.relative_to(self.source_dir)))
         
         if skipped_files:
             with open(self.output_dir / 'Metadata' / 'skipped_files.txt', 'w', encoding='utf-8') as f:
@@ -390,7 +430,7 @@ class EnhancedAnalysisSummarizer:
             with open(self.output_dir / 'Metadata' / 'skipped_files.txt', 'w', encoding='utf-8') as f:
                 f.write("没有跳过任何文件\n")
     
-    def create_cross_analysis(self):
+    def create_cross_analysis(self, use_direct_mode: bool = False):
         """创建交叉分析结果"""
         self.logger.info("创建交叉分析...")
         
@@ -401,7 +441,11 @@ class EnhancedAnalysisSummarizer:
             f.write("# 分析结果汇总报告\n\n")
             f.write(f"生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
             f.write("## 汇总概述\n")
-            f.write("- 汇总了所有校准目录的分析结果\n")
+            if use_direct_mode:
+                f.write("- 采用直接文件遍历模式（放弃目录匹配）\n")
+            else:
+                f.write("- 采用校准目录匹配模式\n")
+            f.write("- 汇总了所有分析结果文件\n")
             f.write("- 跳过了原始bin文件和Raw_ADC_Data目录\n")
             f.write("- 按照统一标准进行分类整理\n")
             f.write("- 便于后续的比较和分析\n\n")
@@ -434,28 +478,46 @@ class EnhancedAnalysisSummarizer:
         # 查找所有校准目录
         calibration_dirs = self.find_all_calibration_data()
         
-        # 处理每个目录
         total_files = 0
-        for cal_dir in calibration_dirs:
-            files_processed = self.process_calibration_directory(cal_dir)
-            total_files += files_processed
+        use_direct_mode = False
+        
+        if calibration_dirs:
+            self.logger.info(f"找到 {len(calibration_dirs)} 个校准目录，使用目录匹配模式")
+            # 处理每个目录
+            for cal_dir in calibration_dirs:
+                files_processed = self.process_calibration_directory(cal_dir)
+                total_files += files_processed
+        else:
+            self.logger.warning("未找到匹配的校准目录，切换到直接文件遍历模式")
+            use_direct_mode = True
+            
+            # 直接查找所有文件
+            all_files = self.find_all_files_directly()
+            if all_files:
+                total_files = self.process_files_directly(all_files)
+            else:
+                self.logger.warning("未找到任何有效文件")
         
         # 创建元数据
-        self.create_metadata_files()
+        self.create_metadata_files(use_direct_mode)
         
         # 创建交叉分析
-        self.create_cross_analysis()
+        self.create_cross_analysis(use_direct_mode)
         
         self.logger.info("=" * 50)
         self.logger.info(f"汇总完成！总共处理了 {total_files} 个分析结果文件")
         self.logger.info(f"跳过了所有原始bin文件和Raw_ADC_Data目录")
+        if use_direct_mode:
+            self.logger.info("处理模式：直接文件遍历（放弃目录匹配）")
+        else:
+            self.logger.info("处理模式：校准目录匹配")
         self.logger.info(f"汇总结果保存在: {self.output_dir.absolute()}")
 
 # 使用示例
 def main():
     # 设置源目录和输出目录
-    source_directory = "data\\results\\plots\\Calibration_Cable_TEST"
-    output_directory = "data\\results\\plots\\Calibration_Cable_TEST\\Analysis_Summary_Processed_Only"
+    source_directory = r"data\results\plots\Cable_TEST"
+    output_directory = r"data\results\plots\Cable_TEST\Analysis_Summary_Processed_Only"
     
     # 创建汇总器实例
     summarizer = EnhancedAnalysisSummarizer(source_directory, output_directory)
