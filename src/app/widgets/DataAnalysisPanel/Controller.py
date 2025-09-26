@@ -1,21 +1,15 @@
 # src/app/widgets/DataAnalysisPanel/Controller.py
 import os
 import numpy as np
-import pyqtgraph as pg
-from PyQt5.QtWidgets import QFileDialog, QMessageBox
-from PyQt5.QtCore import QObject, pyqtSignal, QThread, pyqtSlot
+from PyQt5.QtWidgets import QFileDialog
+from PyQt5.QtCore import QObject, pyqtSignal, QThread
 
-import config
 from ...core.DataAnalyze import DataAnalyzer, AnalysisConfig
 from ...core.FileManager import FileManager
-from ...utils import MathUtils
 from ...widgets.PlotWidget import create_plot_widget
 from app.threads import ADCProcessWorker
 import time
-from typing import Optional, Tuple, Dict, Any, Generator
 
-from PyQt5.QtCore import QObject, pyqtSignal, QThread, pyqtSlot, QEventLoop
-from PyQt5.QtGui import QTextCursor
 
 
 # 搜索方法枚举
