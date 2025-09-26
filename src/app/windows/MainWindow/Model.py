@@ -2,7 +2,7 @@
 class MainWindowModel:
     def __init__(self):
         self._window_title = "TDR Analyzer Calibration System"
-        self._window_size = (1200, 800)
+        self._window_size = (1200, 900)
         self.instrument_panel = None
         self.calibration_panel = None
         self.vna_control_panel = None

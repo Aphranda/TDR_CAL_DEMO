@@ -29,6 +29,7 @@ class ADCConfig:
     min_second_rise_ratio: float = 0.2    # 第二个上升沿最小幅度比例
     min_second_fall_ratio: float = 0.2    # 下降沿最小幅度比例
     cal_mode: str = "LOAD"  # 新增CAL_Mode参数
+    max_read_size_mb: float = 1.0  # 新增：最大读取大小，单位MB
 
     @property
     def t_sample(self) -> float:
@@ -149,7 +150,8 @@ class DataAnalysisModel:
             'search_method': self.adc_config.search_method,
             'roi_start_tenths': self.adc_config.roi_start_tenths,
             'roi_end_tenths': self.adc_config.roi_end_tenths,
-            'output_csv': self.adc_config.output_csv
+            'output_csv': self.adc_config.output_csv,
+            'max_read_size_mb': self.adc_config.max_read_size_mb  # 新增
         }
     
     def update_adc_config_from_dict(self, config_dict: Dict[str, Any]):

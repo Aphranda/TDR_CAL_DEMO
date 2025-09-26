@@ -211,7 +211,19 @@ class DataAnalysisView(QWidget):
         trigger_layout.addWidget(self.adc_trigger_freq)
         layout.addLayout(trigger_layout)
 
-
+        # 新增：最大读取大小设置
+        max_read_layout = QHBoxLayout()
+        max_read_layout.setSpacing(4)
+        max_read_layout.addWidget(QLabel("读取大小:"))
+        self.adc_max_read_size = QDoubleSpinBox()
+        self.adc_max_read_size.setRange(0.1, 1000.0)  # 0.1 MB 到 1000 MB
+        self.adc_max_read_size.setValue(1.0)  # 默认1MB
+        self.adc_max_read_size.setSingleStep(0.1)  # 步进0.1MB
+        self.adc_max_read_size.setDecimals(1)  # 1位小数
+        self.adc_max_read_size.setSuffix(" MB")
+        self.adc_max_read_size.setMaximumWidth(250)
+        max_read_layout.addWidget(self.adc_max_read_size)
+        layout.addLayout(max_read_layout)
         
         # ROI设置 - 修改为QDoubleSpinBox以支持0.1%步进
         roi_layout = QHBoxLayout()

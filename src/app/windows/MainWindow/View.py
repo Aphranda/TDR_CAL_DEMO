@@ -12,7 +12,7 @@ class MainWindowView(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("TDR Analyzer Calibration System")
-        self.resize(1600, 1000)
+        self.resize(1600, 1050)
 
         # 设置窗口图标
         icon_path = "src\\resources\\icon\\icon_TDR_01.ico"
@@ -200,8 +200,8 @@ class MainWindowView(QMainWindow):
         MAIN_SPLITTER_RATIO = 0.7
         INSTRUMENT_PANEL_RATIO = 0.2
         LOG_PANEL_RATIO = 0.8
-        ADC_SAMPLING_RATIO = 0.4
-        DATA_ANALYSIS_RATIO = 0.6
+        ADC_SAMPLING_RATIO = 0.3
+        DATA_ANALYSIS_RATIO = 0.7
         
         # 设置主水平分割器比例
         total_width = self.main_splitter.width()

@@ -100,6 +100,9 @@ class DataAnalysisController(QObject):
                 "所有文件 (*)"
             )
         
+            # 更新配置
+            self.model.adc_config.max_read_size_bytes = self.view.adc_max_read_size.value()  # 新增：获取最大读取大小
+
             if file_paths:
                 # 清空当前数据文件字典
                 self.model.data_files = {'adc1': [], 'adc2': []}
@@ -218,21 +221,29 @@ class DataAnalysisController(QObject):
                 self.log_message(f"文件对 {adc1_file} 和 {adc2_file} 的段数匹配: {adc1_segments} 段", "INFO")
 
 
-    def extract_adc_data_from_binary(self, file_path, max_read_size=1*1024*1024):
+    def extract_adc_data_from_binary(self, file_path, max_read_size=None):
         """
         从二进制文件中提取ADC数据并检测段数
         修改：使用固定段长81920进行分段，尾部+100个点
         
         Args:
             file_path: 二进制文件路径
-            max_read_size: 最大读取大小（字节），默认10MB
+            max_read_size: 最大读取大小（字节），如果为None则使用配置中的值
             
         Returns:
             段数和数据信息字典
         """
         try:
+
+            # 使用配置中的最大读取大小，如果未指定则使用默认值
+            if max_read_size is None:
+                max_read_size = int(self.model.adc_config.max_read_size_bytes*1024*1024)
+            
             file_size = os.path.getsize(file_path)
             read_size = min(file_size, max_read_size)
+            
+            # 记录读取信息
+            self.log_message(f"读取文件 {os.path.basename(file_path)}: 文件大小 {file_size/1024/1024:.2f}MB, 读取大小 {read_size/1024/1024:.2f}MB", "DEBUG")
             
             # 读取文件
             with open(file_path, 'rb') as f:
@@ -583,6 +594,7 @@ class DataAnalysisController(QObject):
             config.roi_end_tenths = self.view.adc_roi_end.value()
             config.diff_points = self.view.adc_diff_points.value()
             config.average_points = self.view.adc_average_points.value()
+            config.max_read_size_mb = self.view.adc_max_read_size.value()  # 新增：获取最大读取大小
             config.recursive = True
             config.use_signed18 = True
             config.cal_mode = self.view.cal_type_combo.currentText()
@@ -1044,10 +1056,10 @@ class DataAnalysisController(QObject):
             edge_info.append(f"First Rise: {edge_times['first_rise_time']:.3f}ns, Amp: {edge_amplitudes['first_amplitude']:.3f}V")
         
         if edge_times['second_rise_time'] is not None:
-            edge_info.append(f"Second Rise: {edge_times['second_rise_time']:.3f}ns, Amp: {edge_amplitudes['second_amplitude']:.3f}V, Ratio: {edge_ratios['rise_ratio']:.2%}")
+            edge_info.append(f"Second Rise: {edge_times['second_rise_time']:.3f}ns, Amp: {edge_amplitudes['second_amplitude']:.3f}V, Ratio: {edge_ratios['rise_ratio']:.4%}")
         
         if edge_times['fall_time'] is not None:
-            edge_info.append(f"Fall: {edge_times['fall_time']:.3f}ns, Amp: {edge_amplitudes['fall_amplitude']:.3f}V, Ratio: {edge_ratios['fall_ratio']:.2%}")
+            edge_info.append(f"Fall: {edge_times['fall_time']:.3f}ns, Amp: {edge_amplitudes['fall_amplitude']:.3f}V, Ratio: {edge_ratios['fall_ratio']:.4%}")
         
         # 添加ROI信息到日志
         edge_info.append(f"ROI Range: {config.roi_start_tenths}%-{config.roi_end_tenths}%")
