@@ -1,5 +1,6 @@
 # src/app/threads/ADCProcessWorker.py
 
+from math import log10
 import os
 import gc
 import numpy as np
@@ -9,6 +10,8 @@ from typing import Optional, Tuple, Dict, Any, Generator, List
 
 from app.core.DataAnalyze import DataAnalyzer, AnalysisConfig
 from app.core.FileManager import FileManager
+from app.core.DataProcessor import DataProcessor
+from app.core.DebugPlotter import DebugPlotter
 
 
 class ADCProcessWorker(QObject):
@@ -25,18 +28,21 @@ class ADCProcessWorker(QObject):
         self.analyzer = DataAnalyzer(config)
         self.running = False
         self._should_stop = False
+        self.data_processor = DataProcessor(config)
+        self.debugPlotter = DebugPlotter()
         
         # 设置可追溯的线程名称
         adc1_count = len(file_dict.get('adc1', []))
         adc2_count = len(file_dict.get('adc2', []))
         self.setObjectName(f"双通道数据分析线程_ADC1:{adc1_count}_ADC2:{adc2_count}")
 
+
     @pyqtSlot()
     def run(self):
         """执行ADC数据处理 - 主运行函数"""
         self.running = True
         self._should_stop = False
-      
+    
         try:
             self._log_start_message()
             
@@ -45,20 +51,114 @@ class ADCProcessWorker(QObject):
             
             if final_results is None or final_results['success_count'] == 0:
                 raise RuntimeError("没有文件或数据段成功处理")
-          
+        
             # 计算平均值
             averages = self._calculate_averages(final_results)
             
             # 进行边沿分析
             self._perform_edge_analysis(final_results, averages)
-          
+            
+            # 新增：进行长周期FFT分析（时域和频域）
+            self._perform_long_period_analysis(final_results, averages)
+        
             # 发送完成信号
             self.finished.emit(final_results, averages)
-          
+        
         except Exception as e:
             self._handle_error(e)
         finally:
             self._cleanup()
+
+    def _perform_long_period_analysis(self, final_results: Dict[str, Any], averages: Dict[str, Any]):
+        """执行长周期分析：包括时域拼接数据和频域FFT分析"""
+        try:
+            self._emit_long_period_analysis_progress()
+            
+            # 为每个有数据的通道执行长周期分析
+            for adc_channel in ['adc1', 'adc2']:
+                # 检查通道是否有数据
+                if not final_results[adc_channel]['ys_full']:
+                    self.log_message.emit(
+                        f"通道 {adc_channel.upper()} 没有数据，跳过长周期分析", 
+                        "INFO"
+                    )
+                    continue
+                
+                # 获取该通道的所有完整数据段
+                data_segments = final_results[adc_channel]['ys_full']
+                diff_data_segments = final_results[adc_channel]['ys_d_full']
+                # self.debugPlotter.simple_plot(data_segments[0],"data_segments")
+                # 1. 时域数据拼接 - 原始数据
+                concatenated_time_domain = self.data_processor.concatenate_data_segments(
+                    data_segments, 
+                    len(data_segments)
+                )
+                # self.debugPlotter.simple_plot(concatenated_time_domain[0],"time")
+                # 2. 时域数据拼接 - 差分数据
+                concatenated_diff_time_domain = self.data_processor.concatenate_data_segments(
+                    diff_data_segments,
+                    len(data_segments)
+                )
+                # self.debugPlotter.simple_plot(concatenated_diff_time_domain[0],"time_diff")
+                # 3. 频域FFT分析 - 原始数据
+                time_domain_fft_results = self.data_processor.compute_multi_period_fft_for_groups(
+                    concatenated_time_domain,
+                    self.config.ts_eff,
+                    window_type='hanning',
+                    remove_dc=True
+                )
+                
+                # self.debugPlotter.simple_plot(20*np.log10(time_domain_fft_results['group_spectra'][0][0:50000]),"Time")
+
+                # 4. 频域FFT分析 - 差分数据
+                diff_time_domain_fft_results = self.data_processor.compute_multi_period_fft_for_groups(
+                    concatenated_diff_time_domain,
+                    self.config.ts_eff,
+                    window_type='hanning',
+                    remove_dc=True
+                )
+                self.debugPlotter.simple_plot(concatenated_diff_time_domain[0])
+                self.debugPlotter.simple_plot(20*np.log10(diff_time_domain_fft_results['group_spectra'][0][0:50000]),"DIFF")
+                
+                # 将结果保存到final_results中
+                final_results[adc_channel]['long_period_analysis'] = {
+                    'time_domain': {
+                        'concatenated_data': concatenated_time_domain,  # 时域拼接数据
+                        'fft_results': time_domain_fft_results,         # 频域FFT结果
+                        'stats': self.data_processor.get_concatenated_data_stats(concatenated_time_domain)
+                    },
+                    'diff_time_domain': {
+                        'concatenated_data': concatenated_diff_time_domain,  # 差分时域拼接数据
+                        'fft_results': diff_time_domain_fft_results,         # 差分频域FFT结果
+                        'stats': self.data_processor.get_concatenated_data_stats(concatenated_diff_time_domain)
+                    }
+                }
+                
+                # 记录统计信息
+                time_stats = final_results[adc_channel]['long_period_analysis']['time_domain']['stats']
+                diff_stats = final_results[adc_channel]['long_period_analysis']['diff_time_domain']['stats']
+                
+                self.log_message.emit(
+                    f"通道 {adc_channel.upper()} 长周期分析完成:\n"
+                    f"  时域: {time_stats['n_groups']}组, {time_stats['total_points']}点, "
+                    f"分辨率: {time_domain_fft_results['group_stats'][0]['frequency_resolution']:.6f} Hz\n"
+                    f"  差分时域: {diff_stats['n_groups']}组, {diff_stats['total_points']}点, "
+                    f"分辨率: {diff_time_domain_fft_results['group_stats'][0]['frequency_resolution']:.6f} Hz", 
+                    "INFO"
+                )
+                
+        except Exception as e:
+            self.log_message.emit(f"长周期分析失败: {str(e)}", "WARNING")
+
+    def _emit_long_period_analysis_progress(self):
+        """发射长周期分析进度信号"""
+        self.progress.emit(
+            self._get_total_segment_count(), 
+            self._get_total_segment_count(), 
+            "进行长周期分析..."
+        )
+        self.log_message.emit("进行长周期分析...", "INFO")
+
 
     def _log_start_message(self):
         """记录开始处理的消息"""

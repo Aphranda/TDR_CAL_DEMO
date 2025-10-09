@@ -516,8 +516,8 @@ class EnhancedAnalysisSummarizer:
 # 使用示例
 def main():
     # 设置源目录和输出目录
-    source_directory = r"data\results\plots\Cable_TEST"
-    output_directory = r"data\results\plots\Cable_TEST\Analysis_Summary_Processed_Only"
+    source_directory = r"data\results\test\0930"
+    output_directory = r"data\results\test\0930\Analysis_Summary_Processed_Only"
     
     # 创建汇总器实例
     summarizer = EnhancedAnalysisSummarizer(source_directory, output_directory)

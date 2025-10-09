@@ -454,8 +454,9 @@ class DataAnalyzer:
         logger.info(f"成功处理 {results['success_count']}/{len(file_list)} 个文件")
         return results
 
+
     def _update_channel_results(self, channel_results: Dict[str, Any], res: Dict[str, Any]):
-        """更新通道结果"""
+        """更新通道结果 - 确保保存完整数据用于长周期分析"""
         # 从字典中提取数据
         y_full = res['y_full']
         y_roi = res['y_roi']
@@ -466,22 +467,23 @@ class DataAnalyzer:
         freq_d = res['freq_d']
         mag_linear_d = res['mag_linear_d']
         Xd_norm = res['Xd_norm']
-    
+
         # 初始化参考频率
         if channel_results['freq_ref'] is None:
             channel_results['freq_ref'] = freq
         if channel_results['freq_d_ref'] is None:
             channel_results['freq_d_ref'] = freq_d
             channel_results['sum_Xd'] = np.zeros_like(Xd_norm, dtype=np.complex128)
-    
-        # 存储结果
-        channel_results['ys_full'].append(y_full.astype(np.float64))
-        channel_results['ys'].append(y_roi.astype(np.float64))
-        channel_results['mags'].append(mag_linear.astype(np.float64))
-        channel_results['ys_d_full'].append(y_full_diff.ast(np.float64))
-        channel_results['ys_d'].append(y_diff.astype(np.float64))
-        channel_results['mags_d'].append(mag_linear_d.astype(np.float64))
+
+        # 存储结果 - 确保保存完整数据用于长周期分析
+        channel_results['ys_full'].append(y_full.astype(np.float64))        # 完整时域数据
+        channel_results['ys'].append(y_roi.astype(np.float64))              # ROI数据
+        channel_results['mags'].append(mag_linear.astype(np.float64))       # 频谱幅度
+        channel_results['ys_d_full'].append(y_full_diff.astype(np.float64)) # 完整差分时域数据
+        channel_results['ys_d'].append(y_diff.astype(np.float64))           # ROI差分数据
+        channel_results['mags_d'].append(mag_linear_d.astype(np.float64))   # 差分频谱幅度
         channel_results['sum_Xd'] += Xd_norm
+
 
     def analyze_edges(self, sorted_data: np.ndarray) -> Dict[str, Any]:
         """
