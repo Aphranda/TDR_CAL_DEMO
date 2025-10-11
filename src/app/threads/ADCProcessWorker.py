@@ -97,7 +97,7 @@ class ADCProcessWorker(QObject):
                 # 2. 时域数据拼接 - 差分数据
                 concatenated_diff_time_domain = self.data_processor.concatenate_data_segments(
                     diff_data_segments,
-                    len(data_segments)
+                    len(diff_data_segments)
                 )
                 # self.debugPlotter.simple_plot(concatenated_diff_time_domain[0],"time_diff")
                 # 3. 频域FFT分析 - 原始数据
@@ -117,6 +117,8 @@ class ADCProcessWorker(QObject):
                     window_type='hanning',
                     remove_dc=True
                 )
+                print("data_segments_len:",len(data_segments[0]))
+                print("diff_data_segments_len:",len(diff_data_segments[0]))
                 self.debugPlotter.simple_plot(concatenated_diff_time_domain[0])
                 self.debugPlotter.simple_plot(20*np.log10(diff_time_domain_fft_results['group_spectra'][0][0:50000]),"DIFF")
                 

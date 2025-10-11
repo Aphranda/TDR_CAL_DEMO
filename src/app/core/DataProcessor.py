@@ -269,8 +269,14 @@ class DataProcessor:
         return np.clip(coherence, 0, 1)
     
     def compute_difference(self, data: np.ndarray, diff_points: int) -> np.ndarray:
-        """计算数据的差分"""
-        return data[diff_points:] - data[:-diff_points]
+        """计算数据的差分，保持点数不变"""
+        # 在边界处进行填充
+        padded_data = np.pad(data, (diff_points, 0), mode='edge')  # 用边界值填充
+        
+        # 计算差分
+        return padded_data[diff_points:] - padded_data[:-diff_points]
+
+
     
     def align_data(self, sorted_data: np.ndarray, rise_pos: int, target_position: int) -> np.ndarray:
         """对齐数据，使上升沿位于目标位置"""
