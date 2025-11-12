@@ -4,6 +4,12 @@ import numpy as np
 from typing import Optional, Dict, Any, List, Tuple
 import logging
 logger = logging.getLogger(__name__)
+
+try:
+    from .PerformanceMonitor import timeit, performance_monitor
+except ImportError:
+    from PerformanceMonitor import timeit, performance_monitor
+
 class EdgeDetector:
     """边沿检测器类"""
     
@@ -80,7 +86,7 @@ class EdgeDetector:
                     f"p2p_minus_mean: {p2p_minus_mean:.2f}, threshold: {p2p * noise_threshold_ratio:.2f}")
         return False
 
-
+    
     def _find_edges_by_differential(self, smoothed_data: np.ndarray, 
                                   is_rising: bool = True,
                                   min_amplitude_ratio: float = 0.3) -> List[Tuple[int, float]]:
@@ -135,7 +141,7 @@ class EdgeDetector:
     
     def _find_edge_candidates(self, smoothed_data: np.ndarray, 
                             is_rising: bool = True, 
-                            min_amplitude_ratio: float = 0.3) -> List[Tuple[int, float]]:
+                            min_amplitude_ratio: float = 0.3, use_fast_mode:bool = True) -> List[Tuple[int, float]]:
         """
         使用窗口移动方法找到所有可能的边沿候选区间，然后对候选区间做平均值处理，
         去掉平均值最小的异常点，最后再用差分法搜索上升沿位置
@@ -148,6 +154,9 @@ class EdgeDetector:
         Returns:
             候选点列表，每个元素为(位置, 幅度)
         """
+        if use_fast_mode:
+            return self._find_edges_by_differential(smoothed_data, is_rising, min_amplitude_ratio)
+
         # 第一步：判断是否为底噪
         if self._is_noise_floor(smoothed_data, noise_threshold_ratio=0.05):
             # 如果是底噪，直接使用差分法
@@ -246,12 +255,17 @@ class EdgeDetector:
         
         return valid_candidates
 
+
     def find_rise_position(self, sorted_data: np.ndarray, search_method: int, 
                          adc_full_mean: Optional[float] = None,
-                         min_edge_amplitude_ratio: float = 0.5) -> int:
+                         min_edge_amplitude_ratio: float = 0.5, use_fast_mode=True) -> int:
         """在排序后的数据中搜索上升沿位置"""
         # 预处理数据
  
+        if use_fast_mode:
+            max_dy_idx = np.argmax(np.diff(sorted_data))
+            return max_dy_idx + 1
+        
         if search_method == 1:  # RISING
             if adc_full_mean is None:
                 adc_full_mean = np.mean(sorted_data)
