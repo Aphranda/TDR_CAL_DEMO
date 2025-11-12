@@ -80,7 +80,7 @@ class ADCProcessWorker(QObject):
         for channel in ['adc1', 'adc2']:
             for file_info in self.file_dict.get(channel, []):
                 total_segments += file_info.get('segments', 1)
-        return int(total_segments/2)
+        return total_segments
 
     def _process_all_files_and_segments(self) -> Optional[Dict[str, Any]]:
         """处理所有文件和段并返回结果"""
