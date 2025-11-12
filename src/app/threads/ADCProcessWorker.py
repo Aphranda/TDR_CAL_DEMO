@@ -9,6 +9,7 @@ from typing import Optional, Tuple, Dict, Any, Generator, List
 
 from app.core.DataAnalyze import DataAnalyzer, AnalysisConfig
 from app.core.FileManager import FileManager
+from app.core.PerformanceMonitor import timeit, performance_monitor
 
 
 class ADCProcessWorker(QObject):
@@ -31,17 +32,26 @@ class ADCProcessWorker(QObject):
         adc2_count = len(file_dict.get('adc2', []))
         self.setObjectName(f"双通道数据分析线程_ADC1:{adc1_count}_ADC2:{adc2_count}")
 
+        # 文件数据缓存 - 关键优化
+        self._file_data_cache = {}  # {file_path: (data, timestamp)}
+        self._file_format_cache = {}  # {file_path: format}
+        self._cache_hits = 0
+        self._cache_misses = 0
+
     @pyqtSlot()
     def run(self):
-        """执行ADC数据处理 - 主运行函数"""
+        """执行ADC数据处理 - 优化版本"""
         self.running = True
         self._should_stop = False
       
         try:
             self._log_start_message()
             
+            # 关键优化：预加载文件缓存
+            self._preload_file_cache()
+            
             # 处理所有文件并获取结果
-            final_results = self._process_all_files_and_segments()
+            final_results = self._process_all_files_and_segments_optimized()
             
             if final_results is None or final_results['success_count'] == 0:
                 raise RuntimeError("没有文件或数据段成功处理")
@@ -51,6 +61,9 @@ class ADCProcessWorker(QObject):
             
             # 进行边沿分析
             self._perform_edge_analysis(final_results, averages)
+            
+            # 记录缓存统计
+            self._log_cache_statistics()
           
             # 发送完成信号
             self.finished.emit(final_results, averages)
@@ -59,6 +72,111 @@ class ADCProcessWorker(QObject):
             self._handle_error(e)
         finally:
             self._cleanup()
+    
+    def _process_all_files_and_segments_optimized(self) -> Optional[Dict[str, Any]]:
+        """处理所有文件和段 - 优化版本"""
+        results = self._initialize_results()
+        
+        # 使用优化的生成器
+        segment_gen = self._optimized_file_segment_generator()
+        results_gen = self._process_results_generator(segment_gen, results)
+        
+        # 处理所有文件和段
+        final_results = None
+        for results in results_gen:
+            final_results = results
+            if self._should_stop:
+                break
+                
+        return final_results
+    
+    def _optimized_file_segment_generator(self) -> Generator[Tuple[int, int, Dict[str, Any]], None, None]:
+        """优化的文件和段处理生成器"""
+        adc1_files = self.file_dict.get('adc1', [])
+        adc2_files = self.file_dict.get('adc2', [])
+        
+        file_count = max(len(adc1_files), len(adc2_files))
+        segment_counter = 0
+        
+        # 预计算总段数
+        total_segments = self._get_total_segment_count()
+        
+        for file_idx in range(file_count):
+            if self._should_stop:
+                break
+                
+            adc1_file_info = adc1_files[file_idx] if file_idx < len(adc1_files) else None
+            adc2_file_info = adc2_files[file_idx] if file_idx < len(adc2_files) else None
+            
+            segment_count = self._get_file_segment_count(adc1_file_info, adc2_file_info)
+            
+            for segment_idx in range(segment_count):
+                if self._should_stop:
+                    break
+                    
+                segment_counter += 1
+                
+                # 优化进度更新频率
+                if segment_counter % 10 == 0 or segment_counter == total_segments:
+                    self._emit_progress(segment_counter, file_idx, segment_idx, adc1_file_info, adc2_file_info)
+                
+                try:
+                    result = self._process_file_segment(adc1_file_info, adc2_file_info, file_idx, segment_idx)
+                    if result is not None:
+                        yield file_idx, segment_idx, result
+                    else:
+                        self._log_segment_skip_warning(file_idx, segment_idx, adc1_file_info, adc2_file_info)
+                        
+                except Exception as e:
+                    self._log_segment_error(file_idx, segment_idx, adc1_file_info, adc2_file_info, e)
+                    continue
+
+    def _get_file_segment_count(self, adc1_file_info: Optional[Dict], adc2_file_info: Optional[Dict]) -> int:
+        """
+        获取文件对的段数
+        
+        Args:
+            adc1_file_info: ADC1文件信息字典
+            adc2_file_info: ADC2文件信息字典
+            
+        Returns:
+            需要处理的段数
+        """
+        # 如果两个文件都存在，取最大段数
+        if adc1_file_info and adc2_file_info:
+            adc1_segments = adc1_file_info.get('segments', 1)
+            adc2_segments = adc2_file_info.get('segments', 1)
+            
+            # 如果段数不同，记录警告
+            if adc1_segments != adc2_segments:
+                adc1_name = os.path.basename(adc1_file_info['path'])
+                adc2_name = os.path.basename(adc2_file_info['path'])
+                self.log_message.emit(
+                    f"文件段数不匹配: {adc1_name}({adc1_segments}段) vs {adc2_name}({adc2_segments}段), "
+                    f"将处理最大段数 {max(adc1_segments, adc2_segments)}", 
+                    "WARNING"
+                )
+            
+            return max(adc1_segments, adc2_segments)
+        
+        # 如果只有一个文件存在，使用该文件的段数
+        elif adc1_file_info:
+            return adc1_file_info.get('segments', 1)
+        
+        elif adc2_file_info:
+            return adc2_file_info.get('segments', 1)
+        
+        # 两个文件都不存在，返回0
+        else:
+            return 0
+    
+    def _log_cache_statistics(self):
+        """记录缓存统计信息"""
+        cache_hit_rate = self._cache_hits / (self._cache_hits + self._cache_misses) if (self._cache_hits + self._cache_misses) > 0 else 0
+        self.log_message.emit(
+            f"文件缓存统计: 命中{self._cache_hits}次, 未命中{self._cache_misses}次, 命中率{cache_hit_rate:.1%}", 
+            "INFO"
+        )
 
     def _log_start_message(self):
         """记录开始处理的消息"""
@@ -73,6 +191,96 @@ class ADCProcessWorker(QObject):
             f"(ADC1: {adc1_count}文件, ADC2: {adc2_count}文件)", 
             "INFO"
         )
+
+    def _preload_file_cache(self):
+        """预加载文件数据到缓存 - 大幅减少重复I/O"""
+        self.log_message.emit("预加载文件数据到缓存...", "INFO")
+        
+        all_files = set()
+        for channel in ['adc1', 'adc2']:
+            for file_info in self.file_dict.get(channel, []):
+                all_files.add(file_info['path'])
+        
+        total_files = len(all_files)
+        loaded_count = 0
+        
+        for file_path in all_files:
+            if self._should_stop:
+                break
+                
+            try:
+                # 预加载文件数据到缓存
+                if file_path not in self._file_data_cache:
+                    data = self._load_file_data_with_cache(file_path)
+                    if data is not None:
+                        loaded_count += 1
+                        
+                # 更新进度
+                if loaded_count % 5 == 0:
+                    self.progress.emit(
+                        loaded_count, total_files, 
+                        f"预加载文件 {loaded_count}/{total_files}: {os.path.basename(file_path)}"
+                    )
+                    
+            except Exception as e:
+                self.log_message.emit(f"预加载文件失败 {os.path.basename(file_path)}: {e}", "WARNING")
+                continue
+        
+        self.log_message.emit(f"文件缓存预加载完成: {loaded_count}/{total_files} 个文件", "INFO")
+
+    def _load_file_data_with_cache(self, file_path: str) -> Optional[np.ndarray]:
+        """带缓存的文件数据加载"""
+        # 检查缓存
+        if file_path in self._file_data_cache:
+            self._cache_hits += 1
+            return self._file_data_cache[file_path]
+        
+        self._cache_misses += 1
+        
+        try:
+            # 加载文件数据
+            file_manager = FileManager()
+            
+            # 检测文件格式（带缓存）
+            if file_path in self._file_format_cache:
+                file_format = self._file_format_cache[file_path]
+            else:
+                file_format = file_manager.detect_file_format(file_path)
+                self._file_format_cache[file_path] = file_format
+            
+            # 根据格式加载数据
+            if file_format == 'binary':
+                data = self._load_binary_data_cached(file_path, file_manager)
+            else:
+                data = file_manager.load_u32_text_first_col(
+                    file_path, skip_first=self.config.skip_first_value
+                )
+            
+            # 存入缓存
+            if data is not None:
+                self._file_data_cache[file_path] = data
+            
+            return data
+            
+        except Exception as e:
+            self.log_message.emit(f"加载文件数据失败 {os.path.basename(file_path)}: {e}", "ERROR")
+            return None
+    
+    def _load_binary_data_cached(self, path: str, file_manager: FileManager) -> np.ndarray:
+        """带缓存的二进制数据加载"""
+        for data_type in ['uint32', 'int32', 'float32']:
+            try:
+                data = file_manager.load_binary_data(path, data_type=data_type)
+                self.log_message.emit(
+                    f"成功以{data_type}格式加载二进制文件: {os.path.basename(path)}", 
+                    "DEBUG"
+                )
+                return data.astype(np.uint32)
+            except Exception:
+                continue
+        
+        raise ValueError(f"无法解析二进制文件: {os.path.basename(path)}")
+
 
     def _get_total_segment_count(self) -> int:
         """获取总段数"""
@@ -185,42 +393,71 @@ class ADCProcessWorker(QObject):
             f"处理文件{file_idx}段{segment_idx}: ADC1={adc1_name}, ADC2={adc2_name}"
         )
 
+    @timeit
     def _process_file_segment(self, adc1_file_info: Optional[Dict], adc2_file_info: Optional[Dict], 
                             file_idx: int, segment_idx: int) -> Optional[Dict[str, Any]]:
-        """处理文件段 (adc1和adc2的对应段)，确保数据长度一致"""
-        # 加载ADC数据段，允许其中一个为空
-        adc1_data = self.load_segment_data(adc1_file_info, segment_idx) if adc1_file_info else None
-        adc2_data = self.load_segment_data(adc2_file_info, segment_idx) if adc2_file_info else None
+        """处理文件段 - 优化版本"""
+        # 并行加载两个通道的数据
+        adc1_data, adc2_data = self._load_dual_channel_data(
+            adc1_file_info, adc2_file_info, segment_idx
+        )
         
         # 检查是否两个通道都为空
         if adc1_data is None and adc2_data is None:
             return None
         
-        # 确保两个通道的数据长度一致（如果都存在）
-        if adc1_data is not None and adc2_data is not None:
-            min_length = min(len(adc1_data), len(adc2_data))
-            
-            # 如果长度不一致，截取到相同长度
-            if len(adc1_data) != len(adc2_data):
-                self.log_message.emit(
-                    f"文件{file_idx}段{segment_idx}: ADC1和ADC2数据长度不一致 "
-                    f"(ADC1: {len(adc1_data)}, ADC2: {len(adc2_data)}), 将截取到最小长度{min_length}", 
-                    "WARNING"
-                )
-                adc1_data = adc1_data[:min_length]
-                adc2_data = adc2_data[:min_length]
+        # 同步数据长度
+        adc1_data, adc2_data = self._synchronize_channel_lengths(adc1_data, adc2_data, file_idx, segment_idx)
         
-        # 将ADC的数据作为字典传递给处理函数
+        # 准备数据字典
         adc_data = {}
         if adc1_data is not None:
             adc_data['adc1'] = adc1_data
         if adc2_data is not None:
             adc_data['adc2'] = adc2_data
         
-        return self.analyzer.process_single_file(adc_data, file_idx * 1000 + segment_idx)  # 使用唯一ID
+        # 处理数据
+        return self.analyzer.process_single_file(adc_data, file_idx * 1000 + segment_idx)
+    
+    def _load_dual_channel_data(self, adc1_file_info: Optional[Dict], adc2_file_info: Optional[Dict], 
+                               segment_idx: int) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
+        """并行加载双通道数据"""
+        adc1_data = None
+        adc2_data = None
+        
+        # 可以在这里添加并行加载逻辑
+        # 但由于Python GIL限制，简单的顺序加载可能更快
+        if adc1_file_info:
+            adc1_data = self.load_segment_data(adc1_file_info, segment_idx)
+        
+        if adc2_file_info:
+            adc2_data = self.load_segment_data(adc2_file_info, segment_idx)
+        
+        return adc1_data, adc2_data
+    
+    def _synchronize_channel_lengths(self, adc1_data: Optional[np.ndarray], adc2_data: Optional[np.ndarray],
+                                   file_idx: int, segment_idx: int) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
+        """同步双通道数据长度"""
+        if adc1_data is not None and adc2_data is not None:
+            min_length = min(len(adc1_data), len(adc2_data))
+            
+            if len(adc1_data) != len(adc2_data):
+                self.log_message.emit(
+                    f"文件{file_idx}段{segment_idx}: 通道长度不一致 "
+                    f"(ADC1: {len(adc1_data)}, ADC2: {len(adc2_data)}), 截取到{min_length}", 
+                    "WARNING"
+                )
+                adc1_data = adc1_data[:min_length]
+                adc2_data = adc2_data[:min_length]
+        
+        return adc1_data, adc2_data
 
+    @timeit
     def load_segment_data(self, file_info: Dict, segment_idx: int) -> Optional[np.ndarray]:
-        """加载特定段的数据，使用固定段长81920 + 100个点"""
+        """加载特定段的数据 - 优化版本，使用缓存"""
+        if file_info is None:
+            return None
+            
         try:
             file_path = file_info['path']
             segments = file_info.get('segments', 1)
@@ -233,66 +470,26 @@ class ADCProcessWorker(QObject):
                 )
                 return None
             
-            # 加载整个文件数据
-            full_data = self.load_u32_data(file_path)
+            # 从缓存获取文件数据
+            full_data = self._load_file_data_with_cache(file_path)
             if full_data is None:
                 return None
             
-            # 根据段信息提取特定段的数据
-            segment_info = file_info.get('segment_info', {})
-            rise_edge_positions = segment_info.get('rise_edge_positions', [])
-            segment_details = segment_info.get('segment_details', [])
-            
-            if rise_edge_positions and segment_details:
-                # 使用段详细信息
-                if segment_idx < len(segment_details):
-                    seg_detail = segment_details[segment_idx]
-                    start_idx = seg_detail['start_position']
-                    end_idx = seg_detail['end_position']
-                    expected_length = seg_detail['expected_length']
-                    actual_length = seg_detail['length']
-                    
-                    # 记录段信息
-                    self.log_message.emit(
-                        f"文件 {os.path.basename(file_path)} 段 {segment_idx}: "
-                        f"起始位置={start_idx}, 结束位置={end_idx}, "
-                        f"期望长度={expected_length}, 实际长度={actual_length}", 
-                        "DEBUG"
-                    )
-                else:
-                    # 如果没有详细的段信息，使用上升沿位置分段
-                    start_idx = rise_edge_positions[segment_idx] if segment_idx < len(rise_edge_positions) else 0
-                    # 计算结束位置：起点 + 81920 + 100
-                    end_idx = start_idx + 81920 + 100
-                    if end_idx > len(full_data):
-                        end_idx = len(full_data)
-            else:
-                # 如果没有上升沿信息，平均分段（使用固定长度）
-                segment_length = 81920 + 100  # 固定段长 + 100
-                start_idx = segment_idx * segment_length
-                end_idx = start_idx + segment_length if segment_idx < segments - 1 else len(full_data)
-                
-                # 如果超出数组长度，调整到数组末尾
-                if end_idx > len(full_data):
-                    end_idx = len(full_data)
+            # 计算段边界
+            start_idx, end_idx, expected_length = self._calculate_segment_boundaries(
+                file_info, segment_idx, len(full_data)
+            )
             
             # 提取段数据
             segment_data = full_data[start_idx:end_idx]
-            
-            # 记录实际加载的数据长度
             actual_length = len(segment_data)
-            self.log_message.emit(
-                f"文件 {os.path.basename(file_path)} 段 {segment_idx}: "
-                f"加载数据点 {start_idx}-{end_idx} (长度: {actual_length})", 
-                "DEBUG"
-            )
             
-            # 检查数据长度是否符合预期
-            expected_min_length = 81920  # 最小需要81920个点
-            if actual_length < expected_min_length:
+
+            # 检查数据长度
+            if actual_length < expected_length:
                 self.log_message.emit(
                     f"警告: 文件 {os.path.basename(file_path)} 段 {segment_idx} "
-                    f"数据长度不足 (期望至少{expected_min_length}, 实际{actual_length})", 
+                    f"数据长度不足 (期望:{expected_length}, 实际:{actual_length})", 
                     "WARNING"
                 )
             
@@ -304,6 +501,40 @@ class ADCProcessWorker(QObject):
                 "ERROR"
             )
             return None
+    
+    def _calculate_segment_boundaries(self, file_info: Dict, segment_idx: int, total_length: int) -> Tuple[int, int, int]:
+        """计算段边界 - 优化版本"""
+        file_path = file_info['path']
+        segments = file_info.get('segments', 1)
+        
+        # 使用段详细信息（如果可用）
+        segment_info = file_info.get('segment_info', {})
+        rise_edge_positions = segment_info.get('rise_edge_positions', [])
+        segment_details = segment_info.get('segment_details', [])
+        
+        if segment_details and segment_idx < len(segment_details):
+            # 使用预计算的段信息
+            seg_detail = segment_details[segment_idx]
+            start_idx = seg_detail['start_position']
+            end_idx = seg_detail['end_position']
+            expected_length = seg_detail['expected_length']
+        elif rise_edge_positions and segment_idx < len(rise_edge_positions):
+            # 使用上升沿位置
+            start_idx = rise_edge_positions[segment_idx]
+            expected_length = 81920 + 100  # 固定段长 + 100
+            end_idx = min(start_idx + expected_length, total_length)
+        else:
+            # 平均分段
+            segment_length = 81920 + 100
+            start_idx = segment_idx * segment_length
+            end_idx = start_idx + segment_length if segment_idx < segments - 1 else total_length
+            expected_length = min(segment_length, total_length - start_idx)
+        
+        # 确保不超出数组边界
+        end_idx = min(end_idx, total_length)
+        expected_length = min(expected_length, end_idx - start_idx)
+        
+        return start_idx, end_idx, expected_length
 
 
     def _log_segment_skip_warning(self, file_idx: int, segment_idx: int, 
@@ -328,6 +559,7 @@ class ADCProcessWorker(QObject):
             "WARNING"
         )
 
+    
     def _process_results_generator(self, segment_gen: Generator, results: Dict[str, Any]) -> Generator[Dict[str, Any], None, None]:
         """处理结果生成器，累积计算结果"""
         for file_idx, segment_idx, res in segment_gen:
@@ -445,7 +677,7 @@ class ADCProcessWorker(QObject):
             count += 1
         
         return total / count
-
+    
     def _perform_edge_analysis(self, final_results: Dict[str, Any], averages: Dict[str, Any]):
         """执行边沿分析 - 对每个有数据的通道分别进行"""
         self._emit_edge_analysis_progress()

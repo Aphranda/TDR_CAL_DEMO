@@ -1,10 +1,12 @@
 # src/app/widgets/DataAnalysisPanel/Controller.py
 import os
+
 import numpy as np
 from PyQt5.QtWidgets import QFileDialog
 from PyQt5.QtCore import QObject, pyqtSignal, QThread
 
 from ...core.DataAnalyze import DataAnalyzer, AnalysisConfig
+from ...core.PerformanceMonitor import timeit, performance_monitor
 from ...core.FileManager import FileManager
 from ...widgets.PlotWidget import create_plot_widget
 from app.threads import ADCProcessWorker
@@ -80,7 +82,7 @@ class DataAnalysisController(QObject):
             self.main_window_controller.log_controller.log("=" * 50, "INFO")
             for key, value in results.items():
                 self.main_window_controller.log_controller.log(f"{key}: {value}", "INFO")
-  
+    
     def on_load_file(self):
         """加载数据文件，支持多种格式，同时导入adc1和adc2的数据"""
         try:

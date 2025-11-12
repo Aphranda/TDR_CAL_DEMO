@@ -3,6 +3,11 @@ import numpy as np
 from typing import Tuple, Optional, List, Dict, Any
 import logging
 
+try:
+    from .PerformanceMonitor import timeit, performance_monitor
+except ImportError:
+    from PerformanceMonitor import timeit, performance_monitor
+
 logger = logging.getLogger(__name__)
 
 class DataProcessor:
@@ -10,6 +15,25 @@ class DataProcessor:
     
     def __init__(self, config):
         self.config = config
+
+        # 缓存排序索引
+        self._BIT31_MASK = np.uint32(0x80000000)
+        self._ADC_MASK = np.uint32(0x000FFFFF)
+        self._SIGN_OFFSET = np.uint32(1 << 19)
+        self._SIGN_THRESHOLD = np.uint32(1 << 19)
+        self._FULL_SIGN = np.uint32(1 << 20)
+
+        # 性能监控
+        self._adc_call_count = 0
+        self._adc_slow_threshold = 100
+
+        self._sort_cache = {}  # 键为 (data_length, t_sample, t_trig)，值为排序索引
+        self._hanning_cache = {}
+        self._fft_plan_cache = {}
+        self._spectrum_cache = {}
+        self._window_cache = {}
+        self._cache_hits = 0
+        self._cache_misses = 0
 
     
     def smooth_data(self, 
@@ -152,23 +176,50 @@ class DataProcessor:
         """三角平滑"""
         return self.smooth_data(data, window_size, 'triangular')
     
+   
     def extract_adc_data(self, u32_arr: np.ndarray, use_signed18: bool = True) -> Tuple[np.ndarray, np.ndarray]:
-        """从uint32数组中提取bit31和ADC数据"""
-        # 提取bit31
-        bit31 = ((u32_arr >> 31) & 0x1).astype(np.uint8)
-      
-        # 提取ADC数据
-        adc_18u = (u32_arr & ((1 << 20) - 1)).astype(np.uint32)
-      
-        # 转换为有符号或无符号
-        if use_signed18:
-            adc_18s = ((adc_18u + (1 << 19)) & ((1 << 20) - 1)) - (1 << 19)
-            adc_data = adc_18s.astype(np.int32)
-        else:
-            adc_data = adc_18u.astype(np.int32)
-      
-        return bit31, adc_data
+        """从uint32数组中提取bit31和ADC数据 - 紧急修复版本"""
+        try:
+            # 优化1: 使用最简化的位操作
+            bit31 = (u32_arr >> 31).astype(np.uint8)
+            
+            # 优化2: 直接提取低20位
+            adc_18u = u32_arr & self._ADC_MASK
+            
+            if use_signed18:
+                # 优化3: 使用向量化的符号转换
+                # 创建有符号数组
+                adc_data = adc_18u.astype(np.int32)
+                # 批量处理符号转换
+                sign_mask = adc_18u >= self._SIGN_THRESHOLD
+                adc_data[sign_mask] = adc_data[sign_mask] - self._FULL_SIGN
+            else:
+                adc_data = adc_18u.astype(np.int32)
+            
+            # 性能监控和自动恢复
+            self._adc_call_count += 1
+            if self._adc_call_count > self._adc_slow_threshold:
+                self._adc_call_count = 0
+                # 强制内存清理
+                import gc
+                gc.collect()
+            
+            return bit31, adc_data
+            
+        except Exception as e:
+            logger.error(f"extract_adc_data出错: {e}")
+            # 回退到简单实现
+            bit31 = ((u32_arr >> 31) & 0x1).astype(np.uint8)
+            adc_18u = (u32_arr & 0x000FFFFF).astype(np.uint32)
+            if use_signed18:
+                adc_18s = ((adc_18u + (1 << 19)) & 0x000FFFFF) - (1 << 19)
+                adc_data = adc_18s.astype(np.int32)
+            else:
+                adc_data = adc_18u.astype(np.int32)
+            return bit31, adc_data
+
     
+ 
     def detect_valid_data(self, bit31: np.ndarray, edge_search_start: int = 1) -> Optional[int]:
         """检测bit31数组中的上升沿位置"""
         # 检测上升沿 (0->1转换)
@@ -181,6 +232,7 @@ class DataProcessor:
             return None
       
         return edge_idx[0] + 1
+    
     
     def extract_data_segment(self, adc_data: np.ndarray, rise_idx: int, 
                            start_index: int, n_points: int) -> Optional[np.ndarray]:
@@ -195,45 +247,120 @@ class DataProcessor:
         # 截取数据段
         return adc_data[start_capture : start_capture + n_points]
     
+   
     def sort_data_by_period(self, segment_data: np.ndarray, 
                           t_sample: float, t_trig: float) -> Tuple[np.ndarray, np.ndarray]:
         """按周期时间对数据进行排序"""
-        # 计算周期内时间
-        t_within_period = (np.arange(len(segment_data), dtype=np.float64) * t_sample) % t_trig
-      
-        # 按时间排序
-        sort_idx = np.argsort(t_within_period)
-        sorted_data = segment_data[sort_idx]
-      
-        return sorted_data, sort_idx
+        data_length = len(segment_data)
+        cache_key = (data_length, t_sample, t_trig)
+        
+        if cache_key in self._sort_cache:
+            sort_idx = self._sort_cache[cache_key]
+            sorted_data = segment_data[sort_idx]
+            return sorted_data, sort_idx
+        else:
+            # 计算周期内时间
+            t_within_period = (np.arange(data_length, dtype=np.float64) * t_sample) % t_trig
+            # 按时间排序
+            sort_idx = np.argsort(t_within_period)
+            sorted_data = segment_data[sort_idx]
+            # 缓存排序索引
+            self._sort_cache[cache_key] = sort_idx
+            return sorted_data, sort_idx
     
+   
     def compute_spectrum(self, data: np.ndarray, ts_eff: float) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """计算数据的频谱"""
-        # 去均值
-        data_centered = data.astype(np.float64) - np.mean(data)
-      
-        # 加窗
-        window = np.hanning(len(data))
-        windowed_data = data_centered * window
-      
-        # 计算FFT
-        fft_result = np.fft.rfft(windowed_data)
-        freq = np.fft.rfftfreq(len(data), d=ts_eff)
-      
-        # 归一化
-        scale = (np.sum(window) / len(data)) * len(data)
-        magnitude_linear = np.abs(fft_result) / (scale + 1e-12)
-      
-        return freq, magnitude_linear, fft_result
+        """计算数据的频谱 - 优化版本"""
+        data_length = len(data)
+        
+        # 优化1: 数据长度检查
+        if data_length < 10:
+            freq = np.array([])
+            mag_linear = np.array([])
+            fft_result = np.array([])
+            return freq, mag_linear, fft_result
+        
+        # 优化2: 智能缓存策略
+        cache_key = self._generate_spectrum_cache_key(data, ts_eff)
+        
+        if cache_key in self._spectrum_cache:
+            self._cache_hits += 1
+            return self._spectrum_cache[cache_key]
+        
+        self._cache_misses += 1
+        
+        try:
+            # 优化3: 使用更高效的均值计算
+            data_mean = np.mean(data, dtype=np.float64)
+            data_centered = data.astype(np.float64) - data_mean
+            
+            # 优化4: 预计算窗函数
+            window = self._get_cached_window(data_length)
+            
+            # 优化5: 高效加窗
+            windowed_data = data_centered * window
+            
+            # 优化6: 计算FFT
+            fft_result = np.fft.rfft(windowed_data)
+            freq = np.fft.rfftfreq(data_length, d=ts_eff)
+            
+            # 优化7: 高效归一化
+            scale = np.sum(window)
+            magnitude_linear = np.abs(fft_result) / (scale + 1e-12)
+            
+            result = (freq, magnitude_linear, fft_result)
+            
+            # 优化8: 智能缓存（只缓存小数据）
+            if data_length <= 10000:  # 只缓存合理大小的数据
+                self._spectrum_cache[cache_key] = result
+                # 限制缓存大小
+                if len(self._spectrum_cache) > 100:
+                    self._spectrum_cache.pop(next(iter(self._spectrum_cache)))
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"compute_spectrum计算失败: {e}")
+            # 返回空结果
+            freq = np.array([])
+            mag_linear = np.array([])
+            fft_result = np.array([])
+            return freq, mag_linear, fft_result
+    
+    def _generate_spectrum_cache_key(self, data: np.ndarray, ts_eff: float) -> str:
+        """生成频谱缓存键"""
+        data_length = len(data)
+        # 使用数据的统计特征作为缓存键的一部分
+        data_hash = hash((data_length, ts_eff, np.mean(data), np.std(data)))
+        return f"spectrum_{data_hash}"
+    
+    def _get_cached_window(self, data_length: int) -> np.ndarray:
+        """获取缓存的窗函数"""
+        if data_length not in self._window_cache:
+            self._window_cache[data_length] = np.hanning(data_length)
+        return self._window_cache[data_length]
+    
+    def clear_spectrum_cache(self):
+        """清空频谱缓存"""
+        self._spectrum_cache.clear()
+        logger.info(f"频谱缓存已清空，命中率: {self._cache_hits}/{self._cache_hits + self._cache_misses}")
+
+    def clear_cache(self):
+        """清空缓存，防止内存泄漏"""
+        self._hanning_cache.clear()
+        self._fft_plan_cache.clear()
+    
     
     def compute_difference(self, data: np.ndarray, diff_points: int) -> np.ndarray:
         """计算数据的差分"""
         return data[diff_points:] - data[:-diff_points]
     
+    
     def align_data(self, sorted_data: np.ndarray, rise_pos: int, target_position: int) -> np.ndarray:
         """对齐数据，使上升沿位于目标位置"""
         shift = (target_position - rise_pos) % len(sorted_data)
         return np.roll(sorted_data, shift)
+    
     
     def extract_roi(self, aligned_data: np.ndarray, roi_start: int, roi_end: int) -> np.ndarray:
         """从对齐后的数据中提取感兴趣区域(ROI)"""

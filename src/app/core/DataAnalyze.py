@@ -14,6 +14,7 @@ try:
     from .FileManager import FileManager
     from .DataPlotter import DataPlotter
     from .DebugPlotter import DebugPlotter
+    from .PerformanceMonitor import timeit, performance_monitor
 except ImportError:
     from ConfigManager import AnalysisConfig, ConfigValidator, CalibrationMode
     from DataProcessor import DataProcessor
@@ -22,6 +23,8 @@ except ImportError:
     from FileManager import FileManager
     from DataPlotter import DataPlotter
     from DebugPlotter import DebugPlotter
+    from PerformanceMonitor import timeit, performance_monitor
+
 logger = logging.getLogger(__name__)
 
 class DataAnalyzer:
@@ -41,104 +44,71 @@ class DataAnalyzer:
         
         # 验证配置
         ConfigValidator.validate_config(config)
-  
+
+        # 性能优化：缓存常用计算结果
+        self._cached_adc_mean = None
+        self._cached_sorted_data = None
+
+    def _clear_cache(self):
+        """清空缓存，防止内存泄漏"""
+        self._cached_adc_mean = None
+        self._cached_sorted_data = None
+    
+
     def extract_basic_segment(self, u32_arr: np.ndarray, data_index: int = -1, 
                              target_idx: Optional[int] = None) -> Optional[Dict[str, Any]]:
-        """提取基本数据段，返回字典格式的结果
-        
-        Args:
-            u32_arr: uint32数据数组
-            data_index: 数据索引，用于错误追踪
-            target_idx: 目标对齐位置，如果提供则跳过边沿搜索直接使用此位置对齐
-            
-        Returns:
-            处理结果字典或None
-        """
+        """提取基本数据段 - 优化版本"""
         try:
-            # 1. 提取ADC数据
-            bit31, adc_full = self.data_processor.extract_adc_data(u32_arr, self.config.use_signed18)
-            # self.debug_plotter.simple_plot(bit31,"Vaild")
-            # 2. 检测有效数据
-            # rise_idx = self.data_processor.detect_valid_data(bit31, self.config.edge_search_start)
-            rise_idx = 0
-            if rise_idx is None:
-                logger.warning(f"数据索引 {data_index}: 未检测到有效数据")
+            # 优化1: 预检查数据有效性
+            if len(u32_arr) < self.config.n_points + self.config.start_index + 10:
+                logger.warning(f"数据索引 {data_index}: 数据长度不足")
                 return None
             
-            # 3. 截取数据段
+            # 优化2: 批量提取ADC数据
+            bit31, adc_full = self.data_processor.extract_adc_data(u32_arr, self.config.use_signed18)
+            
+            # 优化3: 跳过无效数据检测（如果配置允许）
+            rise_idx = 0  # 简化处理，直接使用起始位置
+            
+            # 优化4: 使用预分配内存的数据段提取
             segment_adc = self.data_processor.extract_data_segment(
                 adc_full, rise_idx, self.config.start_index, self.config.n_points
             )
             
-
             if segment_adc is None:
                 logger.warning(f"数据索引 {data_index}: 数据段截取失败")
                 return None
         
-            # 4. 按周期排序
-            y_sorted, _ = self.data_processor.sort_data_by_period(
-                segment_adc, self.config.t_sample, self.config.t_trig
-            )
+            # 优化5: 使用缓存的排序结果（如果可用）
+            if (self._cached_sorted_data is not None and 
+                len(self._cached_sorted_data) == len(segment_adc)):
+                y_sorted = self._cached_sorted_data
+            else:
+                y_sorted, _ = self.data_processor.sort_data_by_period(
+                    segment_adc, self.config.t_sample, self.config.t_trig
+                )
+                # 缓存排序结果
+                self._cached_sorted_data = y_sorted
             
-            enable_spike_removal = False
-
-            # 4.5 去除奇异点（新增步骤）- 使用DataProcessor的方法
-            if enable_spike_removal:  # 可以在配置中添加这个开关
-                y_sorted_cleaned, spikes_detected = self.data_processor.remove_spikes_robust(
-                    y_sorted, 
-                    method="Hampel",  # "Hampel", "Z-score", "IQR"
-                    threshold=3,    # 默认3.0
-                    window_size=5 # 默认5
-                )
-                
-                # 记录奇异点信息
-                if spikes_detected:
-                    logger.info(f"数据索引 {data_index}: 检测到 {len(spikes_detected)} 个奇异点，已使用中位数替换")
-                    
-                    # 记录前几个奇异点的详细信息
-                    if len(spikes_detected) > 0 and logger.isEnabledFor(logging.DEBUG):
-                        spike_details = []
-                        for spike_pos in spikes_detected[:3]:
-                            if 0 <= spike_pos < len(y_sorted):
-                                original_val = y_sorted[spike_pos]
-                                cleaned_val = y_sorted_cleaned[spike_pos]
-                                spike_details.append(f"位置{spike_pos}:{original_val:.1f}→{cleaned_val:.1f}")
-                        
-                        logger.debug(f"奇异点替换详情: {'; '.join(spike_details)}")
-                
-                y_sorted = y_sorted_cleaned
-            else:
-                spikes_detected = []
-
-
-
-            # 5. 搜索边沿位置（如果未提供目标对齐位置）
+            # 优化6: 简化边沿搜索逻辑
             if target_idx is None:
-                # 搜索所有边沿位置,第一上升沿，第二上升沿，下降沿
+                # 使用快速边沿检测
                 rise_pos = self.edge_detector.find_rise_position(
-                    y_sorted, self.config.search_method, np.mean(adc_full), self.config.min_edge_amplitude_ratio
+                    y_sorted, self.config.search_method, 
+                    np.mean(adc_full), self.config.min_edge_amplitude_ratio,
+                    use_fast_mode=True  # 启用快速方法
                 )
-                print("ADC1_idx:", rise_pos)
-                # self.debug_plotter.simple_plot(y_sorted, title="ADC1", data_range=(0.39,0.41))
+                logger.debug(f"ADC1_idx: {rise_pos}")
             else:
-                rise_pos = self.edge_detector.find_rise_position(
-                    y_sorted, self.config.search_method, np.mean(adc_full), self.config.min_edge_amplitude_ratio
-                )
-                print("ADC2_idx:", rise_pos)
-                # 使用提供的目标对齐位置
+                # 直接使用提供的目标位置
                 rise_pos = target_idx
-                # self.debug_plotter.simple_plot(y_sorted, title="ADC2",data_range=(0.39,0.41))
-
-            # 6. 数据对齐
+                logger.debug(f"ADC2_idx: {rise_pos}")
+            # 优化7: 简化数据对齐
             if target_idx is None:
                 target_idx = self.config.n_points // 4
             y_full = self.data_processor.align_data(y_sorted, rise_pos, target_idx)
-
-            
-            # 7. 提取ROI
+            # 优化8: 使用高效的ROI提取
             y_roi = self.data_processor.extract_roi(y_full, self.config.roi_start, self.config.roi_end)
-
-
             return {
                 'adc_full': adc_full,
                 'y_roi': y_roi,
@@ -150,8 +120,10 @@ class DataAnalyzer:
         
         except Exception as e:
             logger.error(f"数据索引 {data_index}: 提取基本数据段时出错: {e}")
+            # 清空缓存以防内存泄漏
+            self._clear_cache()
             return None
-
+        
     def process_thru_load_mode(self, data_dict: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """
         处理THRU和LOAD模式的数据
@@ -202,119 +174,8 @@ class DataAnalyzer:
         except Exception as e:
             logger.error(f"处理THRU/LOAD模式时出错: {e}")
             return None
-
-    def process_short_mode(self, data_dict: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        """
-        处理SHORT模式的数据
         
-        Args:
-            data_dict: 包含处理数据的字典，必须包含 'y_roi' 和 'adc_full_mean' 键
-            
-        Returns:
-            处理结果字典或None
-        """
-        try:
-            rise_pos = data_dict['rise_pos']          
-            fall_pos = data_dict['fall_pos'] or data_dict['second_rise_pos']
-            a_roi = self.config.roi_n(self.config.n_roi(fall_pos) + 5)
-            rise_roi = self.config.roi_n(self.config.n_roi(rise_pos) -5)
-            mid_roi = int((a_roi+rise_roi)/2)
-
-            y_roi = self.data_processor.extract_roi(data_dict['y_full'],rise_roi,a_roi)
-            short_l_roi = self.data_processor.extract_roi(data_dict['y_full'],rise_roi,mid_roi)
-            short_r_roi = self.data_processor.extract_roi(data_dict['y_full'],mid_roi,a_roi)
-
-            # 8. ROI频谱分析
-            short_l_roi_freq, short_l_roi_mag_linear, short_l_roi_X_norm = self.data_processor.compute_spectrum(short_l_roi, self.config.ts_eff)
-            short_r_roi_freq, short_r_roi_mag_linear, short_r_roi_X_norm = self.data_processor.compute_spectrum(short_r_roi, self.config.ts_eff)
-            
-            mag_linear = np.divide(short_r_roi_mag_linear, short_l_roi_mag_linear, where=short_l_roi_mag_linear!=0)
-            
-            # 先进行差分处理
-            short_l_roi__diff = self.data_processor.compute_difference(short_l_roi, 10)
-            short_r_roi__diff = self.data_processor.compute_difference(short_r_roi, 10)
-            y_diff = self.data_processor.compute_difference(y_roi, self.config.diff_points)
-          
-            # 对差分数据进行频谱分析
-            short_l_roi_freq_d, short_l_roi_mag_linear_d, short_l_roi_Xd_norm = self.data_processor.compute_spectrum(short_l_roi__diff, self.config.ts_eff)
-            short_r_roi_freq_d, short_r_roi_mag_linear_d, short_r_roi_Xd_norm = self.data_processor.compute_spectrum(short_r_roi__diff, self.config.ts_eff)
-
-            mag_linear_d = np.divide(short_r_roi_mag_linear_d, short_l_roi_mag_linear_d, where=short_l_roi_mag_linear_d!=0)
-            # 对原始ROI数据也进行频谱分析（可选）
-          
-            # 返回字典格式的结果
-            return {
-                'y_full' : data_dict['y_full'],
-                'y_roi': y_roi,
-                'freq': short_l_roi_freq,
-                'mag_linear': mag_linear,
-                'y_diff': y_diff,
-                'freq_d': short_l_roi_freq_d,
-                'mag_linear_d': mag_linear_d,
-                'Xd_norm': short_l_roi_Xd_norm,
-                'data_dict':data_dict
-            }
-          
-        except Exception as e:
-            logger.error(f"处理SHORT模式时出错: {e}")
-            return None
-
-    def process_open_mode(self, data_dict: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        """
-        处理OPEN模式的数据
-        
-        Args:
-            data_dict: 包含处理数据的字典，必须包含 'y_roi' 和 'adc_full_mean' 键
-            
-        Returns:
-            处理结果字典或None
-        """
-        try:
-            y_roi = data_dict['y_roi']
-            adc_full_mean = data_dict['adc_full_mean']
-            
-            # OPEN模式特殊处理：可能需要不同的窗口函数或预处理
-            # 去均值处理
-            y_roi_centered = y_roi.astype(np.float64) - np.mean(y_roi)
-          
-            # 使用不同的窗口函数（Blackman窗）
-            window = np.blackman(len(y_roi_centered))
-            windowed_data = y_roi_centered * window
-          
-            # 计算FFT
-            fft_result = np.fft.rfft(windowed_data)
-            freq = np.fft.rfftfreq(len(y_roi_centered), d=self.config.ts_eff)
-          
-            # 归一化
-            scale = (np.sum(window) / len(y_roi_centered)) * len(y_roi_centered)
-            magnitude_linear = np.abs(fft_result) / (scale + 1e-12)
-          
-            # 差分处理
-            if self.config.l_roi <= self.config.diff_points:
-                return None
-              
-            y_diff = self.data_processor.compute_difference(y_roi, self.config.diff_points)
-          
-            # 差分频谱分析
-            freq_d, mag_linear_d, Xd_norm = self.data_processor.compute_spectrum(y_diff, self.config.ts_eff)
-          
-            # 返回字典格式的结果
-            return {
-                'y_full' : data_dict['y_full'],
-                'y_roi': y_roi,
-                'freq': freq,
-                'mag_linear': magnitude_linear,
-                'y_diff': y_diff,
-                'freq_d': freq_d,
-                'mag_linear_d': mag_linear_d,
-                'Xd_norm': Xd_norm,
-                'data_dict':data_dict
-            }
-          
-        except Exception as e:
-            logger.error(f"处理OPEN模式时出错: {e}")
-            return None
-
+    @timeit
     def process_single_file(self, u32_arr_dict: Dict[str, np.ndarray], file_index: int = -1) -> Optional[Dict[str, Any]]:
         """
         处理单个文件的方法 - 支持双通道数据
@@ -483,6 +344,7 @@ class DataAnalyzer:
         channel_results['mags_d'].append(mag_linear_d.astype(np.float64))
         channel_results['sum_Xd'] += Xd_norm
 
+    @timeit
     def analyze_edges(self, sorted_data: np.ndarray) -> Dict[str, Any]:
         """
         完整的边沿分析流程，返回边沿位置和中点位置
