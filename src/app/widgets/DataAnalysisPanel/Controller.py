@@ -9,7 +9,7 @@ from ...core.FileManager import FileManager
 from ...widgets.PlotWidget import create_plot_widget
 from app.threads import ADCProcessWorker
 import time
-
+from ...core.PerformanceMonitor import timeit, performance_monitor
 
 
 # 搜索方法枚举
@@ -81,6 +81,7 @@ class DataAnalysisController(QObject):
             for key, value in results.items():
                 self.main_window_controller.log_controller.log(f"{key}: {value}", "INFO")
   
+
     def on_load_file(self):
         """加载数据文件，支持多种格式，同时导入adc1和adc2的数据"""
         try:
@@ -214,11 +215,11 @@ class DataAnalysisController(QObject):
             else:
                 self.log_message(f"文件对 {adc1_file} 和 {adc2_file} 的段数匹配: {adc1_segments} 段", "INFO")
 
+ 
 
     def extract_adc_data_from_binary(self, file_path, max_read_size=None):
         """
-        从二进制文件中提取ADC数据并检测段数
-        修改：使用固定段长81920进行分段，尾部+100个点
+        从二进制文件中提取ADC数据并检测段数 - numpy优化版本
         
         Args:
             file_path: 二进制文件路径
@@ -228,10 +229,9 @@ class DataAnalysisController(QObject):
             段数和数据信息字典
         """
         try:
-
             # 使用配置中的最大读取大小，如果未指定则使用默认值
             if max_read_size is None:
-                max_read_size = int(self.model.adc_config.max_read_size_bytes*1024*1024)
+                max_read_size = int(self.model.adc_config.max_read_size_bytes * 1024 * 1024)
             
             file_size = os.path.getsize(file_path)
             read_size = min(file_size, max_read_size)
@@ -239,19 +239,14 @@ class DataAnalysisController(QObject):
             # 记录读取信息
             self.log_message(f"读取文件 {os.path.basename(file_path)}: 文件大小 {file_size/1024/1024:.2f}MB, 读取大小 {read_size/1024/1024:.2f}MB", "DEBUG")
             
-            # 读取文件
-            with open(file_path, 'rb') as f:
-                data = f.read(read_size)
+            # 优化1: 使用numpy直接读取文件，避免中间转换
+            uint32_arr = np.fromfile(file_path, dtype=np.uint32, count=read_size//4)
             
-            # 将字节数据转换为uint32数组
-            num_uint32 = len(data) // 4
-            if num_uint32 == 0:
+            if len(uint32_arr) == 0:
                 self.log_message(f"文件 {file_path} 太小或格式不正确", "WARNING")
                 return 1, {"error": "文件太小或格式不正确"}
             
-            uint32_arr = np.frombuffer(data[:num_uint32*4], dtype=np.uint32)
-            
-            # 提取bit31
+            # 优化2: 使用向量化操作提取bit31
             bit31 = (uint32_arr >> 31) & 1
             
             # 打印bit31的基本统计信息
@@ -263,7 +258,7 @@ class DataAnalysisController(QObject):
             # 计算段数
             segments = len(rise_edges)
             
-            # 提取ADC数据（低18位）
+            # 优化3: 向量化提取ADC数据
             adc_data = uint32_arr & 0x3FFFF  # 0x3FFFF = 2^18-1
             
             # 计算每段的长度（应该是固定的81920 + 100）
@@ -319,8 +314,48 @@ class DataAnalysisController(QObject):
         except Exception as e:
             self.log_message(f"提取ADC数据失败: {str(e)}", "ERROR")
             return 1, {"error": str(e)}
-
+       
+    @timeit
     def detect_valid_data_segments(self, bit31_data, start_index=0):
+        """
+        检测有效数据段（基于bit31的上升沿）
+        修改：第一个上升沿固定为10，后续都加上81920固定长度
+        
+        Args:
+            bit31_data: bit31数据数组
+            start_index: 开始检测的索引
+            
+        Returns:
+            上升沿位置列表
+        """
+        try:
+            # 固定第一个上升沿位置为10
+            first_rise_edge = 10
+            
+            # 计算总长度
+            total_length = len(bit31_data)
+            segment_length = 81920  # 固定段长度
+            
+            # 生成所有上升沿位置
+            rise_edges = []
+            current_edge = first_rise_edge
+            
+            while current_edge < total_length:
+                rise_edges.append(current_edge)
+                current_edge += segment_length
+            
+            self.log_message(f"使用固定第一个上升沿位置: {first_rise_edge}", "DEBUG")
+            self.log_message(f"基于固定段长度 {segment_length} 生成了 {len(rise_edges)} 个段", "DEBUG")
+            if rise_edges:
+                self.log_message(f"前5个上升沿位置: {rise_edges[:5]}{'...' if len(rise_edges) > 5 else ''}", "DEBUG")
+            
+            return rise_edges
+            
+        except Exception as e:
+            self.log_message(f"检测有效数据段失败: {str(e)}", "ERROR")
+            return []
+    
+    def detect_valid_data_segments1(self, bit31_data, start_index=0):
         """
         检测有效数据段（基于bit31的上升沿）
         修改：找到第一个valid index后，后续的valid index都是在前一个基础上加上81920固定长度
@@ -432,6 +467,7 @@ class DataAnalysisController(QObject):
         except Exception as e:
             self.log_message(f"分析二进制文件段结构失败: {str(e)}", "ERROR")
             return {"error": str(e)}
+        
     # 修改detect_segments_in_file方法，使用新的二进制文件分析功能
     def detect_segments_in_file(self, file_path):
         """检测文件中的数据段数"""

@@ -230,10 +230,6 @@ class FileManager:
     
 
     @timeit
-    def test(self,fmt_string,raw_data):
-        data = struct.unpack(fmt_string, raw_data)
-        return data
-
     def detect_file_format(self, path: str) -> str:
         """
         检测文件格式，特别处理ADC二进制数据
