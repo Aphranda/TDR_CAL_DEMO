@@ -335,7 +335,7 @@ class DataAnalysisController(QObject):
         try:
             # 检测第一个上升沿：从0变为1的位置
             diff = np.diff(bit31_data)
-            first_rise_edge = None
+            first_rise_edge = 10
             
             # 从start_index开始寻找第一个上升沿
             for i in range(start_index, len(diff)):
