@@ -8,8 +8,9 @@ import struct
 from datetime import datetime
 from pathlib import Path
 import logging
-
+from .PerformanceMonitor import timeit, performance_monitor
 logger = logging.getLogger(__name__)
+
 
 class FileManager:
     def __init__(self, base_data_path="data"):
@@ -211,7 +212,7 @@ class FileManager:
         return files
     
 
-
+    @timeit
     def load_binary_data(self, path: str, data_type: str = 'uint32', byte_order: str = '<') -> np.ndarray:
         """
         从二进制文件加载数据
@@ -224,46 +225,14 @@ class FileManager:
         Returns:
             numpy数组
         """
-        try:
-            with open(path, 'rb') as f:
-                raw_data = f.read()
-            
-            if not raw_data:
-                raise ValueError("文件为空")
-            
-            # 根据数据类型确定格式字符串
-            format_map = {
-                'uint32': 'I',
-                'int32': 'i', 
-                'float32': 'f',
-                'float64': 'd'
-            }
-            
-            if data_type not in format_map:
-                raise ValueError(f"不支持的数据类型: {data_type}")
-            
-            fmt_char = format_map[data_type]
-            element_size = struct.calcsize(byte_order + fmt_char)
-            
-            # 检查数据长度是否匹配
-            if len(raw_data) % element_size != 0:
-                logger.warning(f"文件大小({len(raw_data)}字节)不是{data_type}类型大小的整数倍，将截断数据")
-                raw_data = raw_data[:-(len(raw_data) % element_size)]
-            
-            # 解析二进制数据
-            num_elements = len(raw_data) // element_size
-            fmt_string = byte_order + fmt_char * num_elements
-            
-            try:
-                data = struct.unpack(fmt_string, raw_data)
-            except struct.error as e:
-                raise ValueError(f"二进制数据解析失败: {str(e)}")
-            
-            return np.array(data, dtype=getattr(np, data_type))
-            
-        except Exception as e:
-            logger.error(f"加载二进制文件失败: {str(e)}")
-            raise
+        data = np.fromfile(path, dtype=np.uint32)
+        return data
+    
+
+    @timeit
+    def test(self,fmt_string,raw_data):
+        data = struct.unpack(fmt_string, raw_data)
+        return data
 
     def detect_file_format(self, path: str) -> str:
         """

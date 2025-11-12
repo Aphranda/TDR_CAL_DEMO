@@ -9,6 +9,7 @@ from typing import Optional, Tuple, Dict, Any, Generator, List
 
 from app.core.DataAnalyze import DataAnalyzer, AnalysisConfig
 from app.core.FileManager import FileManager
+from app.core.PerformanceMonitor import timeit, performance_monitor
 
 
 class ADCProcessWorker(QObject):
@@ -185,6 +186,7 @@ class ADCProcessWorker(QObject):
             f"处理文件{file_idx}段{segment_idx}: ADC1={adc1_name}, ADC2={adc2_name}"
         )
 
+    @timeit
     def _process_file_segment(self, adc1_file_info: Optional[Dict], adc2_file_info: Optional[Dict], 
                             file_idx: int, segment_idx: int) -> Optional[Dict[str, Any]]:
         """处理文件段 (adc1和adc2的对应段)，确保数据长度一致"""
@@ -219,6 +221,7 @@ class ADCProcessWorker(QObject):
         
         return self.analyzer.process_single_file(adc_data, file_idx * 1000 + segment_idx)  # 使用唯一ID
 
+    @timeit
     def load_segment_data(self, file_info: Dict, segment_idx: int) -> Optional[np.ndarray]:
         """加载特定段的数据，使用固定段长81920 + 100个点"""
         try:
@@ -519,9 +522,11 @@ class ADCProcessWorker(QObject):
         self._should_stop = True
         self.running = False
 
+    @timeit
     def load_u32_data(self, path: str) -> np.ndarray:
         """从文件加载uint32数据，支持文本和二进制格式"""
         file_manager = FileManager()
+        
         
         # 检测文件格式
         file_format = file_manager.detect_file_format(path)

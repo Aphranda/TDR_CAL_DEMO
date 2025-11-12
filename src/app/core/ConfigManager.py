@@ -41,6 +41,7 @@ class AnalysisConfig:
     min_second_rise_ratio: float = 0.2
     min_second_fall_ratio: float = 0.2
     cal_mode: str = CalibrationMode.LOAD
+    debug_mode: bool = True
 
     @property
     def t_sample(self) -> float:

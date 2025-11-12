@@ -264,23 +264,24 @@ class ADCSample:
     
 
     def save_binary_data(self, u32_values, filename, output_dir):
-        """保存原始二进制数据"""
+        """保存原始二进制数据 - 使用numpy优化"""
         self.file_manager.ensure_dir_exists(output_dir)
         filepath = os.path.join(output_dir, filename)
         
         try:
-            # 将uint32数组转换为字节数据
-            binary_data = struct.pack('<' + 'I' * len(u32_values), *u32_values)
+            # 方法1: 使用numpy (最快)
+            if isinstance(u32_values, np.ndarray):
+                # 如果已经是numpy数组，直接使用
+                u32_array = u32_values
+            else:
+                # 将列表转换为numpy数组
+                u32_array = np.array(u32_values, dtype=np.uint32)
             
-            # 确保以二进制模式写入
-            with open(filepath, 'wb') as f:
-                f.write(binary_data)
+            # 直接写入文件，无需中间转换
+            u32_array.tofile(filepath)
             
-            logger.info(f"二进制数据已保存到 {filepath}，共{len(binary_data)}字节")
-            time.sleep(0.01)
+            logger.info(f"二进制数据已保存到 {filepath}，共{u32_array.nbytes}字节")
             
-            # 释放内存
-            del binary_data
             return True, f"二进制数据保存成功: {filepath}"
                 
         except Exception as e:

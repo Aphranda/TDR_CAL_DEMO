@@ -135,7 +135,7 @@ class EdgeDetector:
     
     def _find_edge_candidates(self, smoothed_data: np.ndarray, 
                             is_rising: bool = True, 
-                            min_amplitude_ratio: float = 0.3) -> List[Tuple[int, float]]:
+                            min_amplitude_ratio: float = 0.3, use_fast_mode = True) -> List[Tuple[int, float]]:
         """
         使用窗口移动方法找到所有可能的边沿候选区间，然后对候选区间做平均值处理，
         去掉平均值最小的异常点，最后再用差分法搜索上升沿位置
@@ -148,6 +148,8 @@ class EdgeDetector:
         Returns:
             候选点列表，每个元素为(位置, 幅度)
         """
+        if use_fast_mode:
+            return self._find_edges_by_differential(smoothed_data, is_rising, min_amplitude_ratio)
         # 第一步：判断是否为底噪
         if self._is_noise_floor(smoothed_data, noise_threshold_ratio=0.05):
             # 如果是底噪，直接使用差分法
