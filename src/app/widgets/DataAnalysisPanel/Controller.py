@@ -637,7 +637,7 @@ class DataAnalysisController(QObject):
         
             # 创建工作线程，传递两个ADC的文件路径
             self.adc_process_thread = QThread()
-            self.adc_process_worker = ADCProcessWorker(self.model.data_files, config)
+            self.adc_process_worker = ADCProcessWorker(self.model.data_files, config, batch_size=10)
             self.adc_process_worker.moveToThread(self.adc_process_thread)
         
             # 连接信号

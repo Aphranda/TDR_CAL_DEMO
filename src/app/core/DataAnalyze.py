@@ -56,7 +56,7 @@ class DataAnalyzer:
         """
         try:
             # 1. 提取ADC数据
-            bit31, adc_full = self.data_processor.extract_adc_data(u32_arr, self.config.use_signed18, N=20)
+            bit31, adc_full = self.data_processor.extract_adc_data(u32_arr, self.config.use_signed18, N=12)
             # self.debug_plotter.simple_plot(bit31,"Vaild")
             # 2. 检测有效数据
             # rise_idx = self.data_processor.detect_valid_data(bit31, self.config.edge_search_start)
@@ -111,7 +111,6 @@ class DataAnalyzer:
                 spikes_detected = []
 
 
-
             # 5. 搜索边沿位置（如果未提供目标对齐位置）
             if target_idx is None:
                 # 搜索所有边沿位置,第一上升沿，第二上升沿，下降沿
@@ -129,6 +128,7 @@ class DataAnalyzer:
                 rise_pos = target_idx
                 # self.debug_plotter.simple_plot(y_sorted, title="ADC2",data_range=(0.39,0.41))
 
+            target_idx = 72089
             # 6. 数据对齐
             if target_idx is None:
                 target_idx = self.config.n_points // 4
