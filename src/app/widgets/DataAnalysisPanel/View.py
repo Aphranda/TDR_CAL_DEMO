@@ -217,7 +217,7 @@ class DataAnalysisView(QWidget):
         max_read_layout.addWidget(QLabel("读取大小:"))
         self.adc_max_read_size = QDoubleSpinBox()
         self.adc_max_read_size.setRange(0.1, 1000.0)  # 0.1 MB 到 1000 MB
-        self.adc_max_read_size.setValue(10.0)  # 默认1MB
+        self.adc_max_read_size.setValue(500.0)  # 默认1MB
         self.adc_max_read_size.setSingleStep(0.1)  # 步进0.1MB
         self.adc_max_read_size.setDecimals(1)  # 1位小数
         self.adc_max_read_size.setSuffix(" MB")
@@ -232,7 +232,7 @@ class DataAnalysisView(QWidget):
         
         self.adc_roi_start = QDoubleSpinBox()
         self.adc_roi_start.setRange(0.0, 100.0)
-        self.adc_roi_start.setValue(0.0)
+        self.adc_roi_start.setValue(24)
         self.adc_roi_start.setSingleStep(0.1)  # 设置最小步进为0.1%
         self.adc_roi_start.setDecimals(1)      # 设置小数位数为1位
         self.adc_roi_start.setSuffix(" %")
@@ -242,7 +242,7 @@ class DataAnalysisView(QWidget):
         
         self.adc_roi_mid = QDoubleSpinBox()
         self.adc_roi_mid.setRange(0.0, 100.0)
-        self.adc_roi_mid.setValue(27.0)
+        self.adc_roi_mid.setValue(25.0)
         self.adc_roi_mid.setSingleStep(0.1)    # 设置最小步进为0.1%
         self.adc_roi_mid.setDecimals(1)        # 设置小数位数为1位
         self.adc_roi_mid.setSuffix(" %")
@@ -252,7 +252,7 @@ class DataAnalysisView(QWidget):
         
         self.adc_roi_end = QDoubleSpinBox()
         self.adc_roi_end.setRange(0.0, 100.0)
-        self.adc_roi_end.setValue(100.0)
+        self.adc_roi_end.setValue(26.0)
         self.adc_roi_end.setSingleStep(0.1)    # 设置最小步进为0.1%
         self.adc_roi_end.setDecimals(1)        # 设置小数位数为1位
         self.adc_roi_end.setSuffix(" %")

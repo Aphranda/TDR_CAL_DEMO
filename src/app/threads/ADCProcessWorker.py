@@ -529,22 +529,21 @@ class ADCProcessWorker(QObject):
         
         
         # 检测文件格式
-        file_format = file_manager.detect_file_format(path)
-        
+        # file_format = file_manager.detect_file_format(path)
+        file_format = 'binary'
         if file_format == 'binary':
             return self._load_binary_data(path, file_manager)
         else:
             return file_manager.load_u32_text_first_col(path, skip_first=self.config.skip_first_value)
-
+        
+    @timeit
     def _load_binary_data(self, path: str, file_manager: FileManager) -> np.ndarray:
         """加载二进制数据，尝试不同格式"""
-        for data_type in ['uint32', 'int32', 'float32']:
-            try:
-                data = file_manager.load_binary_data(path, data_type=data_type)
-                message = f"成功以{data_type}格式加载二进制文件: {os.path.basename(path)}"
-                self.log_message.emit(message, "INFO")
-                return data.astype(np.uint32)
-            except Exception:
-                continue
+        data_type='uint32'
+        data = file_manager.load_binary_data(path, data_type=data_type)
+        message = f"成功以{data_type}格式加载二进制文件: {os.path.basename(path)}"
+        self.log_message.emit(message, "INFO")
+        return data.astype(np.uint32)
+
         
-        raise ValueError(f"无法解析二进制文件: {os.path.basename(path)}")
+
