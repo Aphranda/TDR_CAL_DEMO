@@ -2,10 +2,14 @@
 import os
 import time
 import numpy as np
+import logging
 from PyQt5.QtCore import QObject, pyqtSignal, QThread, pyqtSlot
 from app.core.ADCSample import ADCSample
 from app.core.FileManager import FileManager
+from app.core.ConfigManager import ADCMode
 from .DataSaverWorker import DataSaverWorker
+
+logger = logging.getLogger(__name__)
 
 class ADCSampleWorker(QObject):
     """ADC采样工作线程 - 支持双进度条（采样进度和保存进度）"""
@@ -14,25 +18,33 @@ class ADCSampleWorker(QObject):
     # 保存进度信号
     savingProgress = pyqtSignal(int, int, str)    # (current, total, message)
     finished = pyqtSignal(bool, str)
-    sampleData = pyqtSignal(dict)  # 发送字典，包含两个ADC的数据
+    sampleData = pyqtSignal(dict)  # 发送字典，包含ADC数据
     dataSaved = pyqtSignal(str, str)
     saveError = pyqtSignal(str)
     
-    def __init__(self, tcp_client, count, interval, save_raw_data=True, output_dir=None, filename_prefix=None, sample_number=10):
+    def __init__(self, tcp_client, count, interval, save_raw_data=True, 
+                 output_dir=None, filename_prefix=None, sample_number=10, 
+                 adc_mode=ADCMode.ADC1_ONLY):
         super().__init__()
         self.adc_sample = ADCSample()
         self.adc_sample.set_tcp_client(tcp_client)
+        self.adc_sample.set_adc_mode(adc_mode)  # 设置ADC模式
         self.count = count
         self.interval = interval
         self.save_raw_data = save_raw_data
         self.output_dir = output_dir or 'data\\results\\test'
         self.filename_prefix = filename_prefix or 'adc_raw_data'
         self.sample_number = sample_number
+        self.adc_mode = adc_mode
         self.running = False
         self._should_stop = False
         
-        # 保存任务计数器
-        self.save_tasks_total = count*2 # 需要保存ADC1和ADC2的数据
+        # 根据ADC模式计算保存任务数量
+        if adc_mode == ADCMode.BOTH_ADCS:
+            self.save_tasks_total = count * 2  # 需要保存ADC1和ADC2的数据
+        else:
+            self.save_tasks_total = count  # 只保存一个ADC的数据
+        
         self.save_tasks_completed = 0
         
         # 创建异步保存线程
@@ -75,6 +87,8 @@ class ADCSampleWorker(QObject):
         # 初始化保存进度条
         self.savingProgress.emit(0, self.save_tasks_total, "等待数据保存...")
         
+        logger.info(f"ADC采样模式: {self.adc_mode.value}, 总保存任务: {self.save_tasks_total}")
+        
         return True
     
     def _create_sample_generator(self):
@@ -110,6 +124,11 @@ class ADCSampleWorker(QObject):
         processed_dict = {}
         
         for adc_name, u32_values in data_dict.items():
+            # 根据ADC模式过滤不需要的数据
+            if (adc_name == 'adc1' and self.adc_mode not in [ADCMode.ADC1_ONLY, ADCMode.BOTH_ADCS]) or \
+               (adc_name == 'adc2' and self.adc_mode not in [ADCMode.ADC2_ONLY, ADCMode.BOTH_ADCS]):
+                continue
+                
             if u32_values is None or len(u32_values) == 0:
                 processed_dict[adc_name] = np.array([], dtype=np.uint16)
                 continue
@@ -131,6 +150,10 @@ class ADCSampleWorker(QObject):
             # 复制数据以避免在异步保存过程中被修改
             data_copy = {}
             for adc_name, data in sample_data.items():
+                # 根据ADC模式过滤不需要保存的数据
+                if (adc_name == 'adc1' and self.adc_mode not in [ADCMode.ADC1_ONLY, ADCMode.BOTH_ADCS]) or \
+                   (adc_name == 'adc2' and self.adc_mode not in [ADCMode.ADC2_ONLY, ADCMode.BOTH_ADCS]):
+                    continue
                 data_copy[adc_name] = data.copy()
             
             # 添加到保存队列
@@ -213,7 +236,7 @@ class ADCSampleWorker(QObject):
             for sample_data, sample_index in sample_gen:
                 successful_samples += 1
                 
-                # 发送双ADC数据字典
+                # 发送ADC数据字典
                 self.sampleData.emit(sample_data)
                 
                 # 异步保存原始数据

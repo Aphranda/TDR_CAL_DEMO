@@ -2,10 +2,15 @@
 from dataclasses import dataclass
 from typing import Optional
 import logging
-
-from numpy import average
+from enum import Enum
 
 logger = logging.getLogger(__name__)
+
+class ADCMode(Enum):
+    """ADC采样模式"""
+    ADC1_ONLY = "ADC1_ONLY"
+    ADC2_ONLY = "ADC2_ONLY" 
+    BOTH_ADCS = "BOTH_ADCS"
 
 class SearchMethod:
     RISING = 1
@@ -16,6 +21,15 @@ class CalibrationMode:
     SHORT = "SHORT" 
     LOAD = "LOAD"
     THRU = "THRU"
+
+@dataclass
+class ADCSampleConfig:
+    """ADC采样配置类"""
+    adc_mode: ADCMode = ADCMode.ADC1_ONLY  # 默认采集adc1
+    sample_number: int = 10  # 单次采样数量
+    save_raw_data: bool = True  # 是否保存原始数据
+    output_dir: str = 'data\\results\\test'  # 输出目录
+    filename_prefix: str = 'adc_raw_data'  # 文件名前缀
 
 @dataclass
 class AnalysisConfig:
@@ -42,6 +56,11 @@ class AnalysisConfig:
     min_second_fall_ratio: float = 0.2
     cal_mode: str = CalibrationMode.LOAD
     debug_mode: bool = True
+    adc_sample_config: ADCSampleConfig = None  # 新增ADC采样配置
+
+    def __post_init__(self):
+        if self.adc_sample_config is None:
+            self.adc_sample_config = ADCSampleConfig()
 
     @property
     def t_sample(self) -> float:

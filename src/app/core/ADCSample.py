@@ -9,12 +9,12 @@ try:
     from .TcpClient import TcpClient
     from .FileManager import FileManager
     from .PerformanceMonitor import timeit, performance_monitor
+    from .ConfigManager import ADCMode
 except ImportError:
     from TcpClient import TcpClient
     from FileManager import FileManager
     from PerformanceMonitor import timeit, performance_monitor
-
-
+    from ConfigManager import ADCMode
 
 logger = logging.getLogger(__name__)
 
@@ -28,9 +28,15 @@ class ADCSample:
         self.connected = self.tcp_client.connected if self.tcp_client else False
         self.server_ip = self.tcp_client.server_ip if self.tcp_client and self.tcp_client.server_ip else '192.168.1.10'
         self.server_port = self.tcp_client.server_port if self.tcp_client and self.tcp_client.server_port else 15000
-        self.chunk_size = 32768
+        self.chunk_size = 1048576
         self.output_dir = 'data\\results\\test'
         self.sample_number = 10  # 新增：默认单次采样数量为10
+        self.adc_mode = ADCMode.BOTH_ADCS  # 默认采集两个ADC
+
+    def set_adc_mode(self, adc_mode: ADCMode):
+        """设置ADC采集模式"""
+        self.adc_mode = adc_mode
+        logger.info(f"ADC采集模式设置为: {adc_mode.value}")
 
     def set_sample_number(self, sample_number: int):
         """设置单次采样数量"""
@@ -75,7 +81,7 @@ class ADCSample:
     def receive_binary_data(self, max_retries=3, base_timeout=1.0):
         """
         专门用于接收二进制数据的方法
-        现在分别读取两个ADC的数据，使用字典返回
+        根据ADC模式读取数据，使用字典返回
         返回: (是否成功, {'adc1': adc1_data, 'adc2': adc2_data} 或错误信息)
         """
         if not self.is_connected() or not self.tcp_client.sock:
@@ -87,45 +93,49 @@ class ADCSample:
         
         while retry_count < max_retries:
             try:
-                # 发送read1命令读取第一个ADC
-                time.sleep(0.01)
-                success, _ = self.tcp_client.send('read1', max_retries)
-                if not success:
-                    retry_count += 1
-                    continue
-                time.sleep(0.01)
-                # 接收第一个ADC的二进制数据
-                self.tcp_client.sock.settimeout(base_timeout)
-                chunk1 = self.tcp_client.sock.recv(self.chunk_size)
+                # 根据ADC模式决定读取哪些数据
+                if self.adc_mode in [ADCMode.ADC1_ONLY, ADCMode.BOTH_ADCS]:
+                    # 发送read1命令读取第一个ADC
+                    time.sleep(0.01)
+                    success, _ = self.tcp_client.send('read1', max_retries)
+                    if not success:
+                        retry_count += 1
+                        continue
+                    time.sleep(0.01)
+                    # 接收第一个ADC的二进制数据
+                    self.tcp_client.sock.settimeout(base_timeout)
+                    chunk1 = self.tcp_client.sock.recv(self.chunk_size)
+                    
+                    if not chunk1:
+                        retry_count += 1
+                        continue
+                    
+                    # 检查结束标记
+                    if chunk1 == b'\x00':
+                        break
+                    
+                    adc1_data.extend(chunk1)
                 
-                if not chunk1:
-                    retry_count += 1
-                    continue
+                if self.adc_mode in [ADCMode.ADC2_ONLY, ADCMode.BOTH_ADCS]:
+                    # 发送read2命令读取第二个ADC
+                    success, _ = self.tcp_client.send('read2', max_retries)
+                    if not success:
+                        retry_count += 1
+                        continue
+                    time.sleep(0.01)
+                    # 接收第二个ADC的二进制数据
+                    chunk2 = self.tcp_client.sock.recv(self.chunk_size)
+                    
+                    if not chunk2:
+                        retry_count += 1
+                        continue
+                    
+                    # 检查结束标记
+                    if chunk2 == b'\x00':
+                        break
+                    
+                    adc2_data.extend(chunk2)
                 
-                # 检查结束标记
-                if chunk1 == b'\x00':
-                    break
-                
-                adc1_data.extend(chunk1)
-                
-                # 发送read2命令读取第二个ADC
-                success, _ = self.tcp_client.send('read2', max_retries)
-                if not success:
-                    retry_count += 1
-                    continue
-                time.sleep(0.01)
-                # 接收第二个ADC的二进制数据
-                chunk2 = self.tcp_client.sock.recv(self.chunk_size)
-                
-                if not chunk2:
-                    retry_count += 1
-                    continue
-                
-                # 检查结束标记
-                if chunk2 == b'\x00':
-                    break
-                
-                adc2_data.extend(chunk2)
                 retry_count = 0  # 重置重试计数
                 
             except (socket.timeout, ConnectionError) as e:
@@ -137,8 +147,14 @@ class ADCSample:
         if retry_count >= max_retries:
             return False, "接收数据超时"
         
-        # 返回两个ADC的数据字典
-        return True, {'adc1': adc1_data, 'adc2': adc2_data}
+        # 根据ADC模式返回相应的数据字典
+        result_data = {}
+        if self.adc_mode in [ADCMode.ADC1_ONLY, ADCMode.BOTH_ADCS]:
+            result_data['adc1'] = adc1_data
+        if self.adc_mode in [ADCMode.ADC2_ONLY, ADCMode.BOTH_ADCS]:
+            result_data['adc2'] = adc2_data
+            
+        return True, result_data
     
     @timeit
     def perform_single_test(self, test_num, sample_number=None):
@@ -165,7 +181,7 @@ class ADCSample:
             if not success:
                 return None, f"数据接收失败: {data_dict}"
             
-            logger.info(f"测试 {test_num + 1}: 接收 ADC1 {len(data_dict['adc1'])} 字节, ADC2 {len(data_dict['adc2'])} 字节")
+            logger.info(f"测试 {test_num + 1}: 接收 ADC1 {len(data_dict.get('adc1', []))} 字节, ADC2 {len(data_dict.get('adc2', []))} 字节")
             
             # 处理数据
             processed_data = {}
@@ -192,52 +208,9 @@ class ADCSample:
         except Exception as e:
             return None, f"测试过程中发生错误: {str(e)}"
     
-    def perform_multiple_tests(self, test_count=10, delay_between_tests=0.1):
-        """执行多次测试"""
-        if not self.is_connected():
-            return False, "未连接到服务器"
-        
-        self.file_manager.ensure_dir_exists(self.output_dir)
-        start_time = time.time()
-        successful_tests = 0
-        
-        for i in range(test_count):
-            try:
-                logger.info(f"\n开始测试 {i + 1}/{test_count}")
-                
-                # 执行单次测试
-                data_dict, error = self.perform_single_test(i)
-                if error:
-                    logger.error(f"测试 {i + 1} 失败: {error}")
-                    continue
-                
-                # 保存结果
-                success, message = self.save_test_result(i, data_dict)
-                if success:
-                    successful_tests += 1
-                    logger.info(f"测试 {i + 1} 完成: {message}")
-                else:
-                    logger.error(f"测试 {i + 1} 保存失败: {message}")
-                
-                # 每次测试后短暂暂停
-                time.sleep(delay_between_tests)
-                
-            except Exception as e:
-                logger.error(f"测试 {i + 1} 发生异常: {str(e)}")
-                continue
-        
-        # 计算并显示总耗时
-        total_time = time.time() - start_time
-        logger.info(f"\n所有测试完成! 共进行 {test_count} 次测试，成功 {successful_tests} 次")
-        logger.info(f"总耗时: {total_time:.2f} 秒")
-        if successful_tests > 0:
-            logger.info(f"平均每次成功测试耗时: {total_time / successful_tests:.2f} 秒")
-        logger.info(f"结果文件保存在: {os.path.abspath(self.output_dir)}")
-        
-        return successful_tests > 0, f"完成 {successful_tests}/{test_count} 次测试"
-
+    @timeit
     def save_test_result(self, test_num, data_dict, filename_prefix=None, output_dir=None):
-        """保存测试结果到文件，分别保存两个ADC的数据"""
+        """保存测试结果到文件，根据ADC模式保存相应的数据"""
         if filename_prefix is None:
             filename_prefix = f'test_result_{test_num + 1:04d}'
         if output_dir is None:
@@ -245,12 +218,13 @@ class ADCSample:
         
         success_messages = []
         
-        # 分别保存两个ADC的数据
+        # 根据ADC模式保存相应的数据
         for adc_name, u32_values in data_dict.items():
-            # # 保存CSV文件
-            # csv_filename = f'{filename_prefix}_{adc_name}.csv'
-            # csv_success, csv_message = self.file_manager.save_adc_csv_data(u32_values, csv_filename, output_dir)
-            
+            # 检查当前ADC模式是否需要保存这个ADC的数据
+            if (adc_name == 'adc1' and self.adc_mode not in [ADCMode.ADC1_ONLY, ADCMode.BOTH_ADCS]) or \
+               (adc_name == 'adc2' and self.adc_mode not in [ADCMode.ADC2_ONLY, ADCMode.BOTH_ADCS]):
+                continue
+                
             # 保存二进制数据
             bin_filename = f'{filename_prefix}_{adc_name}.bin'
             bin_success, bin_message = self.save_binary_data(u32_values, bin_filename, output_dir)
@@ -262,7 +236,7 @@ class ADCSample:
         
         return True, "; ".join(success_messages)
     
-
+    @timeit
     def save_binary_data(self, u32_values, filename, output_dir):
         """保存原始二进制数据 - 使用numpy优化"""
         self.file_manager.ensure_dir_exists(output_dir)
@@ -293,28 +267,3 @@ class ADCSample:
                 except:
                     pass
             return False, f"二进制数据保存失败: {str(e)}"
-
-# 保持向后兼容的独立函数
-def main():
-    """独立运行的主函数"""
-    adc_sample = ADCSample()
-    
-    tcp = TcpClient()
-    tcp.connect('192.168.1.10',15000)
-
-    # 连接到服务器
-    adc_sample.set_tcp_client(tcp)
-  
-    print("连接成功，开始测试...")
-    
-    # 执行多次测试
-    success, message = adc_sample.perform_multiple_tests(test_count=10)
-    
-    
-    if success:
-        print(f"测试完成: {message}")
-    else:
-        print(f"测试失败: {message}")
-
-if __name__ == "__main__":
-    main()
