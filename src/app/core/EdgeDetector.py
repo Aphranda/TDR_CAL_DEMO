@@ -135,7 +135,7 @@ class EdgeDetector:
     
     def _find_edge_candidates(self, smoothed_data: np.ndarray, 
                             is_rising: bool = True, 
-                            min_amplitude_ratio: float = 0.3, use_fast_mode = True) -> List[Tuple[int, float]]:
+                            min_amplitude_ratio: float = 0.3, use_fast_mode = False) -> List[Tuple[int, float]]:
         """
         使用窗口移动方法找到所有可能的边沿候选区间，然后对候选区间做平均值处理，
         去掉平均值最小的异常点，最后再用差分法搜索上升沿位置

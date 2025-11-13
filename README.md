@@ -8,6 +8,7 @@ TDR_CAL_DEMO
 │  └─ 📄__init__.py
 ├─ 📁data
 ├─ 📁docs
+│  ├─ 📁TDR产品设计框架V0.1
 │  ├─ 📄ad4080.pdf
 │  ├─ 📄ADA4899-1.pdf
 │  ├─ 📄ADA4927-1_4927-2.pdf
@@ -30,6 +31,7 @@ TDR_CAL_DEMO
 │  │  └─ 📁test_raw
 │  ├─ 📄ADCRawSample.py
 │  ├─ 📄ADC_DataAnalyze.py
+│  ├─ 📄average.py
 │  ├─ 📄Calibration_File_Execution.py
 │  ├─ 📄CSVSignalAnalyzer.py
 │  ├─ 📄CurveComparator.py
@@ -37,6 +39,7 @@ TDR_CAL_DEMO
 │  ├─ 📄FreqStitcher.py
 │  ├─ 📄project.py
 │  ├─ 📄S_paramCalibration.py
+│  ├─ 📄test.py
 │  ├─ 📄TimeDomainRegionCopier.py
 │  ├─ 📄VNA_S_CAL.md
 │  └─ 📄VNA_S_CALIBRATION.m
@@ -48,6 +51,7 @@ TDR_CAL_DEMO
 │  │  │  ├─ 📄ClockController.py
 │  │  │  ├─ 📄ConfigManager.py
 │  │  │  ├─ 📄DataAnalyze.py
+│  │  │  ├─ 📄DataCacheManager.py
 │  │  │  ├─ 📄DataPlotter.py
 │  │  │  ├─ 📄DataProcessor.py
 │  │  │  ├─ 📄DebugPlotter.py

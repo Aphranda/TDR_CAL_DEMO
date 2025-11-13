@@ -16,6 +16,8 @@ build/
 *.lock
 *.exe
 *.png
+*.npy
+*.npz
 
 # VSCode
 .vscode/

@@ -185,6 +185,7 @@ class ADCProcessWorker(QObject):
             self._emit_progress(current_segment, total_segments, file_idx, segment_idx, 
                               adc1_file_info, adc2_file_info)
             
+            print("segment_idx:",segment_idx)
             # 处理段数据
             if self._process_segment(adc1_segment_data, adc2_segment_data, file_idx, segment_idx):
                 processed_segments += 1
@@ -294,12 +295,10 @@ class ADCProcessWorker(QObject):
 
     def _calculate_averages(self) -> Dict[str, Any]:
         """计算平均值"""
-        self.progress.emit(
-            self.final_results['total_segments'], 
-            self.final_results['total_segments'], 
-            "计算平均值..."
-        )
         self.log_message.emit("计算平均值...", "INFO")
+
+        # 保存所有y_full数据用于抖动分析（使用numpy二进制格式）
+        self._save_y_full_for_jitter_analysis()
         
         averages = {}
         
@@ -326,6 +325,47 @@ class ADCProcessWorker(QObject):
             averages[adc_channel]['avg_Xd'] = self.final_results[adc_channel]['sum_Xd'] / self.final_results['success_count']
         
         return averages
+    
+    def _save_y_full_for_jitter_analysis(self):
+        """保存所有y_full数据用于抖动分析 - 使用numpy二进制格式"""
+        try:
+            import time
+            
+            # 创建临时目录
+            temp_dir = os.path.join(os.path.dirname(__file__), '../../../temp/y_full_jitter_analysis')
+            os.makedirs(temp_dir, exist_ok=True)
+            
+            # 保存ADC1数据
+            if self.final_results['adc1']['ys_full']:
+                adc1_data = np.array(self.final_results['adc1']['ys_full'])
+                adc1_filepath = os.path.join(temp_dir, "adc1_y_full_data.npy")
+                np.save(adc1_filepath, adc1_data)
+                
+                self.log_message.emit(f"保存了 ADC1 y_full数据到 {adc1_filepath}，形状: {adc1_data.shape}", "INFO")
+            
+            # 保存ADC2数据
+            if self.final_results['adc2']['ys_full']:
+                adc2_data = np.array(self.final_results['adc2']['ys_full'])
+                adc2_filepath = os.path.join(temp_dir, "adc2_y_full_data.npy")
+                np.save(adc2_filepath, adc2_data)
+                
+                self.log_message.emit(f"保存了 ADC2 y_full数据到 {adc2_filepath}，形状: {adc2_data.shape}", "INFO")
+            
+            # 保存汇总信息
+            summary_file = os.path.join(temp_dir, "summary.npz")
+            summary_data = {
+                'success_count': self.final_results['success_count'],
+                'adc1_segment_count': len(self.final_results['adc1']['ys_full']),
+                'adc2_segment_count': len(self.final_results['adc2']['ys_full']),
+                'ts_eff': self.config.ts_eff,
+                'timestamp': time.time()
+            }
+            np.savez(summary_file, **summary_data)
+            
+            self.log_message.emit(f"抖动分析数据已保存到 {temp_dir}", "INFO")
+            
+        except Exception as e:
+            self.log_message.emit(f"保存y_full数据用于抖动分析失败: {str(e)}", "WARNING")
 
     def _calculate_mean(self, arrays: List[np.ndarray]) -> np.ndarray:
         """计算数组列表的平均值"""
@@ -343,11 +383,7 @@ class ADCProcessWorker(QObject):
 
     def _perform_edge_analysis(self, averages: Dict[str, Any]):
         """执行边沿分析"""
-        self.progress.emit(
-            self.final_results['total_segments'], 
-            self.final_results['total_segments'], 
-            "进行边沿分析..."
-        )
+
         self.log_message.emit("进行边沿分析...", "INFO")
         
         for adc_channel in ['adc1', 'adc2']:
