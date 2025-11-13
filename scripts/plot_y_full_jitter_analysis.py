@@ -163,14 +163,14 @@ def plot_y_full_jitter_analysis(data_dir=None, max_segments=50, save_plot=True,
     
     return fig, axes
 
-def plot_individual_segments(data_dir=None, channel='adc1', segments_to_show=5, channel_name=None):
+def plot_individual_segments(data_dir=None, channel='adc1', segments_to_show=10, channel_name=None):
     """
-    Plot detailed view of individual segments
+    Plot detailed overlay view of individual segments
     
     Parameters:
     - data_dir: Data directory path
     - channel: Channel name ('adc1' or 'adc2')
-    - segments_to_show: Number of segments to display
+    - segments_to_show: Number of segments to display (overlay)
     - channel_name: Custom name for the channel
     """
     
@@ -210,39 +210,39 @@ def plot_individual_segments(data_dir=None, channel='adc1', segments_to_show=5, 
         
         time_axis = np.arange(n_points) * ts_eff * 1e6  # microseconds
         
-        # Create figure
-        fig, axes = plt.subplots(segments_to_show, 1, figsize=(12, 3 * segments_to_show))
+        # Create figure - single plot for overlay
+        fig, ax = plt.subplots(1, 1, figsize=(12, 8))
         
-        if segments_to_show == 1:
-            axes = [axes]
-        
+        # Use different colors for each segment
         colors = plt.cm.viridis(np.linspace(0, 1, segments_to_show))
         
-        for i, ax in enumerate(axes):
-            ax.plot(time_axis, data[i], color=colors[i], linewidth=1.5)
-            ax.set_ylabel(f'Seg {i+1}')
-            ax.grid(True, alpha=0.3)
-            
-            if i == segments_to_show - 1:
-                ax.set_xlabel('Time (μs)')
+        # Plot all segments in overlay
+        for i in range(segments_to_show):
+            ax.plot(time_axis, data[i], color=colors[i], linewidth=1.5, 
+                   label=f'Segment {i+1}', alpha=0.8)
         
-        fig.suptitle(f'{channel_name} First {segments_to_show} Segments Detailed View', fontsize=16)
+        ax.set_ylabel('Amplitude')
+        ax.set_xlabel('Time (μs)')
+        ax.set_title(f'{channel_name} First {segments_to_show} Segments Overlay', fontsize=14)
+        ax.grid(True, alpha=0.3)
+        ax.legend(loc='upper right', fontsize=10)
+        
         plt.tight_layout()
         
         # Save plot
         try:
             plot_dir = data_dir / "plots"
             plot_dir.mkdir(exist_ok=True)
-            plot_path = plot_dir / f"{channel}_individual_segments.png"
+            plot_path = plot_dir / f"{channel}_overlay_segments.png"
             plt.savefig(plot_path, dpi=300, bbox_inches='tight')
-            print(f"Detailed view saved to: {plot_path}")
+            print(f"Overlay view saved to: {plot_path}")
         except Exception as e:
             print(f"Failed to save plot: {e}")
         
         plt.show()
         
     except Exception as e:
-        print(f"Failed to plot detailed segments: {e}")
+        print(f"Failed to plot overlay segments: {e}")
 
 def main():
     """Main function with command line argument parsing"""
@@ -267,21 +267,21 @@ def main():
             max_segments=args.max_segments,
             save_plot=not args.no_save,
             channel1_name='rise_edge_alignment',
-            channel2_name='rise_edge_alignment'
+            channel2_name='target_idx_alignment'
         )
         
-        # Plot detailed segments
+        # Plot detailed segments as overlay
         plot_individual_segments(
             data_dir=args.data_dir, 
             channel='rise_edge_alignment', 
-            segments_to_show=5,
-            channel_name=args.channel1
+            segments_to_show=10,
+            channel_name='rise_edge_alignment'
         )
         plot_individual_segments(
             data_dir=args.data_dir, 
-            channel='rise_edge_alignment', 
-            segments_to_show=5,
-            channel_name=args.channel2
+            channel='target_idx_alignment', 
+            segments_to_show=10,
+            channel_name='target_idx_alignment'
         )
     except Exception as e:
         print(f"Error executing plotting script: {e}")
