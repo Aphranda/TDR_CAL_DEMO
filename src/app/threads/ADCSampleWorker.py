@@ -109,7 +109,8 @@ class ADCSampleWorker(QObject):
             yield processed_data, i
             
             # 等待间隔
-            time.sleep(self.interval)
+            if self.interval > 0:
+                time.sleep(self.interval)
 
     def _perform_single_sample(self, sample_index):
         """执行单次采样操作"""
@@ -117,6 +118,7 @@ class ADCSampleWorker(QObject):
             processed_data, error = self.adc_sample.perform_single_test(sample_index, self.sample_number)
             return processed_data, error
         except Exception as e:
+            logger.error(f"采样过程中发生错误: {str(e)}")
             return None, f"采样异常: {str(e)}"
     
     def _process_sample_data(self, data_dict):
@@ -157,12 +159,14 @@ class ADCSampleWorker(QObject):
                 data_copy[adc_name] = data.copy()
             
             # 添加到保存队列
-            self.data_saver.add_save_task(
+            success = self.data_saver.add_save_task(
                 data_copy, sample_index, self.output_dir, self.filename_prefix
             )
-            return True
+            return success
         except Exception as e:
-            self.saveError.emit(f"添加到保存队列失败: {str(e)}")
+            error_msg = f"添加到保存队列失败: {str(e)}"
+            logger.error(error_msg)
+            self.saveError.emit(error_msg)
             return False
     
     def _force_release_memory(self, obj):
@@ -194,6 +198,7 @@ class ADCSampleWorker(QObject):
         
         success = successful_samples > 0
         message = f"完成 {successful_samples}/{self.count} 次采样，保存 {self.save_tasks_completed} 个文件"
+        logger.info(message)
         self.finished.emit(success, message)
     
     def _wait_for_save_completion(self):
@@ -201,6 +206,11 @@ class ADCSampleWorker(QObject):
         max_wait_time = 30  # 最大等待时间30秒
         wait_interval = 0.5  # 检查间隔0.5秒
         total_waited = 0
+        
+        # 检查DataSaverWorker是否有has_pending_tasks方法
+        if not hasattr(self.data_saver, 'has_pending_tasks'):
+            logger.warning("DataSaverWorker没有has_pending_tasks方法，跳过等待")
+            return
         
         while (self.data_saver.has_pending_tasks() and 
                total_waited < max_wait_time and 
@@ -250,7 +260,9 @@ class ADCSampleWorker(QObject):
             self._finalize_sampling(successful_samples)
             
         except Exception as e:
-            self.finished.emit(False, f"采样过程中发生错误: {str(e)}")
+            error_msg = f"采样过程中发生错误: {str(e)}"
+            logger.error(error_msg)
+            self.finished.emit(False, error_msg)
         finally:
             self.cleanup_resources()
     
@@ -274,17 +286,19 @@ class ADCSampleWorker(QObject):
             
             self.running = False
             self._should_stop = False
-            self.save_raw_data = None
             
             import gc
             gc.collect()
             gc.collect()
             
+            logger.info("工作线程资源清理完成")
+            
         except Exception as e:
-            print(f"清理工作线程资源失败: {e}")
+            logger.error(f"清理工作线程资源失败: {e}")
     
     def stop(self):
         """停止采样"""
+        logger.info("停止ADC采样工作线程...")
         self.running = False
         self._should_stop = True
         self.cleanup_resources()

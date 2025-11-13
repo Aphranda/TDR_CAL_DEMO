@@ -29,7 +29,7 @@ class TcpClient:
             self.sock = None
             return False, f"连接失败: {e}"
 
-    @timeit
+
     def send(self, msg, max_retries=3, base_timeout=1.0):
         """
         带超时重发机制的发送方法
@@ -81,7 +81,7 @@ class TcpClient:
             error_msg += f": {str(last_exception)}"
         return False, error_msg
 
-    @timeit
+
     def receive(self, bufsize=4096, max_retries=3, base_timeout=1.0):
         """
         带超时重发机制的接收方法

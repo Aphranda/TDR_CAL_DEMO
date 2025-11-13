@@ -28,7 +28,7 @@ class ADCSample:
         self.connected = self.tcp_client.connected if self.tcp_client else False
         self.server_ip = self.tcp_client.server_ip if self.tcp_client and self.tcp_client.server_ip else '192.168.1.10'
         self.server_port = self.tcp_client.server_port if self.tcp_client and self.tcp_client.server_port else 15000
-        self.chunk_size = 1048576
+        self.chunk_size = 32768
         self.output_dir = 'data\\results\\test'
         self.sample_number = 10  # 新增：默认单次采样数量为10
         self.adc_mode = ADCMode.BOTH_ADCS  # 默认采集两个ADC
@@ -195,14 +195,11 @@ class ADCSample:
                     processed_data[adc_name] = np.array([], dtype=np.uint32)
                     continue
                 
-                try:
-                    u32_values = struct.unpack('<' + 'I' * num_values, data)
-                    processed_data[adc_name] = np.array(u32_values, dtype=np.uint32)
-                    logger.info(f"测试 {test_num + 1}: ADC {adc_name} 成功解析 {num_values} 个32位数据点")
-                except struct.error as e:
-                    logger.error(f"ADC {adc_name} 数据解析错误: {str(e)}")
-                    processed_data[adc_name] = np.array([], dtype=np.uint32)
-            
+                temp_array = np.frombuffer(data, dtype='<u4', count=num_values)
+                processed_data[adc_name] = temp_array.copy()
+                logger.info(f"测试 {test_num + 1}: ADC {adc_name} 成功解析 {num_values} 个32位数据点")
+
+                
             return processed_data, None
             
         except Exception as e:

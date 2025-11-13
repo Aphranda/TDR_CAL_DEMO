@@ -229,7 +229,6 @@ class FileManager:
         return data
     
 
-    @timeit
     def detect_file_format(self, path: str) -> str:
         """
         检测文件格式，特别处理ADC二进制数据

@@ -52,7 +52,7 @@ class DataCacheManager(QObject):
             self._log_start_message(file_dict)
             
             # 清空现有缓存
-            self._clear_all_cache()
+            self.clear_cache()
             
             # 收集所有需要加载的文件
             all_files = self._collect_all_files(file_dict)
