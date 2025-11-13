@@ -152,35 +152,53 @@ class DataProcessor:
         """三角平滑"""
         return self.smooth_data(data, window_size, 'triangular')
     
-    def extract_adc_data(self, u32_arr: np.ndarray, use_signed18: bool = True) -> Tuple[np.ndarray, np.ndarray]:
-        """从uint32数组中提取bit31和ADC数据"""
+    def extract_adc_data(self, u32_arr: np.ndarray, use_signed18: bool = True, N: int = 20) -> Tuple[np.ndarray, np.ndarray]:
+        """从uint32数组中提取bit31和ADC数据
+        
+        Parameters:
+        -----------
+        u32_arr : np.ndarray
+            输入的uint32数组
+        use_signed18 : bool, optional
+            是否使用18位有符号格式，默认为True
+        N : int, optional
+            提取的位数（高位），范围1-20，默认为20（全位）
+        
+        Returns:
+        --------
+        Tuple[np.ndarray, np.ndarray]
+            bit31数组和ADC数据数组
+        """
+        # 参数验证
+        if N < 1 or N > 20:
+            raise ValueError("N必须在1到20之间")
+        
         # 提取bit31
         bit31 = ((u32_arr >> 31) & 0x1).astype(np.uint8)
-      
-        # 提取ADC数据
-        adc_18u = (u32_arr & ((1 << 20) - 1)).astype(np.uint32)
-      
+        
+        # 提取ADC数据 - 只取前N位高位
+        if N == 20:
+            # 如果取全位，保持原有逻辑
+            adc_18u = (u32_arr & ((1 << 20) - 1)).astype(np.uint32)
+        else:
+            # 取前N位高位：右移(20-N)位，然后取低N位
+            shift_bits = 20 - N
+            adc_18u = ((u32_arr >> shift_bits) & ((1 << N) - 1)).astype(np.uint32)
+        
         # 转换为有符号或无符号
         if use_signed18:
-            adc_18s = ((adc_18u + (1 << 19)) & ((1 << 20) - 1)) - (1 << 19)
+            # 对于N位有符号数，符号位是第N-1位
+            sign_bit_mask = 1 << (N - 1)
+            offset = 1 << (N - 1)
+            mask = (1 << N) - 1
+            
+            adc_18s = ((adc_18u + offset) & mask) - offset
             adc_data = adc_18s.astype(np.int32)
         else:
             adc_data = adc_18u.astype(np.int32)
-      
+        
         return bit31, adc_data
-    
-    def detect_valid_data(self, bit31: np.ndarray, edge_search_start: int = 1) -> Optional[int]:
-        """检测bit31数组中的上升沿位置"""
-        # 检测上升沿 (0->1转换)
-        edge_idx = np.flatnonzero((bit31[1:] == 1) & (bit31[:-1] == 0))
-        # 过滤起始位置
-        edge_idx = edge_idx[edge_idx >= edge_search_start]
-      
-        if edge_idx.size == 0:
-            logger.warning("未找到上升沿")
-            return None
-      
-        return edge_idx[0] + 1
+
     
     def extract_data_segment(self, adc_data: np.ndarray, rise_idx: int, 
                            start_index: int, n_points: int) -> Optional[np.ndarray]:
