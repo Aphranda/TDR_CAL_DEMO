@@ -28,10 +28,10 @@ class ADCSample:
         self.connected = self.tcp_client.connected if self.tcp_client else False
         self.server_ip = self.tcp_client.server_ip if self.tcp_client and self.tcp_client.server_ip else '192.168.1.10'
         self.server_port = self.tcp_client.server_port if self.tcp_client and self.tcp_client.server_port else 15000
-        self.chunk_size = 32768
+        self.chunk_size = 65535
         self.output_dir = 'data\\results\\test'
         self.sample_number = 10  # 新增：默认单次采样数量为10
-        self.adc_mode = ADCMode.BOTH_ADCS  # 默认采集两个ADC
+        self.adc_mode = ADCMode.ADC1_ONLY  # 默认采集两个ADC
 
     def set_adc_mode(self, adc_mode: ADCMode):
         """设置ADC采集模式"""

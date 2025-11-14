@@ -128,6 +128,7 @@ class DataAnalyzer:
                 rise_pos = target_idx
                 # self.debug_plotter.simple_plot(y_sorted, title="ADC2",data_range=(0.39,0.41))
 
+            rise_pos = 56402
 
             # 6. 数据对齐
             if target_idx is None:

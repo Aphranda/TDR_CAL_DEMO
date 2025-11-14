@@ -1,5 +1,6 @@
 # src/app/core/EdgeDetector.py
 import matplotlib.pyplot as plt
+from scipy.signal import savgol_filter
 import numpy as np
 from typing import Optional, Dict, Any, List, Tuple
 import logging
@@ -9,6 +10,11 @@ class EdgeDetector:
     
     def __init__(self, config):
         self.config = config
+
+
+    def smooth_10ps_edge(self,data: np.ndarray, window_length: int = 7, polyorder: int = 3) -> np.ndarray:
+        """Savitzky-Golay滤波，保留边沿特性"""
+        return savgol_filter(data, window_length, polyorder)
     
     def _preprocess_data(self, data: np.ndarray, window_size: int = 5) -> np.ndarray:
         """数据预处理：移动平均滤波"""
@@ -257,6 +263,9 @@ class EdgeDetector:
         if search_method == 1:  # RISING
             if adc_full_mean is None:
                 adc_full_mean = np.mean(sorted_data)
+
+            # 预处理数据
+            sorted_data = self.smooth_10ps_edge(sorted_data)
             
             # 找到所有上升沿候选点
             candidates = self._find_edge_candidates(sorted_data, True, min_edge_amplitude_ratio)

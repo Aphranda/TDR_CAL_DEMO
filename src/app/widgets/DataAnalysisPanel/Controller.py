@@ -8,6 +8,7 @@ from ...core.DataAnalyze import DataAnalyzer, AnalysisConfig
 from ...core.FileManager import FileManager
 from ...widgets.PlotWidget import create_plot_widget
 from app.threads import ADCProcessWorker
+from app.threads import FileLoadWorker
 import time
 from ...core.PerformanceMonitor import timeit, performance_monitor
 
@@ -25,6 +26,7 @@ class DataAnalysisController(QObject):
     errorOccurred = pyqtSignal(str)  # 错误信号
     plotDataReady = pyqtSignal(str, np.ndarray, np.ndarray)  # 绘图数据准备信号 (类型, x_data, y_data)
     analysisProgress = pyqtSignal(int, int, str)  # 新增：分析进度信号
+    fileLoadProgress = pyqtSignal(int, int, str)  # 新增：文件加载进度信号
   
     def __init__(self, view, model):
         super().__init__()
@@ -81,9 +83,8 @@ class DataAnalysisController(QObject):
             for key, value in results.items():
                 self.main_window_controller.log_controller.log(f"{key}: {value}", "INFO")
   
-
     def on_load_file(self):
-        """加载数据文件，支持多种格式，同时导入adc1和adc2的数据"""
+        """加载数据文件 - 使用工作线程避免界面卡顿"""
         try:
             file_paths, _ = QFileDialog.getOpenFileNames(
                 self.view,
@@ -95,77 +96,119 @@ class DataAnalysisController(QObject):
                 "所有文件 (*)"
             )
         
-            # 更新配置
-            self.model.adc_config.max_read_size_bytes = self.view.adc_max_read_size.value()  # 新增：获取最大读取大小
+            if not file_paths:
+                return
 
-            if file_paths:
-                # 清空当前数据文件字典
-                self.model.data_files = {'adc1': [], 'adc2': []}
-                total_segments = 0
-                
-                # 存储每个文件的段数信息
-                file_segments = {}
-                
-                for file_path in file_paths:
-                    # 根据文件名判断是adc1还是adc2的数据
-                    filename = os.path.basename(file_path).lower()
-                    
-                    # 检测文件中的段数和详细信息
-                    segments, segment_info = self.extract_adc_data_from_binary(file_path)
-                    total_segments += segments
-                    
-                    # 存储段数信息
-                    file_segments[filename] = segments
-                    
-                    # 为每个段创建索引列表
-                    segment_indices = list(range(segments))
-                    
-                    # 创建文件信息字典，包含路径、段数、段索引和段详细信息
-                    file_info = {
-                        'path': file_path, 
-                        'segments': segments,
-                        'segment_indices': segment_indices,
-                        'segment_info': segment_info  # 包含上升沿位置等详细信息
-                    }
-                    
-                    if 'adc1' in filename or 'ch1' in filename or 'channel1' in filename:
-                        self.model.data_files['adc1'].append(file_info)
-                        file_format = FileManager().detect_file_format(file_path)
-                        display_name = f"[ADC1] {os.path.basename(file_path)} [{file_format}] - {segments}段"
-                        self.view.file_list.addItem(display_name)
-                    elif 'adc2' in filename or 'ch2' in filename or 'channel2' in filename:
-                        self.model.data_files['adc2'].append(file_info)
-                        file_format = FileManager().detect_file_format(file_path)
-                        display_name = f"[ADC2] {os.path.basename(file_path)} [{file_format}] - {segments}段"
-                        self.view.file_list.addItem(display_name)
-                    else:
-                        # 如果无法确定是哪个ADC的数据，默认添加到adc1
-                        self.model.data_files['adc1'].append(file_info)
-                        file_format = FileManager().detect_file_format(file_path)
-                        display_name = f"[ADC1] {os.path.basename(file_path)} [{file_format}] - {segments}段"
-                        self.view.file_list.addItem(display_name)
-                        self.log_message(f"警告: 无法确定文件 {os.path.basename(file_path)} 属于哪个ADC，已默认添加到ADC1", "WARNING")
-                
-                # 检查两个ADC的文件数量是否匹配
-                adc1_count = len(self.model.data_files['adc1'])
-                adc2_count = len(self.model.data_files['adc2'])
-                
-                if adc1_count != adc2_count:
-                    self.log_message(f"警告: ADC1和ADC2的文件数量不匹配 (ADC1: {adc1_count}, ADC2: {adc2_count})", "WARNING")
-                
-                # 检查对应文件的段数是否匹配
-                self.check_segment_matching(file_segments)
-                
-                # 打印详细的文件信息，用于调试
-                self.log_loaded_file_details()
-                
-                msg = f"成功加载 {len(file_paths)} 个文件 (ADC1: {adc1_count}, ADC2: {adc2_count}), 共 {total_segments} 段数据"
-                self.dataLoaded.emit(msg)
-                self.log_message(msg, "INFO")
+            # 更新配置
+            self.model.adc_config.max_read_size_bytes = self.view.adc_max_read_size.value()
+
+            # 禁用加载按钮，避免重复点击
+            self.view.load_button.setEnabled(False)
+            self.view.load_button.setText("加载中...")
+
+            # 创建工作线程
+            self.file_load_thread = QThread()
+            self.file_load_worker = FileLoadWorker(
+                file_paths, 
+                self.model.adc_config.max_read_size_bytes,
+                self.extract_adc_data_from_binary  # 传递段数检测函数
+            )
+            self.file_load_worker.moveToThread(self.file_load_thread)
+
+            # 连接信号
+            self.file_load_thread.started.connect(self.file_load_worker.run)
+            self.file_load_worker.progress.connect(self.on_file_load_progress)
+            self.file_load_worker.finished.connect(self.on_file_load_finished)
+            self.file_load_worker.finished.connect(self.file_load_thread.quit)
+            self.file_load_worker.finished.connect(self.file_load_worker.deleteLater)
+            self.file_load_thread.finished.connect(self.file_load_thread.deleteLater)
+            self.file_load_worker.error.connect(self.on_file_load_error)
+            self.file_load_worker.log_message.connect(self.log_message)
+
+            # 启动线程
+            self.file_load_thread.start()
+
         except Exception as e:
-            error_msg = f"加载文件失败: {str(e)}"
+            error_msg = f"启动文件加载失败: {str(e)}"
             self.errorOccurred.emit(error_msg)
             self.log_message(error_msg, "ERROR")
+
+    def on_file_load_progress(self, current, total, filename):
+        """文件加载进度更新"""
+        # 通过信号传递给主窗口控制器
+        if hasattr(self, 'fileLoadProgress'):
+            self.fileLoadProgress.emit(current, total, f"检测文件: {filename}")
+        
+        # 记录调试信息
+        self.log_message(f"文件加载进度: {current}/{total} - {filename}", "DEBUG")
+
+
+    def on_file_load_finished(self, data_files, file_segments):
+        """文件加载完成"""
+        try:
+            # 恢复按钮状态
+            self.view.load_button.setEnabled(True)
+            self.view.load_button.setText("加载文件")
+            
+            # 更新模型数据
+            self.model.data_files = data_files
+            self.view.file_list.clear()
+            
+            # 更新文件列表显示
+            total_segments = 0
+            for channel in ['adc1', 'adc2']:
+                for file_info in data_files[channel]:
+                    filename = os.path.basename(file_info['path'])
+                    segments = file_info['segments']
+                    total_segments += segments
+                    
+                    file_format = FileManager().detect_file_format(file_info['path'])
+                    display_name = f"[{channel.upper()}] {filename} [{file_format}] - {segments}段"
+                    self.view.file_list.addItem(display_name)
+            
+            # 检查文件匹配情况
+            adc1_count = len(data_files['adc1'])
+            adc2_count = len(data_files['adc2'])
+            
+            if adc1_count != adc2_count:
+                self.log_message(f"警告: ADC1和ADC2的文件数量不匹配 (ADC1: {adc1_count}, ADC2: {adc2_count})", "WARNING")
+            
+            # 检查段数匹配
+            self.check_segment_matching(file_segments)
+            
+            # 记录详细信息
+            self.log_loaded_file_details()
+            
+            msg = f"成功加载 {len(self.file_paths)} 个文件 (ADC1: {adc1_count}, ADC2: {adc2_count}), 共 {total_segments} 段数据"
+            self.dataLoaded.emit(msg)
+            self.log_message(msg, "INFO")
+            
+            # 清除进度显示
+            if hasattr(self, 'main_window_controller') and self.main_window_controller:
+                self.main_window_controller.clear_progress()
+                
+        except Exception as e:
+            error_msg = f"处理加载结果失败: {str(e)}"
+            self.errorOccurred.emit(error_msg)
+            self.log_message(error_msg, "ERROR")
+            
+            # 确保按钮状态恢复
+            self.view.load_button.setEnabled(True)
+            self.view.load_button.setText("加载文件")
+
+    def on_file_load_error(self, error_message):
+        """文件加载错误"""
+        # 恢复按钮状态
+        self.view.load_button.setEnabled(True)
+        self.view.load_button.setText("加载文件")
+        
+        self.errorOccurred.emit(error_message)
+        self.log_message(error_message, "ERROR")
+        
+        # 清除进度显示
+        if hasattr(self, 'main_window_controller') and self.main_window_controller:
+            self.main_window_controller.clear_progress()
+
 
     def log_loaded_file_details(self):
         """记录加载文件的详细信息，用于调试"""
@@ -329,8 +372,19 @@ class DataAnalysisController(QObject):
             上升沿位置列表
         """
         try:
-            # 固定第一个上升沿位置为10
-            first_rise_edge = 10
+            diff = np.diff(bit31_data)
+            first_rise_edge = None
+            
+            # 从start_index开始寻找第一个上升沿
+            for i in range(start_index, len(diff)):
+                if diff[i] == 1:
+                    first_rise_edge = i + 1  # +1 因为diff使索引偏移
+                    break
+            
+            if first_rise_edge is None:
+                self.log_message("未找到有效的上升沿,使用默认有效上升沿10", "WARNING")
+                first_rise_edge = 10
+            
             
             # 计算总长度
             total_length = len(bit31_data)

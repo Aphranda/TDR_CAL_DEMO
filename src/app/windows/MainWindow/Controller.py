@@ -289,6 +289,10 @@ class MainWindowController:
         calibration_controller = self.sub_controllers.get('calibration')
         if calibration_controller and hasattr(calibration_controller, 'progress_updated'):
             calibration_controller.progress_updated.connect(self._handle_calibration_progress)
+
+        # 新增：连接文件加载进度信号
+        if data_analysis_controller and hasattr(data_analysis_controller, 'fileLoadProgress'):
+            data_analysis_controller.fileLoadProgress.connect(self._handle_file_load_progress)
     
     def _handle_adc_progress(self, current, total, message):
         """处理ADC采样进度"""
@@ -363,6 +367,30 @@ class MainWindowController:
         # 自动显示进度面板
         if not self.view.is_progress_panel_visible():
             self.view.show_progress_panel()
+
+    def _handle_file_load_progress(self, current, total, message):
+        """处理文件加载进度"""
+        progress_id = "file_loading"
+        label = "文件加载"
+        
+        # 确保进度条存在
+        if not self.progress_controller.get_progress(progress_id):
+            self.progress_controller.add_progress_bar(progress_id, label, total, ProgressBarStyle.PURPLE)
+        
+        # 更新进度
+        self.progress_controller.update_progress(progress_id, current, total, message)
+        
+        # 自动显示进度面板
+        if not self.view.is_progress_panel_visible():
+            self.view.show_progress_panel()
+    def update_progress(self, current, total, message):
+        """更新进度 - 通用方法"""
+        # 默认使用文件加载进度ID
+        self._handle_file_load_progress(current, total, message)
+    def clear_progress(self):
+        """清除进度显示"""
+        # 移除文件加载进度条
+        self.remove_progress("file_loading")
     
     def add_custom_progress(self, progress_id, label, total=100, style=ProgressBarStyle.DEFAULT):
         """添加自定义进度条"""

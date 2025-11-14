@@ -1,4 +1,5 @@
 # src/app/widgets/InstrumentPanel/Controller.py
+import time
 from PyQt5.QtCore import QObject, pyqtSignal
 from app.core.TcpClient import TcpClient  # 导入TcpClient类
 class InstrumentPanelController(QObject):
@@ -36,6 +37,10 @@ class InstrumentPanelController(QObject):
                 
                 self.view.update_connection_status(True)
                 self.connectionChanged.emit(True)  # 发出连接状态变化信号
+
+                # self.tcp_client.send('dma_rst 0')
+                # time.sleep(0.1)
+                # self.tcp_client.send('dma_rst 1')
                 
                 # 通过日志输出连接信息
                 self.log_message.emit(
