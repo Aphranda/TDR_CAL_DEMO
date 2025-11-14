@@ -179,7 +179,9 @@ class DataAnalysisController(QObject):
             # 记录详细信息
             self.log_loaded_file_details()
             
-            msg = f"成功加载 {len(self.file_paths)} 个文件 (ADC1: {adc1_count}, ADC2: {adc2_count}), 共 {total_segments} 段数据"
+            # 修复这里：使用正确的数据源计算总文件数
+            total_files = adc1_count + adc2_count
+            msg = f"成功加载 {total_files} 个文件 (ADC1: {adc1_count}, ADC2: {adc2_count}), 共 {total_segments} 段数据"
             self.dataLoaded.emit(msg)
             self.log_message(msg, "INFO")
             

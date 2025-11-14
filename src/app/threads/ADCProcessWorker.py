@@ -74,17 +74,13 @@ class ADCProcessWorker(QObject):
                     adc1_file_info = self._get_file_info('adc1', file_idx)
                     adc2_file_info = self._get_file_info('adc2', file_idx)
                     
-                    # 加载文件数据
-                    adc1_data = self._load_file_data(adc1_file_info)
-                    adc2_data = self._load_file_data(adc2_file_info)
+                    # 加载文件数据并进行文件内平均
+                    adc1_avg_data = self._load_and_average_file_data(adc1_file_info, 'adc1', file_idx)
+                    adc2_avg_data = self._load_and_average_file_data(adc2_file_info, 'adc2', file_idx)
                     
-                    # 分割成段
-                    adc1_segments = self._segment_file(adc1_file_info, adc1_data)
-                    adc2_segments = self._segment_file(adc2_file_info, adc2_data)
-                    
-                    # 处理段数据
-                    segment_count = self._process_file_segments(
-                        file_idx, adc1_segments, adc2_segments, 
+                    # 处理平均后的数据
+                    segment_count = self._process_averaged_file_data(
+                        file_idx, adc1_avg_data, adc2_avg_data, 
                         adc1_file_info, adc2_file_info, segment_counter, total_segments
                     )
                     segment_counter += segment_count
@@ -115,20 +111,253 @@ class ADCProcessWorker(QObject):
         finally:
             self._cleanup()
 
+    def _load_and_average_file_data(self, file_info: Optional[Dict], channel: str, file_idx: int) -> Optional[Dict[str, np.ndarray]]:
+        """加载文件数据并进行文件内平均"""
+        if file_info is None:
+            return None
+            
+        try:
+            file_path = file_info['path']
+            self.log_message.emit(f"加载并平均文件: {os.path.basename(file_path)}", "DEBUG")
+            
+            # 加载文件数据
+            file_data = self.cache_manager.load_single_file(file_path)
+            if file_data is None:
+                self.log_message.emit(f"文件 {file_path} 加载失败，返回None", "WARNING")
+                return None
+            
+            # 分割成段
+            segments = self.cache_manager.pre_segment_single_file(file_info, file_data)
+            if not segments:
+                self.log_message.emit(f"文件 {file_path} 没有有效的段", "WARNING")
+                return None
+            
+            # 对文件内的所有段进行平均
+            avg_result = self._average_segments_within_file(segments, channel, file_idx)
+            
+            return avg_result
+            
+        except Exception as e:
+            self.log_message.emit(f"加载并平均文件失败 {file_info.get('path', '未知')}: {str(e)}", "WARNING")
+            return None
+    
+    # 修改_average_segments_within_file方法：
+    def _average_segments_within_file(self, segments: List[np.ndarray], channel: str, file_idx: int) -> Dict[str, np.ndarray]:
+        """对文件内的所有段进行平均，并返回处理后的数据"""
+        if not segments:
+            return {}
+        
+        try:
+            # 检查segments是否为None或空
+            if segments is None:
+                self.log_message.emit(f"文件 {file_idx} 通道 {channel} 的segments为None", "WARNING")
+                return {}
+            
+            # 构建临时的adc_data字典用于分析器处理
+            temp_adc_data = {channel: segments[0]}  # 用第一段初始化
+            
+            # 处理第一段获取参考结果
+            first_result = self.analyzer.process_single_file(temp_adc_data, file_idx * 1000)
+            
+            # 检查处理结果是否有效
+            if first_result is None or channel not in first_result:
+                self.log_message.emit(f"文件 {file_idx} 通道 {channel} 第一段处理失败", "WARNING")
+                return {}
+                
+            # 初始化累积数组
+            cumulative_data = self._initialize_cumulative_data(first_result, channel, len(segments))
+            
+            # 检查累积数据是否初始化成功
+            if not cumulative_data:
+                self.log_message.emit(f"文件 {file_idx} 通道 {channel} 累积数据初始化失败", "WARNING")
+                return {}
+            
+            # 累积所有段的数据
+            valid_segments = 0
+            for segment_idx, segment_data in enumerate(segments):
+                temp_adc_data = {channel: segment_data}
+                segment_result = self.analyzer.process_single_file(temp_adc_data, file_idx * 1000 + segment_idx)
+                
+                if segment_result is not None and channel in segment_result:
+                    self._accumulate_segment_data(cumulative_data, segment_result[channel], segment_idx + 1)
+                    valid_segments += 1
+            
+            # 如果没有有效的段，返回空字典
+            if valid_segments == 0:
+                self.log_message.emit(f"文件 {file_idx} 通道 {channel} 没有有效的段", "WARNING")
+                return {}
+            
+            # 计算平均值
+            avg_data = self._compute_file_average(cumulative_data, valid_segments)
+            
+            self.log_message.emit(f"文件 {file_idx} 通道 {channel.upper()} 完成 {valid_segments}/{len(segments)} 段平均", "DEBUG")
+            
+            return avg_data
+            
+        except Exception as e:
+            self.log_message.emit(f"文件内段平均失败 文件{file_idx} 通道{channel}: {str(e)}", "WARNING")
+            return {}
+
+    def _initialize_cumulative_data(self, first_result: Dict[str, Any], channel: str, total_segments: int) -> Dict[str, Any]:
+        """初始化累积数据结构"""
+        if channel not in first_result:
+            return {}
+            
+        channel_result = first_result[channel]
+        cumulative = {}
+        
+        # 累积时域数据
+        cumulative['y_full'] = np.zeros_like(channel_result['y_full'], dtype=np.float64)
+        cumulative['y_roi'] = np.zeros_like(channel_result['y_roi'], dtype=np.float64)
+        cumulative['y_full_diff'] = np.zeros_like(channel_result['y_full_diff'], dtype=np.float64)
+        cumulative['y_diff'] = np.zeros_like(channel_result['y_diff'], dtype=np.float64)
+        
+        # 累积频域数据
+        cumulative['mag_linear'] = np.zeros_like(channel_result['mag_linear'], dtype=np.float64)
+        cumulative['mag_linear_d'] = np.zeros_like(channel_result['mag_linear_d'], dtype=np.float64)
+        
+        # 累积复数FFT数据
+        cumulative['Xd_norm'] = np.zeros_like(channel_result['Xd_norm'], dtype=np.complex128)
+        
+        # 存储频率信息（所有段应该相同）
+        cumulative['freq'] = channel_result['freq']
+        cumulative['freq_d'] = channel_result['freq_d']
+        
+        return cumulative
+
+    def _accumulate_segment_data(self, cumulative: Dict[str, Any], segment_result: Dict[str, Any], count: int):
+        """累积段数据"""
+        # 累积时域数据
+        cumulative['y_full'] += segment_result['y_full']
+        cumulative['y_roi'] += segment_result['y_roi']
+        cumulative['y_full_diff'] += segment_result['y_full_diff']
+        cumulative['y_diff'] += segment_result['y_diff']
+        
+        # 累积频域数据
+        cumulative['mag_linear'] += segment_result['mag_linear']
+        cumulative['mag_linear_d'] += segment_result['mag_linear_d']
+        
+        # 累积复数FFT数据
+        cumulative['Xd_norm'] += segment_result['Xd_norm']
+
+    def _compute_file_average(self, cumulative: Dict[str, Any], total_segments: int) -> Dict[str, np.ndarray]:
+        """计算文件内平均值"""
+        avg_data = {}
+        
+        # 计算时域平均值
+        avg_data['y_full'] = cumulative['y_full'] / total_segments
+        avg_data['y_roi'] = cumulative['y_roi'] / total_segments
+        avg_data['y_full_diff'] = cumulative['y_full_diff'] / total_segments
+        avg_data['y_diff'] = cumulative['y_diff'] / total_segments
+        
+        # 计算频域平均值
+        avg_data['mag_linear'] = cumulative['mag_linear'] / total_segments
+        avg_data['mag_linear_d'] = cumulative['mag_linear_d'] / total_segments
+        
+        # 计算复数FFT平均值
+        avg_data['Xd_norm'] = cumulative['Xd_norm'] / total_segments
+        
+        # 保留频率信息
+        avg_data['freq'] = cumulative['freq']
+        avg_data['freq_d'] = cumulative['freq_d']
+        
+        return avg_data
+
+    def _process_averaged_file_data(self, file_idx: int, adc1_avg_data: Optional[Dict], 
+                                  adc2_avg_data: Optional[Dict], adc1_file_info: Optional[Dict],
+                                  adc2_file_info: Optional[Dict], start_segment_counter: int, 
+                                  total_segments: int) -> int:
+        """处理平均后的文件数据"""
+        current_segment = start_segment_counter + 1
+        
+        # 发射进度信号
+        self._emit_progress(current_segment, total_segments, file_idx, 0, 
+                          adc1_file_info, adc2_file_info)
+        
+        # 处理平均数据
+        if self._process_averaged_segment(adc1_avg_data, adc2_avg_data, file_idx):
+            return 1
+        return 0
+
+    def _process_averaged_segment(self, adc1_avg_data: Optional[Dict], adc2_avg_data: Optional[Dict], 
+                                file_idx: int) -> bool:
+        """处理平均后的段数据"""
+        # 构建adc_data字典
+        processed_data = {}
+        
+        if adc1_avg_data is not None and self._is_valid_processed_data(adc1_avg_data):
+            processed_data['adc1'] = adc1_avg_data
+        
+        if adc2_avg_data is not None and self._is_valid_processed_data(adc2_avg_data):
+            processed_data['adc2'] = adc2_avg_data
+        
+        if not processed_data:
+            self.log_message.emit(f"文件 {file_idx} 没有有效的处理数据", "WARNING")
+            return False
+        
+        try:
+            # 直接更新结果
+            self._update_results_with_averaged_data(processed_data, file_idx)
+            return True
+        except Exception as e:
+            self._log_averaged_segment_error(file_idx, adc1_avg_data is not None, adc2_avg_data is not None, e)
+            return False
+        
+    def _is_valid_processed_data(self, processed_data: Dict) -> bool:
+        """检查处理后的数据是否有效"""
+        required_keys = ['y_full', 'y_roi', 'freq', 'mag_linear', 'y_diff', 'freq_d', 'mag_linear_d', 'Xd_norm']
+        
+        for key in required_keys:
+            if key not in processed_data:
+                return False
+            if processed_data[key] is None:
+                return False
+            if isinstance(processed_data[key], np.ndarray) and len(processed_data[key]) == 0:
+                return False
+        
+        return True
+
+    def _update_results_with_averaged_data(self, processed_data: Dict[str, Dict], file_idx: int):
+        """使用平均后的数据更新总结果"""
+        for adc_channel in ['adc1', 'adc2']:
+            if adc_channel in processed_data:
+                channel_data = processed_data[adc_channel]
+                
+                # 检查必要的数据是否存在
+                if not all(key in channel_data for key in ['freq', 'freq_d', 'Xd_norm']):
+                    self.log_message.emit(f"文件 {file_idx} 通道 {adc_channel} 缺少必要的数据字段", "WARNING")
+                    continue
+                
+                # 初始化参考频率
+                if self.final_results[adc_channel]['freq_ref'] is None:
+                    self.final_results[adc_channel]['freq_ref'] = channel_data['freq']
+                if self.final_results[adc_channel]['freq_d_ref'] is None:
+                    self.final_results[adc_channel]['freq_d_ref'] = channel_data['freq_d']
+                    self.final_results[adc_channel]['sum_Xd'] = np.zeros_like(channel_data['Xd_norm'], dtype=np.complex128)
+                
+                # 存储结果
+                try:
+                    self.final_results[adc_channel]['ys_full'].append(self._optimize_array(channel_data['y_full']))
+                    self.final_results[adc_channel]['ys'].append(self._optimize_array(channel_data['y_roi']))
+                    self.final_results[adc_channel]['mags'].append(self._optimize_array(channel_data['mag_linear']))
+                    self.final_results[adc_channel]['ys_d_full'].append(self._optimize_array(channel_data['y_full_diff']))
+                    self.final_results[adc_channel]['ys_d'].append(self._optimize_array(channel_data['y_diff']))
+                    self.final_results[adc_channel]['mags_d'].append(self._optimize_array(channel_data['mag_linear_d']))
+                    self.final_results[adc_channel]['sum_Xd'] += channel_data['Xd_norm']
+                except Exception as e:
+                    self.log_message.emit(f"文件 {file_idx} 通道 {adc_channel} 数据存储失败: {str(e)}", "WARNING")
+                    continue
+        
+        self.final_results['success_count'] += 1
+
     def _calculate_total_file_pairs_and_segments(self) -> Tuple[int, int]:
         """计算总文件对数和总段数"""
         adc1_files = self.file_dict.get('adc1', [])
         adc2_files = self.file_dict.get('adc2', [])
         total_file_pairs = max(len(adc1_files), len(adc2_files))
         
-        total_segments = 0
-        for file_idx in range(total_file_pairs):
-            adc1_file_info = self._get_file_info('adc1', file_idx)
-            adc2_file_info = self._get_file_info('adc2', file_idx)
-            
-            segments_adc1 = adc1_file_info.get('segments', 1) if adc1_file_info else 0
-            segments_adc2 = adc2_file_info.get('segments', 1) if adc2_file_info else 0
-            total_segments += max(segments_adc1, segments_adc2)
+        # 现在每个文件对只贡献一个数据点（文件内平均后的数据）
+        total_segments = total_file_pairs
         
         return total_file_pairs, total_segments
 
@@ -138,19 +367,6 @@ class ADCProcessWorker(QObject):
         if index < len(channel_files):
             return channel_files[index]
         return None
-
-    def _load_file_data(self, file_info: Optional[Dict]) -> Optional[np.ndarray]:
-        """加载文件数据"""
-        if file_info is None:
-            return None
-            
-        try:
-            file_path = file_info['path']
-            self.log_message.emit(f"加载文件: {os.path.basename(file_path)}", "DEBUG")
-            return self.cache_manager.load_single_file(file_path)
-        except Exception as e:
-            self.log_message.emit(f"加载文件失败 {file_info.get('path', '未知')}: {str(e)}", "WARNING")
-            return None
 
     def _segment_file(self, file_info: Optional[Dict], file_data: Optional[np.ndarray]) -> List[np.ndarray]:
         """分割文件数据成段"""
@@ -163,63 +379,13 @@ class ADCProcessWorker(QObject):
             self.log_message.emit(f"分割文件失败 {file_info.get('path', '未知')}: {str(e)}", "WARNING")
             return []
 
-    def _process_file_segments(self, file_idx: int, adc1_segments: List[np.ndarray], 
-                             adc2_segments: List[np.ndarray], adc1_file_info: Optional[Dict],
-                             adc2_file_info: Optional[Dict], start_segment_counter: int, 
-                             total_segments: int) -> int:
-        """处理文件的所有段"""
-        segment_count = max(len(adc1_segments), len(adc2_segments))
-        processed_segments = 0
-        
-        for segment_idx in range(segment_count):
-            if self._should_stop:
-                break
-                
-            current_segment = start_segment_counter + processed_segments + 1
-            
-            # 获取段数据
-            adc1_segment_data = adc1_segments[segment_idx] if segment_idx < len(adc1_segments) else None
-            adc2_segment_data = adc2_segments[segment_idx] if segment_idx < len(adc2_segments) else None
-            
-            # 发射进度信号
-            self._emit_progress(current_segment, total_segments, file_idx, segment_idx, 
-                              adc1_file_info, adc2_file_info)
-            
-            print("segment_idx:",segment_idx)
-            # 处理段数据
-            if self._process_segment(adc1_segment_data, adc2_segment_data, file_idx, segment_idx):
-                processed_segments += 1
-        
-        return processed_segments
-
-    def _process_segment(self, adc1_data: Optional[np.ndarray], adc2_data: Optional[np.ndarray], 
-                        file_idx: int, segment_idx: int) -> bool:
-        """处理单个段数据"""
-        # 构建adc_data字典
-        adc_data = {}
-        if adc1_data is not None:
-            adc_data['adc1'] = adc1_data
-        if adc2_data is not None:
-            adc_data['adc2'] = adc2_data
-        
-        if not adc_data:
-            return False
-        
-        try:
-            segment_result = self.analyzer.process_single_file(adc_data, file_idx * 1000 + segment_idx)
-            self._update_results_with_segment_data(segment_result)
-            return True
-        except Exception as e:
-            self._log_segment_error(file_idx, segment_idx, adc1_data is not None, adc2_data is not None, e)
-            return False
-
     def _emit_progress(self, current_segment: int, total_segments: int, file_idx: int, 
                       segment_idx: int, adc1_file_info: Optional[Dict], adc2_file_info: Optional[Dict]):
         """发射进度信号"""
         adc1_name = os.path.basename(adc1_file_info['path']) if adc1_file_info else "无文件"
         adc2_name = os.path.basename(adc2_file_info['path']) if adc2_file_info else "无文件"
         
-        progress_text = f"处理文件{file_idx}段{segment_idx}: ADC1={adc1_name}, ADC2={adc2_name}"
+        progress_text = f"处理文件{file_idx} (已平均): ADC1={adc1_name}, ADC2={adc2_name}"
         self.progress.emit(current_segment, total_segments, progress_text)
 
     def _release_file_data(self, file_info: Optional[Dict]):
@@ -249,41 +415,6 @@ class ADCProcessWorker(QObject):
             'success_count': 0, 
             'total_segments': 0,
         }
-
-    def _update_results_with_segment_data(self, segment_result: Dict[str, Any]):
-        """使用段结果更新总结果"""
-        for adc_channel in ['adc1', 'adc2']:
-            if adc_channel in segment_result:
-                channel_result = segment_result[adc_channel]
-                
-                # 从字典中提取数据
-                y_full = channel_result['y_full']
-                y_roi = channel_result['y_roi']
-                freq = channel_result['freq']
-                mag_linear = channel_result['mag_linear']
-                y_full_diff = channel_result['y_full_diff']
-                y_diff = channel_result['y_diff']
-                freq_d = channel_result['freq_d']
-                mag_linear_d = channel_result['mag_linear_d']
-                Xd_norm = channel_result['Xd_norm']
-                
-                # 初始化参考频率
-                if self.final_results[adc_channel]['freq_ref'] is None:
-                    self.final_results[adc_channel]['freq_ref'] = freq
-                if self.final_results[adc_channel]['freq_d_ref'] is None:
-                    self.final_results[adc_channel]['freq_d_ref'] = freq_d
-                    self.final_results[adc_channel]['sum_Xd'] = np.zeros_like(Xd_norm, dtype=np.complex128)
-                
-                # 存储结果
-                self.final_results[adc_channel]['ys_full'].append(self._optimize_array(y_full))
-                self.final_results[adc_channel]['ys'].append(self._optimize_array(y_roi))
-                self.final_results[adc_channel]['mags'].append(self._optimize_array(mag_linear))
-                self.final_results[adc_channel]['ys_d_full'].append(self._optimize_array(y_full_diff))
-                self.final_results[adc_channel]['ys_d'].append(self._optimize_array(y_diff))
-                self.final_results[adc_channel]['mags_d'].append(self._optimize_array(mag_linear_d))
-                self.final_results[adc_channel]['sum_Xd'] += Xd_norm
-        
-        self.final_results['success_count'] += 1
 
     def _optimize_array(self, array: np.ndarray) -> np.ndarray:
         """优化数组内存使用"""
@@ -429,6 +560,16 @@ class ADCProcessWorker(QObject):
         
         self.log_message.emit(
             f"处理文件{file_idx}段{segment_idx} ADC1={adc1_status}, ADC2={adc2_status} 失败: {str(error)}", 
+            "WARNING"
+        )
+
+    def _log_averaged_segment_error(self, file_idx: int, has_adc1: bool, has_adc2: bool, error: Exception):
+        """记录平均段处理错误"""
+        adc1_status = "有文件" if has_adc1 else "无文件"
+        adc2_status = "有文件" if has_adc2 else "无文件"
+        
+        self.log_message.emit(
+            f"处理文件{file_idx} (平均后) ADC1={adc1_status}, ADC2={adc2_status} 失败: {str(error)}", 
             "WARNING"
         )
 
