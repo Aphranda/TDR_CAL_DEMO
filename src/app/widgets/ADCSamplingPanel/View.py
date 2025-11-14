@@ -112,9 +112,13 @@ class ADCSamplingView(QWidget):
         
         instrument_layout.addLayout(sample_layout)
 
-        # 数据类型选择部分 - 新增
+        # 数据类型和ADC采集模式选择部分 - 修改这里：合并到同一行
+        data_type_adc_layout = QHBoxLayout()
+        data_type_adc_layout.setSpacing(6)
+        
+        # 左侧：数据类型选择
         data_type_layout = QHBoxLayout()
-        data_type_layout.setSpacing(6)
+        data_type_layout.setSpacing(4)
         
         # 创建数据类型互斥按钮组
         self.data_type_button_group = QButtonGroup(self)
@@ -133,35 +137,41 @@ class ADCSamplingView(QWidget):
         self.data_type_button_group.addButton(self.float64_radio, 1)
         data_type_layout.addWidget(self.float64_radio)
         
-        data_type_layout.addStretch()
-        instrument_layout.addLayout(data_type_layout)
-
-        # ADC采样选择部分 - 新增
-        adc_select_layout = QHBoxLayout()
-        adc_select_layout.setSpacing(6)
+        
+        # 右侧：ADC采集模式选择
+        adc_mode_layout = QHBoxLayout()
+        adc_mode_layout.setSpacing(4)
+        
    
-        # 创建ADC选择互斥按钮组
-        self.adc_select_button_group = QButtonGroup(self)
-        self.adc_select_button_group.setExclusive(True)
+        # 创建ADC采集模式互斥按钮组
+        self.adc_mode_button_group = QButtonGroup(self)
+        self.adc_mode_button_group.setExclusive(True)
         
         # ADC1 选项
-        self.adc1_radio = QRadioButton("ADC1")
-        self.adc1_radio.setToolTip("只采样ADC1通道")
-        self.adc_select_button_group.addButton(self.adc1_radio, 0)
-        adc_select_layout.addWidget(self.adc1_radio)
+        self.adc1_radio = QRadioButton("AD1")
+        self.adc1_radio.setChecked(True)  # 默认选择adc1通道
+        self.adc1_radio.setToolTip("只采集ADC1通道")
+        self.adc_mode_button_group.addButton(self.adc1_radio, 0)
+        adc_mode_layout.addWidget(self.adc1_radio)
         
         # ADC2 选项
-        self.adc2_radio = QRadioButton("ADC2")
-        self.adc2_radio.setToolTip("只采样ADC2通道")
-        self.adc_select_button_group.addButton(self.adc2_radio, 1)
-        adc_select_layout.addWidget(self.adc2_radio)
+        self.adc2_radio = QRadioButton("AD2")
+        self.adc2_radio.setToolTip("只采集ADC2通道")
+        self.adc_mode_button_group.addButton(self.adc2_radio, 1)
+        adc_mode_layout.addWidget(self.adc2_radio)
         
         # 双通道 选项
-        self.both_adc_radio = QRadioButton("双通道")
-        self.both_adc_radio.setChecked(True)  # 默认选择双通道
-        self.both_adc_radio.setToolTip("同时采样ADC1和ADC2通道")
-        self.adc_select_button_group.addButton(self.both_adc_radio, 2)
-        adc_select_layout.addWidget(self.both_adc_radio)
+        self.both_adc_radio = QRadioButton("BOTH")
+        
+        self.both_adc_radio.setToolTip("同时采集ADC1和ADC2通道")
+        self.adc_mode_button_group.addButton(self.both_adc_radio, 2)
+        adc_mode_layout.addWidget(self.both_adc_radio)
+        
+        # 将数据类型和ADC采集模式布局添加到主布局
+        data_type_adc_layout.addLayout(data_type_layout)
+        data_type_adc_layout.addLayout(adc_mode_layout)
+        
+        instrument_layout.addLayout(data_type_adc_layout)
           
         # 文件名设置
         filename_layout = QHBoxLayout()
@@ -214,6 +224,17 @@ class ADCSamplingView(QWidget):
         elif self.float64_radio.isChecked():
             return "float64"
         return "uint32"  # 默认返回uint32
+    
+    def get_selected_adc_mode(self) -> str:
+        """获取选中的ADC采集模式"""
+        if self.adc1_radio.isChecked():
+            return "AD1"
+        elif self.adc2_radio.isChecked():
+            return "AD2"
+        elif self.both_adc_radio.isChecked():
+            return "BOTH"
+        return "BOTH"  # 默认返回双通道
+
     
     def get_sample_number(self) -> int:
         """获取单次采样数量"""

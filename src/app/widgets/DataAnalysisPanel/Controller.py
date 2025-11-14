@@ -141,7 +141,6 @@ class DataAnalysisController(QObject):
             self.fileLoadProgress.emit(current, total, f"检测文件: {filename}")
         
 
-
     def on_file_load_finished(self, data_files, file_segments):
         """文件加载完成"""
         try:

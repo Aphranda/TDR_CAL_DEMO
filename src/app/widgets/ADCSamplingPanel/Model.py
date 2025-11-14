@@ -2,6 +2,7 @@
 import gc
 import numpy as np
 from collections import deque
+from app.core.ConfigManager import ADCMode
 
 class ADCSamplingModel:
     def __init__(self):
@@ -17,6 +18,8 @@ class ADCSamplingModel:
         self.filename_prefix = "adc_data"
         self.save_raw_data = True
         self.max_samples_in_memory = 50
+        self.adc_mode = ADCMode.ADC1_ONLY  # 新增：ADC采集模式，默认adc1
+        self.data_type = "uint32"  # 新增：数据类型，默认uint32
         
         # 内存监控
         self.memory_usage = 0
@@ -27,9 +30,56 @@ class ADCSamplingModel:
     def set_sample_number(self, sample_number: int):
         """设置单次采样数量"""
         self.sample_number = sample_number
+        
     def get_sample_number(self) -> int:
         """获取单次采样数量"""
         return self.sample_number
+
+    def set_adc_mode(self, adc_mode: ADCMode):
+        """设置ADC采集模式"""
+        self.adc_mode = adc_mode
+        
+    def get_adc_mode(self) -> ADCMode:
+        """获取ADC采集模式"""
+        return self.adc_mode
+
+    def set_data_type(self, data_type: str):
+        """设置数据类型"""
+        self.data_type = data_type
+        
+    def get_data_type(self) -> str:
+        """获取数据类型"""
+        return self.data_type
+
+    def get_adc_mode_display_name(self) -> str:
+        """获取ADC模式的显示名称"""
+        if self.adc_mode == ADCMode.ADC1_ONLY:
+            return "ADC1"
+        elif self.adc_mode == ADCMode.ADC2_ONLY:
+            return "ADC2"
+        else:
+            return "双通道"
+
+    def update_from_view(self, view):
+        """从视图更新模型配置"""
+        # 获取ADC采集模式
+        adc_mode_str = view.get_selected_adc_mode()
+        if adc_mode_str == "AD1":
+            self.adc_mode = ADCMode.ADC1_ONLY
+        elif adc_mode_str == "AD2":
+            self.adc_mode = ADCMode.ADC2_ONLY
+        else:
+            self.adc_mode = ADCMode.BOTH_ADCS
+            
+        # 获取数据类型
+        self.data_type = view.get_selected_data_type()
+        
+        # 更新其他配置
+        self.sample_count = view.sample_count_spin.value()
+        self.sample_number = view.get_sample_number()
+        self.sample_interval = view.sample_interval_spin.value()
+        self.output_dir = view.output_dir_edit.text()
+        self.filename_prefix = view.filename_edit.text()
 
     def add_adc_sample(self, sample_data):
         """添加ADC采样数据，使用内存友好的方式"""
@@ -92,5 +142,7 @@ class ADCSamplingModel:
             'samples_count': len(self.adc_samples),
             'memory_usage_bytes': self.memory_usage,
             'memory_usage_mb': self.memory_usage / (1024 * 1024),
-            'max_samples': self.max_samples_in_memory
+            'max_samples': self.max_samples_in_memory,
+            'adc_mode': self.get_adc_mode_display_name(),
+            'data_type': self.data_type
         }

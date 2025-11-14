@@ -7,6 +7,7 @@ from PyQt5.QtCore import QObject, pyqtSignal, QThread, pyqtSlot
 from app.core.ADCSample import ADCSample
 from app.core.FileManager import FileManager
 from app.core.ClockController import ClockController
+from app.core.ConfigManager import ADCMode
 from app.threads.ADCSampleWorker import ADCSampleWorker
 
 
@@ -44,6 +45,11 @@ class ADCSamplingController(QObject):
         self.view.s21_radio.toggled.connect(lambda checked: self.on_s_mode_changed("S21", checked))
         self.view.s22_radio.toggled.connect(lambda checked: self.on_s_mode_changed("S22", checked))
         
+        # 连接ADC采集模式变化信号
+        self.view.adc1_radio.toggled.connect(lambda checked: self.on_adc_mode_changed(ADCMode.ADC1_ONLY, checked))
+        self.view.adc2_radio.toggled.connect(lambda checked: self.on_adc_mode_changed(ADCMode.ADC2_ONLY, checked))
+        self.view.both_adc_radio.toggled.connect(lambda checked: self.on_adc_mode_changed(ADCMode.BOTH_ADCS, checked))
+        
         # 连接状态信号
         self.adcStatusChanged.connect(self.view.update_adc_connection_status)
         
@@ -51,6 +57,13 @@ class ADCSamplingController(QObject):
         self.errorOccurred.connect(lambda msg: self.log_message(msg, "ERROR"))
         self.dataSaved.connect(lambda path, msg: self.log_message(f"{msg}: {path}", "INFO"))
         self.dataLoaded.connect(lambda msg: self.log_message(msg, "INFO"))
+
+    def on_adc_mode_changed(self, adc_mode: ADCMode, checked: bool):
+        """ADC采集模式变化事件"""
+        if checked:
+            self.model.set_adc_mode(adc_mode)
+            mode_name = self.model.get_adc_mode_display_name()
+            self.log_message(f"ADC采集模式已切换为: {mode_name}", "INFO")
 
     def set_instrument_connected(self, connected, instrument_controller):
         """设置仪器连接状态，由主窗口调用"""
@@ -127,8 +140,6 @@ class ADCSamplingController(QObject):
         else:
             # 如果没有设置主窗口控制器，直接打印到控制台
             print(f"[{level}] {message}")
-    
-
 
     def on_sample_adc(self):
         """开始ADC采样"""
@@ -138,33 +149,33 @@ class ADCSamplingController(QObject):
             self.log_message(error_msg, "WARNING")
             return
         
+        # 从视图更新模型配置
+        self.model.update_from_view(self.view)
+        
         # 获取当前选中的S参数模式
         current_mode = self.view.get_selected_s_mode()
         
         # 获取采样参数
-        count = self.view.sample_count_spin.value()
-        sample_number = self.view.get_sample_number()
-        interval = self.view.sample_interval_spin.value()
-        data_type = self.view.get_selected_data_type()  # 新增：获取数据类型
-        save_raw_data = True
-        output_dir = self.view.output_dir_edit.text() or 'data\\results\\test'
-        filename_prefix = self.view.filename_edit.text() or 'adc_raw_data'
+        count = self.model.sample_count
+        sample_number = self.model.sample_number
+        interval = self.model.sample_interval
+        data_type = self.model.data_type
+        adc_mode = self.model.adc_mode
+        save_raw_data = self.model.save_raw_data
+        output_dir = self.model.output_dir
+        filename_prefix = self.model.filename_prefix
         
-        # 更新模型
-        self.model.sample_count = count
-        self.model.sample_number = sample_number
-        self.model.sample_interval = interval
-        self.model.data_type = data_type  # 新增：设置数据类型
-        self.model.save_raw_data = save_raw_data
-        self.model.output_dir = output_dir
-        self.model.filename_prefix = filename_prefix
+        # 验证配置
+        if not self.validate_config():
+            return
         
-        # 创建工作线程，传入TCP客户端、单次采样数量和数据类型
+        # 创建工作线程，传入TCP客户端和所有配置参数
         self.adc_thread = QThread()
         
         # 设置可追溯的线程名称
         thread_name = f"ADC采样线程_{filename_prefix}_{int(time.time())}"
         self.adc_thread.setObjectName(thread_name)
+        
         self.adc_worker = ADCSampleWorker(
             self.tcp_client, 
             count, 
@@ -173,7 +184,8 @@ class ADCSamplingController(QObject):
             output_dir, 
             filename_prefix,
             sample_number,  # 传递单次采样数量参数
-            data_type=data_type  # 新增：传递数据类型参数
+            adc_mode=adc_mode,  # 传递ADC采集模式
+            data_type=data_type  # 传递数据类型参数
         )
         self.adc_worker.moveToThread(self.adc_thread)
         
@@ -187,16 +199,45 @@ class ADCSamplingController(QObject):
         self.adc_thread.finished.connect(self.adc_thread.deleteLater)
         self.adc_worker.sampleData.connect(self.on_sample_data_received)
         self.adc_worker.dataSaved.connect(self.dataSaved)
+        self.adc_worker.saveError.connect(lambda msg: self.errorOccurred.emit(msg))
         
         # 启动线程
         self.adc_thread.start()
-        self.log_message(f"开始ADC采样，模式: {current_mode}, 次数: {count}, 单次采样数: {sample_number}, 间隔: {interval}s, 数据类型: {data_type}", "INFO")
+        
+        # 记录采样开始信息
+        mode_name = self.model.get_adc_mode_display_name()
+        self.log_message(f"开始ADC采样，S参数模式: {current_mode}, ADC采集模式: {mode_name}, "
+                        f"次数: {count}, 单次采样数: {sample_number}, 间隔: {interval}s, 数据类型: {data_type}", "INFO")
 
+    def validate_config(self) -> bool:
+        """验证配置参数"""
+        # 检查输出目录
+        output_dir = self.model.output_dir.strip()
+        if not output_dir:
+            self.errorOccurred.emit("请选择输出目录")
+            return False
+        
+        # 检查文件名
+        filename = self.model.filename_prefix.strip()
+        if not filename:
+            self.errorOccurred.emit("请输入文件名")
+            return False
+        
+        # 检查采样数量
+        if self.model.sample_count <= 0:
+            self.errorOccurred.emit("采样次数必须大于0")
+            return False
+            
+        if self.model.sample_number <= 0:
+            self.errorOccurred.emit("单次采样数量必须大于0")
+            return False
+            
+        return True
     
     def on_sampling_finished(self, success, message):
         """采样完成"""
         if success:
-            self.finished.emit(True,"message")
+            self.finished.emit(True, "message")
             self.dataLoaded.emit(message)
             self.log_message(message, "INFO")
         else:
