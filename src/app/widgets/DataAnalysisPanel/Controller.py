@@ -139,8 +139,6 @@ class DataAnalysisController(QObject):
         if hasattr(self, 'fileLoadProgress'):
             self.fileLoadProgress.emit(current, total, f"检测文件: {filename}")
         
-        # 记录调试信息
-        self.log_message(f"文件加载进度: {current}/{total} - {filename}", "DEBUG")
 
 
     def on_file_load_finished(self, data_files, file_segments):
@@ -162,7 +160,8 @@ class DataAnalysisController(QObject):
                     segments = file_info['segments']
                     total_segments += segments
                     
-                    file_format = FileManager().detect_file_format(file_info['path'])
+                    # file_format = FileManager().detect_file_format(file_info['path'])
+                    file_format = 'bin'
                     display_name = f"[{channel.upper()}] {filename} [{file_format}] - {segments}段"
                     self.view.file_list.addItem(display_name)
             
@@ -177,7 +176,7 @@ class DataAnalysisController(QObject):
             self.check_segment_matching(file_segments)
             
             # 记录详细信息
-            self.log_loaded_file_details()
+            # self.log_loaded_file_details()
             
             # 修复这里：使用正确的数据源计算总文件数
             total_files = adc1_count + adc2_count
