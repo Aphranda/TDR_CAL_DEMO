@@ -56,7 +56,7 @@ class DataAnalyzer:
         """
         try:
             # 1. 提取ADC数据
-            bit31, adc_full = self.data_processor.extract_adc_data(u32_arr, self.config.use_signed18, N=20)
+            bit31, adc_full = self.data_processor.extract_adc_data(u32_arr, self.config.use_signed18, self.config.adc_bit)
             # self.debug_plotter.simple_plot(bit31,"Vaild")
             # 2. 检测有效数据
             # rise_idx = self.data_processor.detect_valid_data(bit31, self.config.edge_search_start)

@@ -57,6 +57,7 @@ class AnalysisConfig:
     cal_mode: str = CalibrationMode.LOAD
     debug_mode: bool = True
     adc_sample_config: ADCSampleConfig = None  # 新增ADC采样配置
+    adc_bit: int = 20
 
     def __post_init__(self):
         if self.adc_sample_config is None:

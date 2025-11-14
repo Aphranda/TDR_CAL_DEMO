@@ -560,6 +560,7 @@ class DataAnalysisController(QObject):
             config.recursive = True
             config.use_signed18 = True
             config.cal_mode = self.view.cal_type_combo.currentText()
+            config.adc_bit = self.view.get_selected_bit_width()
             self.log_message(f"校准模式:{config.cal_mode}", "DEBUG")
             # 获取SearchMethod的值
             config.search_method = self.view.search_method_combo.currentData()

@@ -214,14 +214,24 @@ class DataAnalysisView(QWidget):
         # 新增：最大读取大小设置
         max_read_layout = QHBoxLayout()
         max_read_layout.setSpacing(4)
-        max_read_layout.addWidget(QLabel("读取大小:"))
+        max_read_layout.addWidget(QLabel("读取段数:"))
         self.adc_max_read_size = QSpinBox()
         self.adc_max_read_size.setRange(1, 1000)  # 0.1 MB 到 1000 MB
         self.adc_max_read_size.setValue(100)  # 默认1MB
         self.adc_max_read_size.setSingleStep(1)  # 步进0.1MB
-        self.adc_max_read_size.setSuffix(" Segment")
-        self.adc_max_read_size.setMaximumWidth(250)
+        self.adc_max_read_size.setMaximumWidth(120)
         max_read_layout.addWidget(self.adc_max_read_size)
+        
+        # 添加读取位数选择
+        max_read_layout.addWidget(QLabel("读取位数:"))
+        self.adc_bit_width_combo = QComboBox()
+        self.adc_bit_width_combo.addItems(["20", "18", "16", "14"])
+        self.adc_bit_width_combo.setCurrentText("20")  # 默认20位
+        self.adc_bit_width_combo.setToolTip("选择ADC数据的有效位数")
+        self.adc_bit_width_combo.setMaximumWidth(100)
+        max_read_layout.addWidget(self.adc_bit_width_combo)
+        
+        
         layout.addLayout(max_read_layout)
         
         # ROI设置 - 修改为QDoubleSpinBox以支持0.1%步进
@@ -314,5 +324,18 @@ class DataAnalysisView(QWidget):
     def show_adc_analysis_options(self):
         """显示ADC数据分析选项"""
         self.options_stack.setCurrentIndex(2)
+
+    def get_selected_bit_width(self) -> int:
+        """获取选中的读取位数"""
+        bit_width_text = self.adc_bit_width_combo.currentText()
+        if bit_width_text == "20":
+            return 20
+        elif bit_width_text == "18":
+            return 18
+        elif bit_width_text == "16":
+            return 16
+        elif bit_width_text == "14":
+            return 14
+        return 20  # 默认返回20位
 
     
