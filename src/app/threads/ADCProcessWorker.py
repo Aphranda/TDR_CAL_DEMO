@@ -111,17 +111,37 @@ class ADCProcessWorker(QObject):
         finally:
             self._cleanup()
 
+    def _parse_data_type_from_filename(self, filename):
+        """从文件名中解析数据类型"""
+        if '_uint32' in filename:
+            return 'uint32'
+        elif '_float64' in filename:
+            return 'float64'
+        else:
+            return 'uint32'  # 默认为uint32
+
     def _load_and_average_file_data(self, file_info: Optional[Dict], channel: str, file_idx: int) -> Optional[Dict[str, np.ndarray]]:
-        """加载文件数据并进行文件内平均"""
+        """加载文件数据并进行文件内平均 - 支持数据类型识别"""
         if file_info is None:
             return None
             
         try:
             file_path = file_info['path']
-            self.log_message.emit(f"加载并平均文件: {os.path.basename(file_path)}", "DEBUG")
+            filename = os.path.basename(file_path)
             
-            # 加载文件数据
-            file_data = self.cache_manager.load_single_file(file_path)
+            # 解析数据类型
+            data_type = self._parse_data_type_from_filename(filename)
+            self.log_message.emit(f"加载并平均文件: {filename}, 数据类型: {data_type}", "DEBUG")
+            
+            # 加载文件数据，根据数据类型确定读取方式
+            if data_type == 'uint32':
+                dtype = np.uint32
+            elif data_type == 'float64':
+                dtype = np.float64
+            else:
+                dtype = np.uint32  # 默认
+                
+            file_data = self.cache_manager.load_single_file(file_path, dtype=dtype)
             if file_data is None:
                 self.log_message.emit(f"文件 {file_path} 加载失败，返回None", "WARNING")
                 return None

@@ -28,10 +28,16 @@ class ADCSample:
         self.connected = self.tcp_client.connected if self.tcp_client else False
         self.server_ip = self.tcp_client.server_ip if self.tcp_client and self.tcp_client.server_ip else '192.168.1.10'
         self.server_port = self.tcp_client.server_port if self.tcp_client and self.tcp_client.server_port else 15000
-        self.chunk_size = 65535
+        self.chunk_size = 65530
         self.output_dir = 'data\\results\\test'
         self.sample_number = 10  # 新增：默认单次采样数量为10
         self.adc_mode = ADCMode.ADC1_ONLY  # 默认采集两个ADC
+        self.data_type = 'uint32'  # 默认数据类型
+
+    def set_data_type(self, data_type):
+        """设置ADC输出数据类型"""
+        self.data_type = data_type
+        logger.info(f"ADC输出数据类型设置为: {data_type}")
 
     def set_adc_mode(self, adc_mode: ADCMode):
         """设置ADC采集模式"""
@@ -73,12 +79,12 @@ class ADCSample:
         if not success:
             return False, response
         
-        # 如果需要接收响应
+ 
         success, response_data = self.tcp_client.receive(max_retries=max_retries)
         return success, response_data
     
     @timeit
-    def receive_binary_data(self, max_retries=3, base_timeout=1.0):
+    def receive_binary_data(self, max_retries=3, base_timeout=2.0):
         """
         专门用于接收二进制数据的方法
         根据ADC模式读取数据，使用字典返回
@@ -90,7 +96,8 @@ class ADCSample:
         retry_count = 0
         adc1_data = bytearray()
         adc2_data = bytearray()
-        
+        #ToDo 清空TCP接收缓冲区
+        # self.tcp_client.sock.recv(1024)
         while retry_count < max_retries:
             try:
                 # 根据ADC模式决定读取哪些数据
@@ -109,12 +116,11 @@ class ADCSample:
                     if not chunk1:
                         retry_count += 1
                         continue
-                    
                     # 检查结束标记
                     if chunk1 == b'\x00':
                         break
-                    
-                    adc1_data.extend(chunk1)
+                    if len(chunk1)>10:
+                        adc1_data.extend(chunk1)
                 
                 if self.adc_mode in [ADCMode.ADC2_ONLY, ADCMode.BOTH_ADCS]:
                     # 发送read2命令读取第二个ADC
@@ -134,7 +140,8 @@ class ADCSample:
                     if chunk2 == b'\x00':
                         break
                     
-                    adc2_data.extend(chunk2)
+                    if len(chunk2)>10:
+                        adc2_data.extend(chunk2)
                 
                 retry_count = 0  # 重置重试计数
                 
@@ -156,111 +163,72 @@ class ADCSample:
             
         return True, result_data
     
+
+
     @timeit
     def perform_single_test(self, test_num, sample_number=None):
         """执行单次测试并返回数据"""
         if not self.is_connected():
             return None, "未连接到服务器"
-        
+
         # 使用传入的sample_number或默认值
         current_sample_number = sample_number if sample_number is not None else self.sample_number
-        
+
         try:
-            # 发送sample指令，使用动态的采样数量
-            success, response = self.send_command(f'sample {current_sample_number}')
+            # 根据数据类型选择采样命令
+            if self.data_type == 'uint32':
+                command = f'sample {current_sample_number}'
+            elif self.data_type == 'float64':
+                print("current_sample_number",current_sample_number)
+                command = f'caclu_sample {current_sample_number}'
+            else:
+                return None, f"不支持的数据类型: {self.data_type}"
+
+            success, response = self.send_command(command)
             if not success:
                 return None, f"采样指令发送失败: {response}"
-            
-            logger.info(f"测试 {test_num + 1}: sample {current_sample_number} 响应: {response.strip()}")
-            
+
+            logger.info(f"测试 {test_num + 1}: {command} 响应: {response.strip()}")
+
             if 'ok' not in response.lower():
                 return None, f"采样失败: {response}"
-            
+
             # 接收采样数据
             success, data_dict = self.receive_binary_data(max_retries=5)
             if not success:
                 return None, f"数据接收失败: {data_dict}"
-            
+
             logger.info(f"测试 {test_num + 1}: 接收 ADC1 {len(data_dict.get('adc1', []))} 字节, ADC2 {len(data_dict.get('adc2', []))} 字节")
-            
-            # 处理数据
+
+            # 根据数据类型处理数据
             processed_data = {}
             for adc_name, data in data_dict.items():
-                if len(data) % 4 != 0:
-                    data = data[:len(data) - (len(data) % 4)]
-                
-                num_values = len(data) // 4
+                # 根据数据类型确定每个数据点的字节数和numpy类型
+                if self.data_type == 'uint32':
+                    bytes_per_point = 4
+                    dtype = '<u4'  # 小端无符号32位整数
+                elif self.data_type == 'float64':
+                    bytes_per_point = 8
+                    dtype = '<f8'  # 小端64位浮点数
+                else:
+                    return None, f"不支持的数据类型: {self.data_type}"
+
+                if len(data) % bytes_per_point != 0:
+                    data = data[:len(data) - (len(data) % bytes_per_point)]
+
+                num_values = len(data) // bytes_per_point
                 if num_values == 0:
                     logger.warning(f"ADC {adc_name} 未接收到有效数据")
-                    processed_data[adc_name] = np.array([], dtype=np.uint32)
+                    processed_data[adc_name] = np.array([], dtype=dtype)
                     continue
-                
-                temp_array = np.frombuffer(data, dtype='<u4', count=num_values)
-                processed_data[adc_name] = temp_array.copy()
-                logger.info(f"测试 {test_num + 1}: ADC {adc_name} 成功解析 {num_values} 个32位数据点")
 
-                
-            return processed_data, None
+                temp_array = np.frombuffer(data, dtype=dtype, count=num_values)
+                processed_data[adc_name] = temp_array.copy()
+                logger.info(f"测试 {test_num + 1}: ADC {adc_name} 成功解析 {num_values} 个{self.data_type}数据点")
             
+            return processed_data, None
+
         except Exception as e:
             return None, f"测试过程中发生错误: {str(e)}"
-    
-    @timeit
-    def save_test_result(self, test_num, data_dict, filename_prefix=None, output_dir=None):
-        """保存测试结果到文件，根据ADC模式保存相应的数据"""
-        if filename_prefix is None:
-            filename_prefix = f'test_result_{test_num + 1:04d}'
-        if output_dir is None:
-            output_dir = self.output_dir
-        
-        success_messages = []
-        
-        # 根据ADC模式保存相应的数据
-        for adc_name, u32_values in data_dict.items():
-            # 检查当前ADC模式是否需要保存这个ADC的数据
-            if (adc_name == 'adc1' and self.adc_mode not in [ADCMode.ADC1_ONLY, ADCMode.BOTH_ADCS]) or \
-               (adc_name == 'adc2' and self.adc_mode not in [ADCMode.ADC2_ONLY, ADCMode.BOTH_ADCS]):
-                continue
-                
-            # 保存二进制数据
-            bin_filename = f'{filename_prefix}_{adc_name}.bin'
-            bin_success, bin_message = self.save_binary_data(u32_values, bin_filename, output_dir)
-            
-            if bin_success:
-                success_messages.append(f"{adc_name}: BIN保存成功")
-            else:
-                success_messages.append(f"{adc_name}:BIN:{bin_message}")
-        
-        return True, "; ".join(success_messages)
-    
-    @timeit
-    def save_binary_data(self, u32_values, filename, output_dir):
-        """保存原始二进制数据 - 使用numpy优化"""
-        self.file_manager.ensure_dir_exists(output_dir)
-        filepath = os.path.join(output_dir, filename)
-        
-        try:
-            # 方法1: 使用numpy (最快)
-            if isinstance(u32_values, np.ndarray):
-                # 如果已经是numpy数组，直接使用
-                u32_array = u32_values
-            else:
-                # 将列表转换为numpy数组
-                u32_array = np.array(u32_values, dtype=np.uint32)
-            
-            # 直接写入文件，无需中间转换
-            u32_array.tofile(filepath)
-            
-            logger.info(f"二进制数据已保存到 {filepath}，共{u32_array.nbytes}字节")
-            
-            return True, f"二进制数据保存成功: {filepath}"
-                
-        except Exception as e:
-            logger.error(f"二进制数据保存失败: {str(e)}")
-            # 删除可能损坏的文件
-            if os.path.exists(filepath):
-                try:
-                    os.remove(filepath)
-                except:
-                    pass
-            return False, f"二进制数据保存失败: {str(e)}"
+
+

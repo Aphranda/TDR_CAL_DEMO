@@ -24,11 +24,12 @@ class ADCSampleWorker(QObject):
     
     def __init__(self, tcp_client, count, interval, save_raw_data=True, 
                  output_dir=None, filename_prefix=None, sample_number=10, 
-                 adc_mode=ADCMode.ADC1_ONLY):
+                 adc_mode=ADCMode.ADC1_ONLY, data_type="uint32"):
         super().__init__()
         self.adc_sample = ADCSample()
         self.adc_sample.set_tcp_client(tcp_client)
         self.adc_sample.set_adc_mode(adc_mode)  # 设置ADC模式
+        self.adc_sample.set_data_type(data_type)  # 设置数据类型
         self.count = count
         self.interval = interval
         self.save_raw_data = save_raw_data
@@ -36,6 +37,7 @@ class ADCSampleWorker(QObject):
         self.filename_prefix = filename_prefix or 'adc_raw_data'
         self.sample_number = sample_number
         self.adc_mode = adc_mode
+        self.data_type = data_type  # 保存数据类型
         self.running = False
         self._should_stop = False
         
@@ -91,6 +93,7 @@ class ADCSampleWorker(QObject):
         
         return True
     
+    
     def _create_sample_generator(self):
         """创建采样数据生成器"""
         for i in range(self.count):
@@ -143,8 +146,9 @@ class ADCSampleWorker(QObject):
         
         return processed_dict
     
+
     def _async_save_sample_data(self, sample_data, sample_index):
-        """异步保存采样数据"""
+        """异步保存采样数据 - 传递数据类型"""
         if not self.save_raw_data:
             return True
         
@@ -154,13 +158,13 @@ class ADCSampleWorker(QObject):
             for adc_name, data in sample_data.items():
                 # 根据ADC模式过滤不需要保存的数据
                 if (adc_name == 'adc1' and self.adc_mode not in [ADCMode.ADC1_ONLY, ADCMode.BOTH_ADCS]) or \
-                   (adc_name == 'adc2' and self.adc_mode not in [ADCMode.ADC2_ONLY, ADCMode.BOTH_ADCS]):
+                (adc_name == 'adc2' and self.adc_mode not in [ADCMode.ADC2_ONLY, ADCMode.BOTH_ADCS]):
                     continue
                 data_copy[adc_name] = data.copy()
             
-            # 添加到保存队列
+            # 添加到保存队列，传递数据类型
             success = self.data_saver.add_save_task(
-                data_copy, sample_index, self.output_dir, self.filename_prefix
+                data_copy, sample_index, self.output_dir, self.filename_prefix, self.data_type  # 传递data_type
             )
             return success
         except Exception as e:
@@ -168,6 +172,7 @@ class ADCSampleWorker(QObject):
             logger.error(error_msg)
             self.saveError.emit(error_msg)
             return False
+
     
     def _force_release_memory(self, obj):
         """强制释放对象内存"""

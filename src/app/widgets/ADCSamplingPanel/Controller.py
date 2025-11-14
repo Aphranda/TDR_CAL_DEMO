@@ -128,6 +128,8 @@ class ADCSamplingController(QObject):
             # 如果没有设置主窗口控制器，直接打印到控制台
             print(f"[{level}] {message}")
     
+
+
     def on_sample_adc(self):
         """开始ADC采样"""
         if not self.model.adc_connected or not self.tcp_client:
@@ -141,21 +143,23 @@ class ADCSamplingController(QObject):
         
         # 获取采样参数
         count = self.view.sample_count_spin.value()
-        sample_number = self.view.get_sample_number()  # 新增：获取单次采样数量
+        sample_number = self.view.get_sample_number()
         interval = self.view.sample_interval_spin.value()
+        data_type = self.view.get_selected_data_type()  # 新增：获取数据类型
         save_raw_data = True
         output_dir = self.view.output_dir_edit.text() or 'data\\results\\test'
         filename_prefix = self.view.filename_edit.text() or 'adc_raw_data'
         
         # 更新模型
         self.model.sample_count = count
-        self.model.sample_number = sample_number  # 新增：设置单次采样数量
+        self.model.sample_number = sample_number
         self.model.sample_interval = interval
+        self.model.data_type = data_type  # 新增：设置数据类型
         self.model.save_raw_data = save_raw_data
         self.model.output_dir = output_dir
         self.model.filename_prefix = filename_prefix
         
-        # 创建工作线程，传入TCP客户端和单次采样数量
+        # 创建工作线程，传入TCP客户端、单次采样数量和数据类型
         self.adc_thread = QThread()
         
         # 设置可追溯的线程名称
@@ -168,7 +172,8 @@ class ADCSamplingController(QObject):
             save_raw_data, 
             output_dir, 
             filename_prefix,
-            sample_number  # 新增：传递单次采样数量参数
+            sample_number,  # 传递单次采样数量参数
+            data_type=data_type  # 新增：传递数据类型参数
         )
         self.adc_worker.moveToThread(self.adc_thread)
         
@@ -185,7 +190,8 @@ class ADCSamplingController(QObject):
         
         # 启动线程
         self.adc_thread.start()
-        self.log_message(f"开始ADC采样，模式: {current_mode}, 次数: {count}, 单次采样数: {sample_number}, 间隔: {interval}s", "INFO")
+        self.log_message(f"开始ADC采样，模式: {current_mode}, 次数: {count}, 单次采样数: {sample_number}, 间隔: {interval}s, 数据类型: {data_type}", "INFO")
+
     
     def on_sampling_finished(self, success, message):
         """采样完成"""

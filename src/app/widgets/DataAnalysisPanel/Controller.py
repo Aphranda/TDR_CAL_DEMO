@@ -100,7 +100,7 @@ class DataAnalysisController(QObject):
                 return
 
             # 更新配置
-            self.model.adc_config.max_read_size_bytes = self.view.adc_max_read_size.value()
+            self.model.adc_config.max_read_size_bytes = self.view.adc_max_read_size.value()*0.32+0.1
 
             # 禁用加载按钮，避免重复点击
             self.view.load_button.setEnabled(False)
@@ -459,130 +459,7 @@ class DataAnalysisController(QObject):
             self.log_message(f"检测有效数据段失败: {str(e)}", "ERROR")
             return []
 
-
-    def analyze_binary_file_segments(self, file_path):
-        """
-        分析二进制文件中的段结构
-        
-        Args:
-            file_path: 二进制文件路径
-            
-        Returns:
-            段分析结果字典
-        """
-        try:
-            # 读取文件前1MB进行分析
-            with open(file_path, 'rb') as f:
-                data = f.read(1024*1024)  # 读取1MB
-            
-            # 将字节数据转换为uint32数组
-            num_uint32 = len(data) // 4
-            if num_uint32 == 0:
-                return {"error": "文件太小或格式不正确"}
-            
-            uint32_arr = np.frombuffer(data[:num_uint32*4], dtype=np.uint32)
-            
-            # 提取bit31
-            bit31 = (uint32_arr >> 31) & 1
-            
-            # 检测上升沿
-            rise_edges = self.detect_valid_data_segments(bit31)
-            
-            # 分析段结构
-            segment_info = []
-            for i in range(len(rise_edges)):
-                start = rise_edges[i]
-                end = rise_edges[i+1] if i < len(rise_edges)-1 else len(bit31)
-                length = end - start
-                
-                # 提取该段的bit31模式
-                segment_bit31 = bit31[start:end]
-                ones_count = np.sum(segment_bit31)
-                zeros_count = len(segment_bit31) - ones_count
-                
-                segment_info.append({
-                    "segment_index": i,
-                    "start_position": start,
-                    "length": length,
-                    "ones_count": ones_count,
-                    "zeros_count": zeros_count,
-                    "ones_ratio": ones_count / length if length > 0 else 0
-                })
-            
-            result = {
-                "total_samples": len(uint32_arr),
-                "total_segments": len(rise_edges),
-                "rise_edge_positions": rise_edges,
-                "segment_info": segment_info,
-                "bit31_pattern": bit31[:100].tolist()  # 前100个点的bit31模式
-            }
-            
-            return result
-            
-        except Exception as e:
-            self.log_message(f"分析二进制文件段结构失败: {str(e)}", "ERROR")
-            return {"error": str(e)}
-        
-    # 修改detect_segments_in_file方法，使用新的二进制文件分析功能
-    def detect_segments_in_file(self, file_path):
-        """检测文件中的数据段数"""
-        try:
-            file_format = FileManager().detect_file_format(file_path)
-            
-            if file_format == 'binary' or file_format == 'raw':
-                # 使用新的二进制文件分析方法
-                segments, _ = self.extract_adc_data_from_binary(file_path)
-                return segments
-            elif file_format == 'csv' or file_format == 'txt':
-                # 对于文本文件，通过行数估算段数
-                with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-                    lines = sum(1 for _ in f)
-                # 假设每段数据有81920行，加上可能的标题行
-                segments = max(1, lines // 81920)
-                return segments
-            else:
-                # 对于其他格式，默认1段
-                return 1
-        except:
-            # 如果检测失败，默认1段
-            return 1
-    # 添加一个方法来显示详细的段信息
-    def show_segment_details(self, file_path):
-        """显示文件的详细段信息"""
-        try:
-            file_format = FileManager().detect_file_format(file_path)
-            
-            if file_format == 'binary' or file_format == 'raw':
-                # 分析二进制文件段结构
-                segment_info = self.analyze_binary_file_segments(file_path)
-                
-                if "error" in segment_info:
-                    self.log_message(f"无法分析文件段结构: {segment_info['error']}", "ERROR")
-                    return
-                
-                # 记录段信息到日志
-                self.log_message(f"文件 {os.path.basename(file_path)} 段分析结果:", "INFO")
-                self.log_message(f"总采样点数: {segment_info['total_samples']}", "INFO")
-                self.log_message(f"总段数: {segment_info['total_segments']}", "INFO")
-                
-                for seg in segment_info['segment_info']:
-                    self.log_message(
-                        f"段 {seg['segment_index']}: 起始位置={seg['start_position']}, "
-                        f"长度={seg['length']}, 1的比例={seg['ones_ratio']:.2%}",
-                        "INFO"
-                    )
-                
-                # 如果有主窗口控制器，可以在界面上显示更详细的信息
-                if hasattr(self, 'main_window_controller') and self.main_window_controller:
-                    # 可以在这里添加代码，将段信息显示在界面上
-                    pass
-                    
-            else:
-                self.log_message("段详细信息仅支持二进制文件格式", "INFO")
-                
-        except Exception as e:
-            self.log_message(f"显示段详细信息失败: {str(e)}", "ERROR")
-
+     
     # 在on_clear_files方法中清除段数信息
     def on_clear_files(self):
         """清除文件列表"""
@@ -679,7 +556,7 @@ class DataAnalysisController(QObject):
             config.roi_end_tenths = self.view.adc_roi_end.value()
             config.diff_points = self.view.adc_diff_points.value()
             config.average_points = self.view.adc_average_points.value()
-            config.max_read_size_mb = self.view.adc_max_read_size.value()  # 新增：获取最大读取大小
+            config.max_read_size_mb = self.view.adc_max_read_size.value()*0.32+0.1  # 新增：获取最大读取大小
             config.recursive = True
             config.use_signed18 = True
             config.cal_mode = self.view.cal_type_combo.currentText()

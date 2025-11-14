@@ -213,20 +213,13 @@ class FileManager:
     
 
     @timeit
-    def load_binary_data(self, path: str, data_type: str = 'uint32', byte_order: str = '<') -> np.ndarray:
-        """
-        从二进制文件加载数据
-        
-        Args:
-            path: 文件路径
-            data_type: 数据类型 ('uint32', 'int32', 'float32', 'float64')
-            byte_order: 字节序 ('<' 小端, '>' 大端)
-            
-        Returns:
-            numpy数组
-        """
-        data = np.fromfile(path, dtype=np.uint32)
-        return data
+    def load_binary_data(self, file_path: str, dtype=np.uint32) -> np.ndarray:
+        """加载二进制数据，支持指定数据类型"""
+        try:
+            return np.fromfile(file_path, dtype=dtype)
+        except Exception as e:
+            logger.error(f"加载二进制数据失败 {file_path}: {str(e)}")
+        raise
     
 
     def detect_file_format(self, path: str) -> str:

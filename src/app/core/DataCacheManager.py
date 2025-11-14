@@ -144,16 +144,18 @@ class DataCacheManager(QObject):
         return batch_result
 
     @timeit
-    def _load_single_file(self, file_path: str) -> Optional[np.ndarray]:
-        """加载单个文件数据"""
+    def _load_single_file(self, file_path: str, dtype=np.uint32) -> Optional[np.ndarray]:
+        """加载单个文件数据 - 支持指定数据类型"""
         try:
             # 检测文件格式
             file_format = 'binary'  # 根据实际情况调整
             
             if file_format == 'binary':
-                data = self._file_manager.load_binary_data(file_path, data_type='uint32')
-                return data.astype(np.uint32)
+                # 使用指定的数据类型加载二进制数据
+                data = np.fromfile(file_path, dtype=dtype)
+                return data
             else:
+                # 对于文本格式，仍然使用uint32
                 return self._file_manager.load_u32_text_first_col(
                     file_path, skip_first=False
                 )
@@ -334,19 +336,34 @@ class DataCacheManager(QObject):
         print(error_msg)
 
 
-    def load_single_file(self, file_path: str) -> Optional[np.ndarray]:
-        """加载单个文件到缓存"""
+    def load_single_file(self, file_path: str, dtype=None) -> Optional[np.ndarray]:
+        """加载单个文件到缓存 - 支持数据类型识别"""
         if file_path in self._file_cache:
             return self._file_cache[file_path]
         
         try:
-            data = self._load_single_file(file_path)
+            # 如果没有指定数据类型，从文件名中解析
+            if dtype is None:
+                dtype = self._parse_data_type_from_filename(file_path)
+            
+            data = self._load_single_file(file_path, dtype)
             if data is not None:
                 self._file_cache[file_path] = data
             return data
         except Exception as e:
             print(f"加载单个文件失败 {file_path}: {str(e)}")
             return None
+
+    def _parse_data_type_from_filename(self, filename: str) -> np.dtype:
+        """从文件名中解析数据类型"""
+        filename_lower = filename.lower()
+        if '_float64' in filename_lower:
+            return np.float64
+        elif '_uint32' in filename_lower:
+            return np.uint32
+        else:
+            # 默认为uint32，保持向后兼容
+            return np.uint32
 
     def release_file(self, file_path: str):
         """释放单个文件的内存"""

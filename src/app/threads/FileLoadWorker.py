@@ -143,3 +143,5 @@ class FileLoadWorker(QObject):
             error_msg = f"文件加载失败: {str(e)}"
             self.log_message.emit(error_msg, "ERROR")
             self.error.emit(error_msg)
+
+    

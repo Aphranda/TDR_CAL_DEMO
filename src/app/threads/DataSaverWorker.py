@@ -42,8 +42,10 @@ class DataSaverWorker(QObject):
         """获取已完成任务数量"""
         return self.completed_tasks
     
-    def add_save_task(self, data_dict, sample_index, output_dir, filename_prefix):
-        """添加保存任务到队列"""
+
+
+    def add_save_task(self, data_dict, sample_index, output_dir, filename_prefix, data_type="uint32"):
+        """添加保存任务到队列 - 支持数据类型"""
         if not self.running:
             return False
         
@@ -59,6 +61,7 @@ class DataSaverWorker(QObject):
                 'sample_index': sample_index,
                 'output_dir': output_dir,
                 'filename_prefix': filename_prefix,
+                'data_type': data_type,  # 保存数据类型
                 'timestamp': time.time()
             }
             
@@ -66,7 +69,7 @@ class DataSaverWorker(QObject):
             self.total_tasks += 1
             self.condition.wakeAll()
             
-            logger.debug(f"添加保存任务到队列，当前队列大小: {len(self.save_queue)}")
+            logger.debug(f"添加保存任务到队列，数据类型: {data_type}, 当前队列大小: {len(self.save_queue)}")
             return True
             
         except Exception as e:
@@ -74,6 +77,7 @@ class DataSaverWorker(QObject):
             return False
         finally:
             self.mutex.unlock()
+
     
     @pyqtSlot()
     def run(self):
@@ -100,7 +104,8 @@ class DataSaverWorker(QObject):
                     task['data_dict'], 
                     task['sample_index'], 
                     task['output_dir'], 
-                    task['filename_prefix']
+                    task['filename_prefix'],
+                    task.get('data_type', 'uint32')  # 传递数据类型，默认为uint32
                 )
                 if success:
                     self.completed_tasks += 1
@@ -113,14 +118,16 @@ class DataSaverWorker(QObject):
         logger.info("数据保存线程结束运行")
         self.finished.emit()
     
-    def _save_data(self, data_dict, sample_index, output_dir, filename_prefix):
-        """执行数据保存"""
+
+
+    def _save_data(self, data_dict, sample_index, output_dir, filename_prefix, data_type="uint32"):  # 新增data_type参数
+        """执行数据保存 - 支持数据类型标识"""
         try:
             # 确保输出目录存在
             self.file_manager.ensure_dir_exists(output_dir)
             
-            # 为每个样本创建单独的文件名
-            current_filename_prefix = f'{filename_prefix}_{sample_index + 1:04d}'
+            # 为每个样本创建单独的文件名，包含数据类型标识
+            current_filename_prefix = f'{filename_prefix}_{sample_index + 1:04d}_{data_type}'  # 在文件名中加入数据类型
             success_count = 0
             
             # 保存每个ADC的数据
@@ -130,18 +137,30 @@ class DataSaverWorker(QObject):
                     filepath = os.path.join(output_dir, filename)
                     
                     try:
-                        # 保存为二进制文件
-                        if hasattr(data, 'tofile'):
-                            # 如果是numpy数组
-                            data.tofile(filepath)
-                        else:
-                            # 如果是其他类型，转换为numpy数组再保存
+                        # 根据数据类型确定保存方式
+                        if data_type == "uint32":
+                            # uint32格式，直接保存
+                            if hasattr(data, 'tofile'):
+                                data.tofile(filepath)
+                            else:
+                                import numpy as np
+                                np.array(data, dtype=np.uint32).tofile(filepath)
+                        elif data_type == "float64":
+                            # float64格式
                             import numpy as np
-                            np.array(data, dtype=np.uint32).tofile(filepath)
+                            if hasattr(data, 'tofile'):
+                                data.tofile(filepath)
+                            else:
+                                np.array(data, dtype=np.float64).tofile(filepath)
+                        else:
+                            error_msg = f"不支持的数据类型: {data_type}"
+                            logger.error(error_msg)
+                            self.errorOccurred.emit(error_msg)
+                            continue
                         
                         file_size = os.path.getsize(filepath)
-                        logger.debug(f"数据已保存: {filename} ({file_size} 字节)")
-                        self.dataSaved.emit(filepath, f"数据已保存: {filename}")
+                        logger.debug(f"数据已保存: {filename} ({file_size} 字节), 数据类型: {data_type}")
+                        self.dataSaved.emit(filepath, f"数据已保存: {filename} (类型: {data_type})")
                         success_count += 1
                         
                     except Exception as e:
@@ -156,6 +175,7 @@ class DataSaverWorker(QObject):
             logger.error(error_msg)
             self.errorOccurred.emit(error_msg)
             return False
+
     
     def stop(self):
         """停止保存线程"""
