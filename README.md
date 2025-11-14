@@ -3,12 +3,12 @@
 TDR_CAL_DEMO
 ├─ 📁.vscode
 ├─ 📁config
+│  ├─ 📁__pycache__
 │  ├─ 📄app_settings.ini
 │  ├─ 📄instrument_config.json
 │  └─ 📄__init__.py
 ├─ 📁data
 ├─ 📁docs
-│  ├─ 📁TDR产品设计框架V0.1
 │  ├─ 📄ad4080.pdf
 │  ├─ 📄ADA4899-1.pdf
 │  ├─ 📄ADA4927-1_4927-2.pdf
@@ -37,9 +37,11 @@ TDR_CAL_DEMO
 │  ├─ 📄CurveComparator.py
 │  ├─ 📄Doicon.py
 │  ├─ 📄FreqStitcher.py
+│  ├─ 📄plot_y_full_jitter_analysis.py
 │  ├─ 📄project.py
 │  ├─ 📄S_paramCalibration.py
 │  ├─ 📄test.py
+│  ├─ 📄test1.py
 │  ├─ 📄TimeDomainRegionCopier.py
 │  ├─ 📄VNA_S_CAL.md
 │  └─ 📄VNA_S_CALIBRATION.m
@@ -70,13 +72,12 @@ TDR_CAL_DEMO
 │  │  │  │  ├─ 📄wizard.ui
 │  │  │  │  └─ 📄__init__.py
 │  │  │  └─ 📄__init__.py
-│  │  ├─ 📁instruments
-│  │  ├─ 📁models
 │  │  ├─ 📁threads
 │  │  │  ├─ 📁__pycache__
 │  │  │  ├─ 📄ADCProcessWorker.py
 │  │  │  ├─ 📄ADCSampleWorker.py
 │  │  │  ├─ 📄DataSaverWorker.py
+│  │  │  ├─ 📄FileLoadWorker.py
 │  │  │  ├─ 📄ThreadManager.py
 │  │  │  └─ 📄__init__.py
 │  │  ├─ 📁utils
@@ -136,7 +137,6 @@ TDR_CAL_DEMO
 │  │  │  ├─ 📁__pycache__
 │  │  │  └─ 📄__init__.py
 │  │  ├─ 📁windows
-│  │  │  ├─ 📁ChildWinow
 │  │  │  └─ 📁MainWindow
 │  │  │     ├─ 📁__pycache__
 │  │  │     ├─ 📄Controller.py
@@ -145,8 +145,6 @@ TDR_CAL_DEMO
 │  │  │     └─ 📄__init__.py
 │  │  ├─ 📁__pycache__
 │  │  └─ 📄__init__.py
-│  ├─ 📁config
-│  ├─ 📁docs
 │  ├─ 📁resources
 │  │  ├─ 📁icon
 │  │  │  └─ 📄icon_TDR_01.ico

@@ -371,7 +371,7 @@ class MainWindowController:
     def _handle_file_load_progress(self, current, total, message):
         """处理文件加载进度"""
         progress_id = "file_loading"
-        label = "文件加载"
+        label = "文件处理"
         
         # 确保进度条存在
         if not self.progress_controller.get_progress(progress_id):
