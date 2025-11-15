@@ -6,6 +6,7 @@ from PyQt5.QtCore import QObject, pyqtSignal, QThread
 
 from ...core.DataAnalyze import DataAnalyzer, AnalysisConfig
 from ...core.FileManager import FileManager
+from app.core.ConfigManager import ADCMode
 from ...widgets.PlotWidget import create_plot_widget
 from app.threads import ADCProcessWorker
 from app.threads import FileLoadWorker
@@ -168,6 +169,7 @@ class DataAnalysisController(QObject):
             # 检查文件匹配情况
             adc1_count = len(data_files['adc1'])
             adc2_count = len(data_files['adc2'])
+            
             
             if adc1_count != adc2_count:
                 self.log_message(f"警告: ADC1和ADC2的文件数量不匹配 (ADC1: {adc1_count}, ADC2: {adc2_count})", "WARNING")
@@ -564,6 +566,23 @@ class DataAnalysisController(QObject):
             self.log_message(f"校准模式:{config.cal_mode}", "DEBUG")
             # 获取SearchMethod的值
             config.search_method = self.view.search_method_combo.currentData()
+           
+            adc1_count = len(self.model.data_files['adc1'])
+            adc2_count = len(self.model.data_files['adc2'])
+
+            # 更新分析模式
+            if adc1_count > 0 and adc2_count > 0:
+                config.adc_mode = ADCMode.BOTH_ADCS
+                self.log_message("检测到ADC1和ADC2数据文件，启用双通道模式", "INFO")
+            elif adc1_count > 0 and adc2_count == 0:
+                config.adc_mode = ADCMode.ADC1_ONLY
+                self.log_message("仅检测到ADC1数据文件，启用单通道模式", "INFO")
+            elif adc1_count == 0 and adc2_count > 0:
+                config.adc_mode = ADCMode.ADC2_ONLY
+                self.log_message("仅检测到ADC2数据文件，启用单通道模式", "INFO")
+            else:
+                config.adc_mode = ADCMode.ADC1_ONLY  # 默认模式
+                self.log_message("未检测到有效数据文件，使用默认模式", "WARNING")
         
             self.analysisStarted.emit("ADC数据分析")
             self.log_message("开始ADC数据分析", "INFO")

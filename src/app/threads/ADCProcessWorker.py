@@ -7,7 +7,9 @@ from PyQt5.QtCore import QObject, pyqtSignal, pyqtSlot
 from typing import Optional, Tuple, Dict, Any, List
 
 from app.core.DataAnalyze import DataAnalyzer, AnalysisConfig
+
 from app.core.DataCacheManager import DataCacheManager
+from app.core.ConfigManager import ADCMode
 from app.core.PerformanceMonitor import timeit, performance_monitor
 
 
@@ -176,14 +178,17 @@ class ADCProcessWorker(QObject):
             # 构建临时的adc_data字典用于分析器处理
             temp_adc_data = {channel: segments[0]}  # 用第一段初始化
             
-            # 处理第一段获取参考结果
+            # 处理第一段获取参考结果和边沿位置
             first_result = self.analyzer.process_single_file(temp_adc_data, file_idx * 1000)
             
             # 检查处理结果是否有效
             if first_result is None or channel not in first_result:
                 self.log_message.emit(f"文件 {file_idx} 通道 {channel} 第一段处理失败", "WARNING")
                 return {}
-                
+            
+            # 从第一段结果中获取边沿位置
+            first_rise_pos = first_result[channel]['data_dict']['rise_pos']
+            
             # 初始化累积数组
             cumulative_data = self._initialize_cumulative_data(first_result, channel, len(segments))
             
@@ -192,11 +197,20 @@ class ADCProcessWorker(QObject):
                 self.log_message.emit(f"文件 {file_idx} 通道 {channel} 累积数据初始化失败", "WARNING")
                 return {}
             
-            # 累积所有段的数据
+            # 累积所有段的数据，使用第一段的边沿位置作为参考
             valid_segments = 0
             for segment_idx, segment_data in enumerate(segments):
                 temp_adc_data = {channel: segment_data}
-                segment_result = self.analyzer.process_single_file(temp_adc_data, file_idx * 1000 + segment_idx)
+                
+                # 使用第一段的边沿位置来处理后续段
+                if segment_idx == 0:
+                    # 第一段已经处理过，直接累积
+                    segment_result = first_result
+                else:
+                    # 后续段使用第一段的边沿位置
+                    segment_result = self.analyzer.process_single_file(
+                        temp_adc_data, file_idx * 1000 + segment_idx, target_idx=first_rise_pos
+                    )
                 
                 if segment_result is not None and channel in segment_result:
                     self._accumulate_segment_data(cumulative_data, segment_result[channel], segment_idx + 1)
@@ -210,13 +224,14 @@ class ADCProcessWorker(QObject):
             # 计算平均值
             avg_data = self._compute_file_average(cumulative_data, valid_segments)
             
-            self.log_message.emit(f"文件 {file_idx} 通道 {channel.upper()} 完成 {valid_segments}/{len(segments)} 段平均", "DEBUG")
+            self.log_message.emit(f"文件 {file_idx} 通道 {channel.upper()} 完成 {valid_segments}/{len(segments)} 段平均，使用第一段边沿位置 {first_rise_pos}", "DEBUG")
             
             return avg_data
             
         except Exception as e:
             self.log_message.emit(f"文件内段平均失败 文件{file_idx} 通道{channel}: {str(e)}", "WARNING")
             return {}
+
 
     def _initialize_cumulative_data(self, first_result: Dict[str, Any], channel: str, total_segments: int) -> Dict[str, Any]:
         """初始化累积数据结构"""

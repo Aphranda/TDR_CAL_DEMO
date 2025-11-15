@@ -1,5 +1,6 @@
 # src/app/core/DataAnalyze.py
 
+from ctypes import alignment
 import numpy as np
 from typing import Dict, Any, List, Optional, Tuple
 import logging
@@ -14,6 +15,7 @@ try:
     from .FileManager import FileManager
     from .DataPlotter import DataPlotter
     from .DebugPlotter import DebugPlotter
+    from .ConfigManager import ADCMode
 except ImportError:
     from ConfigManager import AnalysisConfig, ConfigValidator, CalibrationMode
     from DataProcessor import DataProcessor
@@ -43,14 +45,16 @@ class DataAnalyzer:
         ConfigValidator.validate_config(config)
   
     def extract_basic_segment(self, u32_arr: np.ndarray, data_index: int = -1, 
-                             target_idx: Optional[int] = None) -> Optional[Dict[str, Any]]:
+                            target_idx: Optional[int] = None,
+                            do_alignment: bool = True) -> Optional[Dict[str, Any]]:
         """提取基本数据段，返回字典格式的结果
         
         Args:
             u32_arr: uint32数据数组
             data_index: 数据索引，用于错误追踪
             target_idx: 目标对齐位置，如果提供则跳过边沿搜索直接使用此位置对齐
-            
+            do_alignment: 是否进行数据对齐，ADC1为True，ADC2为False
+                
         Returns:
             处理结果字典或None
         """
@@ -81,6 +85,9 @@ class DataAnalyzer:
             )
             
             enable_spike_removal = False
+
+            if not target_idx :
+                enable_spike_removal = True
 
             # 4.5 去除奇异点（新增步骤）- 使用DataProcessor的方法
             if enable_spike_removal:  # 可以在配置中添加这个开关
@@ -120,20 +127,18 @@ class DataAnalyzer:
                 print("ADC1_idx:", rise_pos)
                 # self.debug_plotter.simple_plot(y_sorted, title="ADC1", data_range=(0.39,0.41))
             else:
-                rise_pos = self.edge_detector.find_rise_position(
-                    y_sorted, self.config.search_method, np.mean(adc_full), self.config.min_edge_amplitude_ratio
-                )
-                print("ADC2_idx:", rise_pos)
-                # 使用提供的目标对齐位置
                 rise_pos = target_idx
                 # self.debug_plotter.simple_plot(y_sorted, title="ADC2",data_range=(0.39,0.41))
+            print("final_rise_pos:",rise_pos)
 
-
-            # 6. 数据对齐
-            if target_idx is None:
-                target_idx = self.config.n_points // 4
-            y_full = self.data_processor.align_data(y_sorted, rise_pos, target_idx)
-
+            # 6. 数据对齐 - 根据do_alignment参数决定是否进行对齐
+            if do_alignment:
+                # ADC1进行数据对齐
+                alignment_idx = self.config.n_points // 4
+                y_full = self.data_processor.align_data(y_sorted, rise_pos, alignment_idx)
+            else:
+                # ADC2不进行数据对齐，直接使用排序后的数据
+                y_full = y_sorted
             
             # 7. 提取ROI
             y_roi = self.data_processor.extract_roi(y_full, self.config.roi_start, self.config.roi_end)
@@ -151,6 +156,7 @@ class DataAnalyzer:
         except Exception as e:
             logger.error(f"数据索引 {data_index}: 提取基本数据段时出错: {e}")
             return None
+
 
     def process_thru_load_mode(self, data_dict: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """
@@ -203,144 +209,99 @@ class DataAnalyzer:
             logger.error(f"处理THRU/LOAD模式时出错: {e}")
             return None
 
-    def process_single_file(self, u32_arr_dict: Dict[str, np.ndarray], file_index: int = -1) -> Optional[Dict[str, Any]]:
+    def process_single_file(self, u32_arr_dict: Dict[str, np.ndarray], file_index: int = -1, 
+                            target_idx: Optional[int] = None) -> Optional[Dict[str, Any]]:
         """
         处理单个文件的方法 - 支持双通道数据
         
         Args:
             u32_arr_dict: 包含'adc1'和'adc2'键的字典，值为uint32数据数组
             file_index: 文件索引，用于错误追踪
-            
+            target_idx: 目标对齐位置，如果提供则跳过边沿搜索直接使用此位置对齐
+                
         Returns:
             处理结果字典或None
         """
         try:
-            # 检查输入数据
+            # 输入验证：确保数据格式正确且至少包含一个有效通道
             if not isinstance(u32_arr_dict, dict) or ('adc1' not in u32_arr_dict and 'adc2' not in u32_arr_dict):
                 logger.error(f"文件索引 {file_index}: 输入数据格式不正确")
                 return None
             
+            # 数据提取：从字典中分离双通道数据
             adc1_data = u32_arr_dict.get('adc1', None)
             adc2_data = u32_arr_dict.get('adc2', None)
             
-            # 检查ADC数据是否都为空
+            # 空数据检查：两个通道都为空时提前返回
             if adc1_data is None and adc2_data is None:
                 logger.warning(f"文件索引 {file_index}: ADC1和ADC2数据都为空")
                 return None
             
-            # 处理ADC1数据（如果存在）
+            # 通道处理状态初始化
             adc1_basic_result = None
-            target_idx = None
-            
-            if adc1_data is not None:
-                adc1_basic_result = self.extract_basic_segment(adc1_data, file_index)
-                
-                if adc1_basic_result is not None:
-                    target_idx = adc1_basic_result.get('rise_pos')
-
-
-
-            # 处理ADC2数据（如果存在）
             adc2_basic_result = None
-            if adc2_data is not None:
-                # 使用ADC1的目标对齐位置来处理ADC2数据（如果存在）
-                adc2_basic_result = self.extract_basic_segment(adc2_data, file_index, target_idx)
-
+            adc1_target_idx = target_idx
+            adc1_result = None
+            adc2_result = None
             
-            # 如果两个通道的基本结果都为空，返回None
+            # 根据ADC模式决定数据处理策略
+            if self.config.adc_mode == ADCMode.ADC1_ONLY:
+                # 仅ADC1模式：只处理ADC1数据并进行对齐
+                if adc1_data is not None:
+                    adc1_basic_result = self.extract_basic_segment(adc1_data, file_index, adc1_target_idx, do_alignment=True)
+                    
+            elif self.config.adc_mode == ADCMode.ADC2_ONLY:
+                # 仅ADC2模式：只处理ADC2数据并进行对齐
+                if adc2_data is not None:
+                    adc2_basic_result = self.extract_basic_segment(adc2_data, file_index, adc1_target_idx, do_alignment=True)
+                    
+            elif self.config.adc_mode == ADCMode.BOTH_ADCS:
+                # 双通道模式：ADC1进行对齐，ADC2使用ADC1的边沿位置但不进行对齐
+                if adc1_data is not None:
+                    adc1_basic_result = self.extract_basic_segment(adc1_data, file_index, adc1_target_idx, do_alignment=True)
+                    
+                    # 如果未提供目标对齐位置且ADC1处理成功，提取其边沿位置供ADC2使用
+                    if target_idx is None and adc1_basic_result is not None:
+                        adc1_target_idx = adc1_basic_result.get('rise_pos')
+                
+                if adc2_data is not None:
+                    # 双通道模式下ADC2不进行数据对齐，直接使用ADC1的边沿位置
+                    adc2_basic_result = self.extract_basic_segment(adc2_data, file_index, adc1_target_idx, do_alignment=False)
+            
+            else:
+                logger.error(f"未知的ADC模式: {self.config.adc_mode}")
+                return None
+
+            # 处理结果有效性检查
             if adc1_basic_result is None and adc2_basic_result is None:
                 logger.warning(f"文件索引 {file_index}: 两个通道的基本处理结果都为空")
                 return None
             
-            # 根据校准模式选择不同的处理方法
-            if self.config.cal_mode in [CalibrationMode.THRU, CalibrationMode.LOAD]:
-                # THRU和LOAD模式使用标准处理
-                adc1_result = self.process_thru_load_mode(adc1_basic_result) if adc1_basic_result else None
-                adc2_result = self.process_thru_load_mode(adc2_basic_result) if adc2_basic_result else None
-            elif self.config.cal_mode == CalibrationMode.SHORT:
-                # SHORT模式特殊处理
-                adc1_result = self.process_thru_load_mode(adc1_basic_result) if adc1_basic_result else None
-                adc2_result = self.process_thru_load_mode(adc2_basic_result) if adc2_basic_result else None
-            elif self.config.cal_mode == CalibrationMode.OPEN:
-                # OPEN模式特殊处理
+            # 根据校准模式选择相应的数据处理方法
+            if self.config.cal_mode in [CalibrationMode.THRU, CalibrationMode.LOAD, 
+                                    CalibrationMode.SHORT, CalibrationMode.OPEN]:
+                # 所有校准模式目前都使用相同的频谱分析方法处理
                 adc1_result = self.process_thru_load_mode(adc1_basic_result) if adc1_basic_result else None
                 adc2_result = self.process_thru_load_mode(adc2_basic_result) if adc2_basic_result else None
             else:
+                # 未知校准模式处理
                 logger.error(f"未知的校准模式: {self.config.cal_mode}")
                 return None
             
-            # 返回嵌套字典结果
+            # 构建返回结果：只包含成功处理的通道数据
             result = {}
             if adc1_result is not None:
                 result['adc1'] = adc1_result
             if adc2_result is not None:
                 result['adc2'] = adc2_result
             
+            # 返回非空结果，确保调用方能正确处理
             return result if result else None
             
         except Exception as e:
+            # 统一异常处理：记录详细错误信息但不中断整体流程
             logger.error(f"处理文件索引 {file_index} 时出错: {e}")
             return None
-
-
-
-    def batch_process_files(self, file_list: List[str]) -> Dict[str, Any]:
-        """
-        批量处理文件列表
-        
-        Args:
-            file_list: 要处理的文件路径列表
-            
-        Returns:
-            处理结果字典
-        """
-        logger.info(f"开始处理 {len(file_list)} 个文件")
-    
-        # 初始化结果存储
-        results = {
-            'adc1': {
-                'ys_full':[], 'ys': [], 'mags': [], 'ys_d_full':[], 'ys_d': [], 'mags_d': [],
-                'freq_ref': None, 'freq_d_ref': None, 'sum_Xd': None
-            },
-            'adc2': {
-                'ys_full':[], 'ys': [], 'mags': [], 'ys_d_full':[], 'ys_d': [], 'mags_d': [],
-                'freq_ref': None, 'freq_d_ref': None, 'sum_Xd': None
-            },
-            'success_count': 0, 
-            'total_files': len(file_list)
-        }
-    
-        # 处理每个文件
-        for i, f in enumerate(tqdm(file_list, desc="处理文件", unit="file")):
-            try:
-                raw = self.file_manager.load_u32_text_first_col(f, skip_first=self.config.skip_first_value)
-                
-                # 创建单通道数据字典
-                u32_arr_dict = {'adc1': raw}
-                
-                res = self.process_single_file(u32_arr_dict, i)  # 传递文件索引
-                
-                if res is None:
-                    continue
-                
-                # 更新ADC1结果
-                self._update_channel_results(results['adc1'], res['adc1'])
-                
-                # 更新ADC2结果（如果存在）
-                if 'adc2' in res and res['adc2'] is not None:
-                    self._update_channel_results(results['adc2'], res['adc2'])
-                
-                results['success_count'] += 1
-                
-            except Exception as e:
-                logger.warning(f"处理文件 {f} (索引 {i}) 失败: {e}")
-                continue
-    
-        if results['success_count'] == 0:
-            raise RuntimeError("没有文件成功处理")
-    
-        logger.info(f"成功处理 {results['success_count']}/{len(file_list)} 个文件")
-        return results
 
     def _update_channel_results(self, channel_results: Dict[str, Any], res: Dict[str, Any]):
         """更新通道结果"""
@@ -392,76 +353,5 @@ class DataAnalyzer:
                 'fall_ratio': 0
             }
 
-    def save_results(self, results: Dict[str, Any], averages: Dict[str, Any]):
-        """保存结果到文件"""
-        # 根据校准模式生成输出文件名
-        output_filename = self.result_processor.get_output_filename(self.config.output_csv)
-      
-        # 保存复数FFT结果
-        success = self.file_manager.save_complex_fft_results(
-            results['freq_d_ref'], 
-            np.real(averages['avg_Xd']), 
-            np.imag(averages['avg_Xd']), 
-            output_filename
-        )
-      
-        if not success:
-            logger.error("复数FFT结果保存失败")
-      
-        # 保存处理统计信息
-        stats = self.result_processor.prepare_statistics(results)
-        stats_file = output_filename.replace('.csv', '_stats.json')
-        self.file_manager.save_json_data(stats, stats_file)
-      
-        logger.info(f"结果已保存到: {output_filename}")
 
-    def run_analysis(self):
-        """运行完整分析流程"""
-        logger.info("开始数据分析...")
-      
-        files = self.file_manager.find_csv_files(self.config.input_dir, self.config.recursive)
-        if not files:
-            raise RuntimeError(f"在目录 {self.config.input_dir} 中未找到CSV文件")
-        
-        # 批量处理文件
-        results = self.batch_process_files(files)
-        
-        # 计算平均值
-        averages = self.result_processor.calculate_averages(results)
-        
-        # 对平均数据进行边沿分析
-        edge_analysis = self.analyze_edges(averages['y_full_avg'])
-      
-        # 使用绘图器绘制图表（如果提供了绘图器）
-        if self.plotter:
-            self.plotter.plot_results(results, averages, edge_analysis)
-            t_full_us = (np.arange(len(averages['y_full_avg'])) * self.config.ts_eff) * 1e6
-            self.plotter.print_edge_analysis_results(edge_analysis, t_full_us)
-        else:
-            logger.warning("未提供绘图器，跳过绘图步骤")
-      
-        # 保存结果
-        self.save_results(results, averages)
-      
-        logger.info(f"分析完成! 共处理 {results['success_count']}/{results['total_files']} 个文件")
-        return results, averages, edge_analysis
 
-def main():
-    """主函数"""
-    import logging
-    logging.basicConfig(level=logging.INFO)
-    
-    # 创建配置
-    config = AnalysisConfig(cal_mode=CalibrationMode.LOAD, input_dir="data\\results\\test\\TT")
-  
-    try:
-        # 创建分析器并运行
-        analyzer = DataAnalyzer(config)
-        analyzer.run_analysis()
-        
-    except Exception as e:
-        logger.error(f"分析失败: {e}")
-        raise
-
-if __name__ == "__main__":
-    main()

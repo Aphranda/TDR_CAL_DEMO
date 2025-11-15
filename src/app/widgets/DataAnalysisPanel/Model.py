@@ -4,6 +4,7 @@ import numpy as np
 from dataclasses import dataclass, field
 from typing import List, Dict, Any, Optional,Generator
 from ...core.DataAnalyze import AnalysisConfig
+from app.core.ConfigManager import ADCMode
 
 @dataclass
 class ADCConfig:
@@ -30,6 +31,9 @@ class ADCConfig:
     min_second_fall_ratio: float = 0.2    # 下降沿最小幅度比例
     cal_mode: str = "LOAD"  # 新增CAL_Mode参数
     max_read_size_mb: float = 1.0  # 新增：最大读取大小，单位MB
+    debug_mode: bool = True
+    adc_bit: int = 20
+    adc_mode: ADCMode = ADCMode.ADC1_ONLY  # 默认采集adc1
 
     @property
     def t_sample(self) -> float:

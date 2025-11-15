@@ -58,6 +58,7 @@ class AnalysisConfig:
     debug_mode: bool = True
     adc_sample_config: ADCSampleConfig = None  # 新增ADC采样配置
     adc_bit: int = 20
+    adc_mode: ADCMode = ADCMode.ADC1_ONLY  # 默认采集adc1
 
     def __post_init__(self):
         if self.adc_sample_config is None:
