@@ -359,7 +359,7 @@ class DataAnalysisController(QObject):
             self.log_message(f"提取ADC数据失败: {str(e)}", "ERROR")
             return 1, {"error": str(e)}
        
-    @timeit
+    # @timeit
     def detect_valid_data_segments(self, bit31_data, start_index=0):
         """
         检测有效数据段（基于bit31的上升沿）

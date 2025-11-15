@@ -45,7 +45,7 @@ class DataCacheManager(QObject):
         """设置批次大小"""
         self.batch_size = batch_size
 
-    @timeit
+    # @timeit
     def load_files_in_batches(self, file_dict: Dict[str, List[Dict]]) -> Dict[str, Dict]:
         """分批加载文件数据"""
         try:
@@ -143,7 +143,7 @@ class DataCacheManager(QObject):
                 
         return batch_result
 
-    @timeit
+    # @timeit
     def _load_single_file(self, file_path: str, dtype=np.uint32) -> Optional[np.ndarray]:
         """加载单个文件数据 - 支持指定数据类型"""
         try:
@@ -164,7 +164,7 @@ class DataCacheManager(QObject):
             self._log_file_error(file_path, e)
             return None
 
-    @timeit
+    # @timeit
     def _pre_segment_single_file(self, file_info: Dict, full_data: np.ndarray) -> List[np.ndarray]:
         """预分割单个文件的所有段"""
         file_path = file_info['path']
