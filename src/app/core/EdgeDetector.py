@@ -154,12 +154,13 @@ class EdgeDetector:
         Returns:
             候选点列表，每个元素为(位置, 幅度)
         """
+        # 第一步：判断是否为底噪
+        # if self._is_noise_floor(smoothed_data, noise_threshold_ratio=0.05):
+        #     # 如果是底噪，直接使用差分法
+        #     return [(10,10)]
         if use_fast_mode:
             return self._find_edges_by_differential(smoothed_data, is_rising, min_amplitude_ratio)
-        # 第一步：判断是否为底噪
-        if self._is_noise_floor(smoothed_data, noise_threshold_ratio=0.05):
-            # 如果是底噪，直接使用差分法
-            return self._find_edges_by_differential(smoothed_data, is_rising, min_amplitude_ratio)
+
         
         # 第二步：窗口移动检测候选区间
         window_size = max(10, int(len(smoothed_data) * 0.05))  # 5%的窗口大小，最小10个点

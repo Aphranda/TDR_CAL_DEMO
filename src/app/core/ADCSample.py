@@ -69,7 +69,7 @@ class ADCSample:
         """检查是否已连接"""
         return self.tcp_client and self.tcp_client.connected
     
-    @timeit
+    # @timeit
     def send_command(self, command, max_retries=3):
         """发送命令并获取响应"""
         if not self.is_connected():
@@ -83,7 +83,7 @@ class ADCSample:
         success, response_data = self.tcp_client.receive(max_retries=max_retries)
         return success, response_data
     
-    @timeit
+    # @timeit
     def receive_binary_data(self, max_retries=3, base_timeout=2.0):
         """
         专门用于接收二进制数据的方法
@@ -93,15 +93,15 @@ class ADCSample:
         if not self.is_connected() or not self.tcp_client.sock:
             return False, "未连接"
         
-        retry_count = 0
+        
         adc1_data = bytearray()
         adc2_data = bytearray()
         #ToDo 清空TCP接收缓冲区
-        # self.tcp_client.sock.recv(1024)
-        while retry_count < max_retries:
-            try:
-                # 根据ADC模式决定读取哪些数据
-                if self.adc_mode in [ADCMode.ADC1_ONLY, ADCMode.BOTH_ADCS]:
+        if self.adc_mode in [ADCMode.ADC1_ONLY, ADCMode.BOTH_ADCS]:
+            retry_count = 0
+            while retry_count < max_retries:
+                try:
+                    # 根据ADC模式决定读取哪些数据
                     # 发送read1命令读取第一个ADC
                     time.sleep(0.01)
                     success, _ = self.tcp_client.send('read1', max_retries)
@@ -119,10 +119,21 @@ class ADCSample:
                     # 检查结束标记
                     if chunk1 == b'\x00':
                         break
-                    if len(chunk1)>10:
-                        adc1_data.extend(chunk1)
-                
-                if self.adc_mode in [ADCMode.ADC2_ONLY, ADCMode.BOTH_ADCS]:
+
+                    adc1_data.extend(chunk1)            
+                    retry_count = 0  # 重置重试计数
+                    
+                except (socket.timeout, ConnectionError) as e:
+                    retry_count += 1
+                    time.sleep(0.2 * retry_count)
+                except Exception as e:
+                    return False, f"接收数据错误: {str(e)}"
+        
+        
+        if self.adc_mode in [ADCMode.ADC2_ONLY, ADCMode.BOTH_ADCS]:
+            retry_count = 0
+            while retry_count < max_retries:
+                try:
                     # 发送read2命令读取第二个ADC
                     success, _ = self.tcp_client.send('read2', max_retries)
                     if not success:
@@ -139,17 +150,15 @@ class ADCSample:
                     # 检查结束标记
                     if chunk2 == b'\x00':
                         break
+                    adc2_data.extend(chunk2)
                     
-                    if len(chunk2)>10:
-                        adc2_data.extend(chunk2)
-                
-                retry_count = 0  # 重置重试计数
-                
-            except (socket.timeout, ConnectionError) as e:
-                retry_count += 1
-                time.sleep(0.2 * retry_count)
-            except Exception as e:
-                return False, f"接收数据错误: {str(e)}"
+                    retry_count = 0  # 重置重试计数
+                    
+                except (socket.timeout, ConnectionError) as e:
+                    retry_count += 1
+                    time.sleep(0.2 * retry_count)
+                except Exception as e:
+                    return False, f"接收数据错误: {str(e)}"
         
         if retry_count >= max_retries:
             return False, "接收数据超时"
@@ -165,7 +174,7 @@ class ADCSample:
     
 
 
-    @timeit
+    # @timeit
     def perform_single_test(self, test_num, sample_number=None):
         """执行单次测试并返回数据"""
         if not self.is_connected():

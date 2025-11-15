@@ -212,7 +212,7 @@ class FileManager:
         return files
     
 
-    @timeit
+    # @timeit
     def load_binary_data(self, file_path: str, dtype=np.uint32) -> np.ndarray:
         """加载二进制数据，支持指定数据类型"""
         try:
