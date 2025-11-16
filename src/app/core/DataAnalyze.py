@@ -86,14 +86,14 @@ class DataAnalyzer:
             
             enable_spike_removal = False
 
+            # self.debug_plotter.simple_plot(y_sorted,title="Before removing singular points")
             if not target_idx :
                 enable_spike_removal = True
 
             # 4.5 去除奇异点（新增步骤）- 使用DataProcessor的方法
             if enable_spike_removal:  # 可以在配置中添加这个开关
-                y_sorted_cleaned, spikes_detected = self.data_processor.remove_spikes_robust(
+                y_sorted_cleaned, spikes_detected = self.data_processor.remove_spikes_robust_final(
                     y_sorted, 
-                    method="Hampel",  # "Hampel", "Z-score", "IQR"
                     threshold=3,    # 默认3.0
                     window_size=5 # 默认5
                 )
@@ -116,6 +116,7 @@ class DataAnalyzer:
                 y_sorted = y_sorted_cleaned
             else:
                 spikes_detected = []
+            # self.debug_plotter.simple_plot(y_sorted,title="After removing singular points")
 
 
             # 5. 搜索边沿位置（如果未提供目标对齐位置）

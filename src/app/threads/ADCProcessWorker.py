@@ -464,7 +464,7 @@ class ADCProcessWorker(QObject):
         self.log_message.emit("计算平均值...", "INFO")
 
         # 保存所有y_full数据用于抖动分析（使用numpy二进制格式）
-        self._save_y_full_for_jitter_analysis()
+        # self._save_y_full_for_jitter_analysis()
         
         averages = {}
         

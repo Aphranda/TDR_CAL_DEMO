@@ -4,6 +4,7 @@ from scipy.signal import savgol_filter
 import numpy as np
 from typing import Optional, Dict, Any, List, Tuple
 import logging
+from .PerformanceMonitor import timeit, performance_monitor
 logger = logging.getLogger(__name__)
 class EdgeDetector:
     """边沿检测器类"""
@@ -52,46 +53,54 @@ class EdgeDetector:
         
         return False
     
-    def _is_noise_floor(self, data: np.ndarray, noise_threshold_ratio: float = 0.3) -> bool:
+    def judge_background_noise(self,data: np.ndarray, segment_length=256, k=1.5):
         """
-        判断是否为底噪
-        
-        Args:
-            data: 输入数据
-            noise_threshold_ratio: 底噪判断阈值比例（默认0.3）
-            
-        Returns:
-            True如果是底噪，False如果不是
+        自动判断输入数据是否为底噪。
+        参数:
+            data: 一维numpy数组
+            segment_length: 分段长度
+            k: 阈值倍数
+        返回:
+            True (底噪) 或 False (有信号)
         """
-        if len(data) < 10:
-            return False
-            
-        # 计算数据的峰峰值
-        p2p = np.ptp(data)
-        if p2p > 550000:
-            return True
-        # 计算数据的平均值
-        mean_val = np.mean(data)
+        # 确保数据是一维的
+        if data.ndim != 1:
+            raise ValueError("数据必须是一维数组")
         
-        # 计算峰峰值与平均值的差值
-        p2p_minus_mean = p2p - mean_val
+        n = len(data)
+        # 如果数据长度小于分段长度，则直接计算整个数据的RMS，并与0比较（但这样不准确，所以至少需要一段）
+        if n < segment_length:
+            # 如果数据太短，直接计算RMS，并与一个很小的值比较（例如1e-5）？但这样不通用，所以我们可以返回True或False？
+            # 这里我们直接计算，并认为如果RMS很小就是底噪，但阈值很难定，所以我们可以用全局RMS和全局标准差？
+            # 对于短数据，我们使用全局统计量，但这种方法不可靠，所以建议数据长度至少大于segment_length。
+            # 这里我们抛出一个错误，或者使用整个数据作为一段。
+            segments = [data]
+        else:
+            # 分段
+            num_segments = n // segment_length
+            segments = np.array_split(data[:num_segments * segment_length], num_segments)
         
-        # 判断条件：峰峰值减平均值不超过峰峰值的0.3倍
-        if p2p_minus_mean <= p2p * noise_threshold_ratio:
-            logger.info(f"Detected noise floor - p2p: {p2p:.2f}, mean: {mean_val:.2f}, "
-                    f"p2p_minus_mean: {p2p_minus_mean:.2f}, threshold: {p2p * noise_threshold_ratio:.2f}")
-            return True
-            
-        logger.debug(f"Noise floor not detected - p2p: {p2p:.2f}, mean: {mean_val:.2f}, "
-                    f"p2p_minus_mean: {p2p_minus_mean:.2f}, threshold: {p2p * noise_threshold_ratio:.2f}")
-        return False
+        # 计算每段的RMS
+        segment_rms = [np.sqrt(np.mean(segment**2)) for segment in segments]
+        
+        # 噪声水平估计：取最小RMS段
+        noise_level = np.min(segment_rms)
+        
+        # 计算整个数据段的RMS
+        total_rms = np.sqrt(np.mean(data**2))
+        
+        # 判断
+        if total_rms < k * noise_level:
+            return True  # 底噪
+        else:
+            return False  # 有信号
 
 
     def _find_edges_by_differential(self, smoothed_data: np.ndarray, 
-                                  is_rising: bool = True,
-                                  min_amplitude_ratio: float = 0.3) -> List[Tuple[int, float]]:
+                                is_rising: bool = True,
+                                min_amplitude_ratio: float = 0.3) -> List[Tuple[int, float]]:
         """
-        使用差分法查找边沿候选点（用于底噪情况）
+        改进的差分法查找边沿候选点
         
         Args:
             smoothed_data: 平滑后的数据
@@ -104,40 +113,67 @@ class EdgeDetector:
         if len(smoothed_data) < 20:
             return []
         
-        # 计算差分
+        # 计算一阶差分
         dy = np.diff(smoothed_data)
         
-        # 设置差分阈值
-        threshold = np.ptp(smoothed_data) * min_amplitude_ratio
-        
+        # 自适应阈值：基于差分数据的统计特性
         if is_rising:
-            # 寻找上升沿：差分大于阈值的位置
-            candidate_indices = np.flatnonzero(dy > threshold * 0.5) + 1
+            # 对于上升沿，关注正差分
+            positive_dy = dy[dy > 0]
+            if len(positive_dy) == 0:
+                return []
+            threshold = np.percentile(positive_dy, 80)  # 取正差分的前20%作为阈值
         else:
-            # 寻找下降沿：差分小于阈值的位置
-            candidate_indices = np.flatnonzero(dy < -threshold * 0.5) + 1
+            # 对于下降沿，关注负差分
+            negative_dy = dy[dy < 0]
+            if len(negative_dy) == 0:
+                return []
+            threshold = np.percentile(np.abs(negative_dy), 80)  # 取负差分绝对值的前20%
         
-        # 计算每个候选点的幅度
+        # 寻找候选点
+        candidate_indices = []
+        if is_rising:
+            # 上升沿：差分大于阈值的位置
+            peaks = np.where(dy > threshold)[0] + 1
+        else:
+            # 下降沿：差分小于负阈值的位置
+            peaks = np.where(dy < -threshold)[0] + 1
+        
+        # 非极大值抑制：在局部窗口内只保留最大的差分值
+        window_size = 5
         valid_candidates = []
-        for candidate in candidate_indices:
-            if 10 <= candidate < len(smoothed_data) - 10:
-                # 计算前后窗口的平均值
-                pre_window = smoothed_data[max(0, candidate-5):candidate]
-                post_window = smoothed_data[candidate:min(len(smoothed_data), candidate+5)]
-                
-                pre_avg = np.mean(pre_window)
-                post_avg = np.mean(post_window)
-                
-                if is_rising and post_avg > pre_avg:
-                    amplitude = post_avg - pre_avg
-                    if amplitude > threshold:
-                        valid_candidates.append((candidate, amplitude))
-                elif not is_rising and post_avg < pre_avg:
-                    amplitude = pre_avg - post_avg
-                    if amplitude > threshold:
-                        valid_candidates.append((candidate, amplitude))
         
+        for peak in peaks:
+            if window_size <= peak < len(smoothed_data) - window_size:
+                # 定义局部窗口
+                start = max(0, peak - window_size)
+                end = min(len(dy), peak + window_size)
+                local_window = dy[start:end]
+                
+                # 在局部窗口内找到极值点
+                if is_rising:
+                    local_max_idx = np.argmax(local_window)
+                    if start + local_max_idx == peak:  # 确认当前点是局部最大值
+                        # 计算实际幅度（前后窗口平均值差）
+                        pre_avg = np.mean(smoothed_data[peak-10:peak-2])
+                        post_avg = np.mean(smoothed_data[peak+2:peak+10])
+                        amplitude = post_avg - pre_avg
+                        if amplitude > 0:
+                            valid_candidates.append((peak, amplitude))
+                else:
+                    local_min_idx = np.argmin(local_window)
+                    if start + local_min_idx == peak:  # 确认当前点是局部最小值
+                        # 计算实际幅度
+                        pre_avg = np.mean(smoothed_data[peak-10:peak-2])
+                        post_avg = np.mean(smoothed_data[peak+2:peak+10])
+                        amplitude = pre_avg - post_avg
+                        if amplitude > 0:
+                            valid_candidates.append((peak, amplitude))
+        
+        # 按幅度排序并返回
+        valid_candidates.sort(key=lambda x: x[1], reverse=True)
         return valid_candidates
+
     
     def _find_edge_candidates(self, smoothed_data: np.ndarray, 
                             is_rising: bool = True, 
@@ -155,9 +191,9 @@ class EdgeDetector:
             候选点列表，每个元素为(位置, 幅度)
         """
         # 第一步：判断是否为底噪
-        # if self._is_noise_floor(smoothed_data, noise_threshold_ratio=0.05):
-        #     # 如果是底噪，直接使用差分法
-        #     return [(10,10)]
+        if self.judge_background_noise(smoothed_data):
+            # 如果是底噪，直接默认值
+            return self._find_edges_by_differential(smoothed_data, is_rising, min_amplitude_ratio)
         if use_fast_mode:
             return self._find_edges_by_differential(smoothed_data, is_rising, min_amplitude_ratio)
 

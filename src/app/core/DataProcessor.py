@@ -2,14 +2,199 @@
 import numpy as np
 from typing import Tuple, Optional, List, Dict, Any
 import logging
-
+import threading
+from concurrent.futures import ThreadPoolExecutor
+from numba import jit, prange
+from numba.core.errors import NumbaWarning
+import warnings
+from .PerformanceMonitor import timeit, performance_monitor
 logger = logging.getLogger(__name__)
+warnings.filterwarnings("ignore", category=NumbaWarning)
+
+
+# 预编译函数 - 使用最常见的参数组合
+@jit(nopython=True, cache=True, parallel=True)
+def hampel_filter_precompiled(data: np.ndarray, window_size: int, threshold: float) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    预编译的Numba并行版本 - 使用最常用的参数
+    """
+    n = len(data)
+    cleaned_data = data.copy()
+    spikes = np.zeros(n, dtype=np.int32)
+    spike_count = 0
+    
+    window_size_total = 2 * window_size
+    
+    # 并行处理所有中心点
+    for i in prange(window_size, n - window_size):
+        # 构建窗口数据
+        window_data = np.empty(window_size_total, dtype=data.dtype)
+        
+        # 填充左侧窗口
+        for j in range(window_size):
+            window_data[j] = data[i - window_size + j]
+        
+        # 填充右侧窗口  
+        for j in range(window_size):
+            window_data[window_size + j] = data[i + 1 + j]
+        
+        # 快速计算中位数和MAD
+        window_sorted = np.sort(window_data)
+        
+        # 计算中位数
+        mid = window_size_total // 2
+        if window_size_total % 2 == 1:
+            median = window_sorted[mid]
+        else:
+            median = (window_sorted[mid - 1] + window_sorted[mid]) * 0.5
+        
+        # 计算MAD
+        abs_devs = np.empty(window_size_total, dtype=data.dtype)
+        for j in range(window_size_total):
+            abs_devs[j] = np.abs(window_data[j] - median)
+        
+        abs_devs_sorted = np.sort(abs_devs)
+        
+        if window_size_total % 2 == 1:
+            mad = abs_devs_sorted[mid]
+        else:
+            mad = (abs_devs_sorted[mid - 1] + abs_devs_sorted[mid]) * 0.5
+        
+        # 检测奇异点
+        if mad > 1e-10:
+            z_score = 0.6745 * (data[i] - median) / mad
+            if np.abs(z_score) > threshold:
+                spikes[spike_count] = i
+                spike_count += 1
+                cleaned_data[i] = median
+    
+    return cleaned_data, spikes[:spike_count]
+
+# 预编译函数 - 简化版本（用于小数据集）
+@jit(nopython=True, cache=True)
+def hampel_filter_simple(data: np.ndarray, window_size: int, threshold: float) -> Tuple[np.ndarray, np.ndarray]:
+    """简化版本，编译更快"""
+    n = len(data)
+    cleaned_data = data.copy()
+    spikes = np.zeros(n, dtype=np.int32)
+    spike_count = 0
+    
+    for i in range(window_size, n - window_size):
+        # 构建窗口
+        window_data = np.concatenate((
+            data[i-window_size:i], 
+            data[i+1:i+window_size+1]
+        ))
+        
+        median = np.median(window_data)
+        abs_devs = np.abs(window_data - median)
+        mad = np.median(abs_devs)
+        
+        if mad > 1e-10:
+            z_score = 0.6745 * (data[i] - median) / mad
+            if np.abs(z_score) > threshold:
+                spikes[spike_count] = i
+                spike_count += 1
+                cleaned_data[i] = median
+    
+    return cleaned_data, spikes[:spike_count]
+
+@jit(nopython=True, cache=True)
+def hampel_filter_optimized(data: np.ndarray, window_size: int, threshold: float) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    内存访问优化的Numba版本
+    """
+    n = len(data)
+    cleaned_data = data.copy()
+    spikes = np.zeros(n, dtype=np.int32)
+    spike_count = 0
+    
+    # 预分配工作数组，避免重复分配
+    window_size_total = 2 * window_size
+    window_buffer = np.empty(window_size_total, dtype=data.dtype)
+    abs_devs_buffer = np.empty(window_size_total, dtype=data.dtype)
+    
+    for i in range(window_size, n - window_size):
+        # 高效填充窗口缓冲区
+        idx = 0
+        for j in range(i - window_size, i):
+            window_buffer[idx] = data[j]
+            idx += 1
+        for j in range(i + 1, i + window_size + 1):
+            window_buffer[idx] = data[j]
+            idx += 1
+        
+        # 快速排序计算中位数
+        window_buffer_sorted = np.sort(window_buffer)
+        
+        # 计算中位数
+        mid = window_size_total // 2
+        if window_size_total % 2 == 1:
+            median = window_buffer_sorted[mid]
+        else:
+            median = (window_buffer_sorted[mid - 1] + window_buffer_sorted[mid]) * 0.5
+        
+        # 计算绝对偏差
+        for j in range(window_size_total):
+            abs_devs_buffer[j] = abs(window_buffer[j] - median)
+        
+        # 排序计算MAD
+        abs_devs_sorted = np.sort(abs_devs_buffer)
+        
+        if window_size_total % 2 == 1:
+            mad = abs_devs_sorted[mid]
+        else:
+            mad = (abs_devs_sorted[mid - 1] + abs_devs_sorted[mid]) * 0.5
+        
+        # 检测奇异点
+        if mad > 1e-10:
+            z_score = 0.6745 * (data[i] - median) / mad
+            if abs(z_score) > threshold:
+                spikes[spike_count] = i
+                spike_count += 1
+                cleaned_data[i] = median
+    
+    return cleaned_data, spikes[:spike_count]
 
 class DataProcessor:
     """数据处理核心类"""
     
     def __init__(self, config):
         self.config = config
+
+        self._compilation_done = False
+        self._compilation_thread = None
+        
+        # 启动预编译
+        self._start_precompilation()
+
+
+    def _start_precompilation(self):
+        """在后台线程中启动预编译"""
+        def precompile():
+            try:
+                logger.info("开始预编译Numba函数...")
+                
+                # 使用典型数据进行预编译
+                typical_data = np.random.randn(1000).astype(np.float64)
+                
+                # 预编译常用参数组合
+                hampel_filter_precompiled(typical_data, 5, 3.0)
+                hampel_filter_simple(typical_data, 5, 3.0)
+                
+                self._compilation_done = True
+                logger.info("Numba函数预编译完成")
+                
+            except Exception as e:
+                logger.warning(f"预编译失败: {e}")
+        
+        self._compilation_thread = threading.Thread(target=precompile, daemon=True)
+        self._compilation_thread.start()
+    
+    def wait_for_compilation(self, timeout: float = 5.0):
+        """等待预编译完成（可选）"""
+        if self._compilation_thread and self._compilation_thread.is_alive():
+            self._compilation_thread.join(timeout=timeout)
 
     
     def smooth_data(self, 
@@ -259,109 +444,72 @@ class DataProcessor:
 
 
 
-
-    def remove_spikes_robust(self, data: np.ndarray, method: str = "Hampel", 
-                            window_size: int = 5, threshold: float = 3.0) -> Tuple[np.ndarray, List[int]]:
+    @timeit
+    def remove_spikes_robust(self, data: np.ndarray, window_size: int = 5, threshold: float = 3.0) -> Tuple[np.ndarray, List[int]]:
         """
-        使用稳健方法去除奇异点
-        
-        Args:
-            data: 输入数据
-            method: 检测方法 ("Hampel", "Z-score", "IQR")
-            threshold: 阈值（标准差倍数）
-            window_size: 窗口大小
-            
-        Returns:
-            Tuple[清理后的数据, 奇异点位置列表]
+        结合多种优化技术的最终版本
         """
-        if len(data) < window_size * 2 + 1:
+        n = len(data)
+        if n < 2 * window_size + 1:
             return data, []
         
-        spikes_detected = []
         cleaned_data = data.copy().astype(np.float64)
+        spikes_detected = []
         
-        for i in range(window_size, len(data) - window_size):
-            # 获取窗口数据（排除当前点）
-            window_indices = list(range(i - window_size, i)) + list(range(i + 1, i + window_size + 1))
-            window_data = data[window_indices]
+        # 使用更高效的窗口处理
+        total_window_size = 2 * window_size
+        
+        # 预计算基础索引
+        left_template = np.arange(-window_size, 0)
+        right_template = np.arange(1, window_size + 1)
+        
+        # 处理所有中心点
+        for i in range(window_size, n - window_size):
+            # 直接计算窗口索引，避免创建临时数组
+            left_start = i + left_template[0]
+            left_end = i + left_template[-1] + 1
+            right_start = i + right_template[0]
+            right_end = i + right_template[-1] + 1
             
-            if method == "Hampel":
-                # Hampel标识器：基于中位数绝对偏差（对异常值更鲁棒）
-                median = np.median(window_data)
-                mad = np.median(np.abs(window_data - median))
-                
-                if mad > 0:
-                    # 使用一致估计量缩放
-                    z_score = 0.6745 * (data[i] - median) / mad
-                    if abs(z_score) > threshold:
-                        spikes_detected.append(i)
-                        # 使用窗口的中位数代替奇异点
-                        cleaned_data[i] = median
-                        
-            elif method == "Z-score":
-                # 基于Z-score的方法（对高斯分布数据效果好）
-                mean = np.mean(window_data)
-                std = np.std(window_data)
-                
-                if std > 0:
-                    z_score = (data[i] - mean) / std
-                    if abs(z_score) > threshold:
-                        spikes_detected.append(i)
-                        cleaned_data[i] = mean
-                        
-            elif method == "IQR":
-                # 基于四分位距的方法（对偏态分布鲁棒）
-                q75, q25 = np.percentile(window_data, [75, 25])
-                iqr = q75 - q25
-                
-                if iqr > 0:
-                    lower_bound = q25 - threshold * iqr
-                    upper_bound = q75 + threshold * iqr
-                    
-                    if data[i] < lower_bound or data[i] > upper_bound:
-                        spikes_detected.append(i)
-                        cleaned_data[i] = np.median(window_data)
+            # 直接使用切片，避免concatenate
+            window_data = np.empty(total_window_size, dtype=data.dtype)
+            window_data[:window_size] = data[left_start:left_end]
+            window_data[window_size:] = data[right_start:right_end]
+            
+            # 快速计算中位数（部分排序）
+            sorted_window = np.partition(window_data, total_window_size // 2)
+            median = sorted_window[total_window_size // 2]
+            
+            # 如果数组长度是偶数，需要调整中位数
+            if total_window_size % 2 == 0:
+                median2 = np.partition(window_data, total_window_size // 2 - 1)[total_window_size // 2 - 1]
+                median = (median + median2) / 2.0
+            
+            # 计算MAD
+            abs_dev = np.abs(window_data - median)
+            sorted_abs_dev = np.partition(abs_dev, total_window_size // 2)
+            mad = sorted_abs_dev[total_window_size // 2]
+            
+            if mad > 1e-10:
+                z_score = 0.6745 * (data[i] - median) / mad
+                if abs(z_score) > threshold:
+                    spikes_detected.append(i)
+                    cleaned_data[i] = median
         
         return cleaned_data, spikes_detected
 
-    def remove_spikes_simple(self, data: np.ndarray, threshold_ratio: float = 2.0, 
-                            window_size: int = 5) -> np.ndarray:
+
+
+
+    @timeit
+    def remove_spikes_robust_final(self,data: np.ndarray, window_size: int = 5, threshold: float = 3.0) -> Tuple[np.ndarray, List[int]]:
         """
-        简单的奇异点去除方法
+        最终优化的Numba版本
+        """
+        if len(data) < 2 * window_size + 1:
+            return data, []
         
-        Args:
-            data: 输入数据
-            threshold_ratio: 阈值比例
-            window_size: 窗口大小
-            
-        Returns:
-            清理后的数据
-        """
-        try:
-            if len(data) < window_size * 2 + 1:
-                return data
-                
-            cleaned_data = data.copy().astype(np.float64)
-            
-            for i in range(window_size, len(data) - window_size):
-                # 获取周围数据
-                left_window = data[i - window_size:i]
-                right_window = data[i + 1:i + window_size + 1]
-                surrounding_data = np.concatenate([left_window, right_window])
-                
-                # 计算统计信息
-                surrounding_mean = np.mean(surrounding_data)
-                surrounding_std = np.std(surrounding_data)
-                
-                if surrounding_std > 0:
-                    z_score = abs(data[i] - surrounding_mean) / surrounding_std
-                    
-                    if z_score > threshold_ratio:
-                        # 使用中位数代替（对异常值更鲁棒）
-                        cleaned_data[i] = np.median(surrounding_data)
-            
-            return cleaned_data
-            
-        except Exception as e:
-            logger.error(f"去除奇异点时出错: {e}")
-            return data
+        data_float = data.astype(np.float64)
+        cleaned_data, spike_indices = hampel_filter_optimized(data_float, window_size, threshold)
+        
+        return cleaned_data, spike_indices.tolist()
