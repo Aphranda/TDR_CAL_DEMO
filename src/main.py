@@ -22,16 +22,36 @@ class ApplicationInitializer:
     
     def show_splash(self):
         """显示启动画面"""
-        pixmap = QPixmap("src\\resources\\init\\splash.png")  # 如果有启动图片
+        # 加载启动图片
+        pixmap = QPixmap("src\\resources\\init\\splash.png")
         if pixmap.isNull():
             # 如果没有图片，创建一个简单的启动画面
             pixmap = QPixmap(400, 300)
             pixmap.fill(Qt.white)
         
+        # 创建启动画面
         self.splash = QSplashScreen(pixmap)
+        
+        # 设置窗口标志，确保置于最上层且无边框
+        self.splash.setWindowFlags(
+            Qt.WindowStaysOnTopHint |  # 置于最上层
+            Qt.FramelessWindowHint     # 无边框
+        )
+        
+        # 设置样式表添加圆角效果
+        self.splash.setStyleSheet("""
+            QSplashScreen {
+                border: 2px solid #2b5b84;
+                border-radius: 15px;
+                background-color: transparent;
+            }
+        """)
+        
+        # 显示启动画面
         self.splash.show()
         self.splash.showMessage("正在初始化系统...", Qt.AlignBottom | Qt.AlignCenter, Qt.white)
         QApplication.processEvents()
+
     
     def initialize_components(self):
         """初始化各个组件"""

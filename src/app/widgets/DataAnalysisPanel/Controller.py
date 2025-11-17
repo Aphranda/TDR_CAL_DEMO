@@ -102,8 +102,8 @@ class DataAnalysisController(QObject):
                 return
 
             # 更新配置
-            self.model.adc_config.max_read_size_bytes = self.view.adc_max_read_size.value()*0.32+0.1
-
+            self.model.adc_config.max_read_size_bytes = self.view.adc_max_read_size.value()*0.32+0.32
+            
             # 禁用加载按钮，避免重复点击
             self.view.load_button.setEnabled(False)
             self.view.load_button.setText("加载中...")
@@ -558,7 +558,7 @@ class DataAnalysisController(QObject):
             config.roi_end_tenths = self.view.adc_roi_end.value()
             config.diff_points = self.view.adc_diff_points.value()
             config.average_points = self.view.adc_average_points.value()
-            config.max_read_size_mb = self.view.adc_max_read_size.value()*0.32+0.1  # 新增：获取最大读取大小
+            config.max_read_size_mb = self.view.adc_max_read_size.value()*0.32+0.32  # 新增：获取最大读取大小
             config.recursive = True
             config.use_signed18 = True
             config.cal_mode = self.view.cal_type_combo.currentText()
