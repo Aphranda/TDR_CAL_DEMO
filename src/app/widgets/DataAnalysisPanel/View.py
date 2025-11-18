@@ -16,12 +16,12 @@ class DataAnalysisView(QWidget):
         main_layout = QVBoxLayout()
         main_layout.setSpacing(8)
         main_layout.setContentsMargins(6, 6, 6, 6)
-        # 数据文件选择
-        file_group = QGroupBox("数据分析")
+        
+        # 文件载入部分
+        file_group = QGroupBox("文件载入")
         file_layout = QVBoxLayout()
         file_layout.setSpacing(6)
         file_layout.setContentsMargins(8, 12, 8, 12)
-        
         
         # 文件操作按钮
         file_control_layout = QHBoxLayout()
@@ -39,15 +39,18 @@ class DataAnalysisView(QWidget):
         self.file_list.setMaximumHeight(100)
         file_layout.addWidget(self.file_list)
         
-        # 分析类型选择
-        file_layout.addWidget(QLabel("分析类型:"))
-        self.analysis_combo = QComboBox()
-        self.analysis_combo.addItems(["ADC数据分析", "S参数", "TDR"])
-        file_layout.addWidget(self.analysis_combo)
+        file_group.setLayout(file_layout)
+        main_layout.addWidget(file_group)
         
-        # 分析选项堆叠窗口
-        self.options_stack = QStackedWidget()
-        file_layout.addWidget(self.options_stack)
+        # 分析设置部分
+        analysis_group = QGroupBox("分析设置")
+        analysis_layout = QVBoxLayout()
+        analysis_layout.setSpacing(6)
+        analysis_layout.setContentsMargins(8, 12, 8, 12)
+        
+        # 添加ADC数据分析选项
+        adc_analysis_widget = self.create_adc_analysis_options()
+        analysis_layout.addWidget(adc_analysis_widget)
         
         # 分析按钮
         button_layout = QHBoxLayout()
@@ -56,24 +59,14 @@ class DataAnalysisView(QWidget):
         self.export_button = QPushButton("导出结果")
         button_layout.addWidget(self.analyze_button)
         button_layout.addWidget(self.export_button)
-        file_layout.addLayout(button_layout)
+        analysis_layout.addLayout(button_layout)
         
-        file_group.setLayout(file_layout)
-        main_layout.addWidget(file_group)
-
-
-        # ADC数据分析选项
-        adc_analysis_widget = self.create_adc_analysis_options()
-        self.options_stack.addWidget(adc_analysis_widget)
-        
+        analysis_group.setLayout(analysis_layout)
+        main_layout.addWidget(analysis_group)
         
         self.setLayout(main_layout)
-        
-        # 初始显示ADC数据分析选项
-        self.options_stack.setCurrentIndex(2)
 
-
-
+    
     def create_adc_analysis_options(self):
         """创建ADC数据分析选项"""
         widget = QWidget()
@@ -103,14 +96,15 @@ class DataAnalysisView(QWidget):
         self.adc_trigger_freq.setMaximumWidth(250)
         trigger_layout.addWidget(self.adc_trigger_freq)
         layout.addLayout(trigger_layout)
+        
         # 新增：最大读取大小设置
         max_read_layout = QHBoxLayout()
         max_read_layout.setSpacing(4)
         max_read_layout.addWidget(QLabel("读取段数:"))
         self.adc_max_read_size = QSpinBox()
-        self.adc_max_read_size.setRange(1, 1000)  # 0.1 MB 到 1000 MB
-        self.adc_max_read_size.setValue(100)  # 默认1MB
-        self.adc_max_read_size.setSingleStep(1)  # 步进0.1MB
+        self.adc_max_read_size.setRange(1, 1000)
+        self.adc_max_read_size.setValue(100)
+        self.adc_max_read_size.setSingleStep(1)
         self.adc_max_read_size.setMaximumWidth(120)
         max_read_layout.addWidget(self.adc_max_read_size)
         
@@ -118,14 +112,14 @@ class DataAnalysisView(QWidget):
         max_read_layout.addWidget(QLabel("读取位数:"))
         self.adc_bit_width_combo = QComboBox()
         self.adc_bit_width_combo.addItems(["20", "18", "16", "14"])
-        self.adc_bit_width_combo.setCurrentText("20")  # 默认20位
+        self.adc_bit_width_combo.setCurrentText("20")
         self.adc_bit_width_combo.setToolTip("选择ADC数据的有效位数")
         self.adc_bit_width_combo.setMaximumWidth(100)
         max_read_layout.addWidget(self.adc_bit_width_combo)
         
         layout.addLayout(max_read_layout)
         
-        # ROI设置 - 修改为QDoubleSpinBox以支持0.1%步进
+        # ROI设置
         roi_layout = QHBoxLayout()
         roi_layout.setSpacing(4)
         roi_layout.addWidget(QLabel("ROI:"))
@@ -133,8 +127,8 @@ class DataAnalysisView(QWidget):
         self.adc_roi_start = QDoubleSpinBox()
         self.adc_roi_start.setRange(0.0, 100.0)
         self.adc_roi_start.setValue(24)
-        self.adc_roi_start.setSingleStep(0.1)  # 设置最小步进为0.1%
-        self.adc_roi_start.setDecimals(1)      # 设置小数位数为1位
+        self.adc_roi_start.setSingleStep(0.1)
+        self.adc_roi_start.setDecimals(1)
         self.adc_roi_start.setSuffix(" %")
         self.adc_roi_start.setMinimumWidth(100)
         self.adc_roi_start.setMaximumWidth(120)
@@ -143,8 +137,8 @@ class DataAnalysisView(QWidget):
         self.adc_roi_mid = QDoubleSpinBox()
         self.adc_roi_mid.setRange(0.0, 100.0)
         self.adc_roi_mid.setValue(25.0)
-        self.adc_roi_mid.setSingleStep(0.1)    # 设置最小步进为0.1%
-        self.adc_roi_mid.setDecimals(1)        # 设置小数位数为1位
+        self.adc_roi_mid.setSingleStep(0.1)
+        self.adc_roi_mid.setDecimals(1)
         self.adc_roi_mid.setSuffix(" %")
         self.adc_roi_mid.setMinimumWidth(100)
         self.adc_roi_mid.setMaximumWidth(120)
@@ -153,8 +147,8 @@ class DataAnalysisView(QWidget):
         self.adc_roi_end = QDoubleSpinBox()
         self.adc_roi_end.setRange(0.0, 100.0)
         self.adc_roi_end.setValue(26.0)
-        self.adc_roi_end.setSingleStep(0.1)    # 设置最小步进为0.1%
-        self.adc_roi_end.setDecimals(1)        # 设置小数位数为1位
+        self.adc_roi_end.setSingleStep(0.1)
+        self.adc_roi_end.setDecimals(1)
         self.adc_roi_end.setSuffix(" %")
         self.adc_roi_end.setMinimumWidth(100)
         self.adc_roi_end.setMaximumWidth(120)
@@ -178,19 +172,25 @@ class DataAnalysisView(QWidget):
         self.adc_average_points.setValue(1)
         grid_layout.addWidget(self.adc_average_points, 0, 3)
         
-        # 第二行：Mode 和 CAL
-        grid_layout.addWidget(QLabel("Mode:"), 1, 0)
-        self.search_method_combo = QComboBox()
-        self.search_method_combo.addItem("Raise", 1)
-        self.search_method_combo.addItem("MAX", 2)
-        self.search_method_combo.setCurrentIndex(0)
-        grid_layout.addWidget(self.search_method_combo, 1, 1)
+        # 第二行：AlignMode 和 AlignPos
+        grid_layout.addWidget(QLabel("AlignMode:"), 1, 0)
+        self.alignment_combo = QComboBox()
+        self.alignment_combo.addItems(["ADC1", "ADC2"])
+        self.alignment_combo.setCurrentText("ADC1")
+        self.alignment_combo.setToolTip("选择双通道重新对齐的参考通道")
+        self.alignment_combo.setMaximumWidth(120)
+        grid_layout.addWidget(self.alignment_combo, 1, 1)
         
-        grid_layout.addWidget(QLabel("CAL:"), 1, 2)
-        self.cal_type_combo = QComboBox()
-        self.cal_type_combo.addItems(["SHORT", "OPEN", "LOAD", "THRU"])
-        self.cal_type_combo.setCurrentIndex(0)
-        grid_layout.addWidget(self.cal_type_combo, 1, 3)
+        grid_layout.addWidget(QLabel("AlignPos:"), 1, 2)
+        self.align_pos_spin = QDoubleSpinBox()
+        self.align_pos_spin.setRange(0.0, 100.0)
+        self.align_pos_spin.setValue(25.0)  # 默认值25%
+        self.align_pos_spin.setSingleStep(0.1)
+        self.align_pos_spin.setDecimals(1)
+        self.align_pos_spin.setSuffix(" %")
+        self.align_pos_spin.setMaximumWidth(120)
+        self.align_pos_spin.setToolTip("设置对齐位置百分比")
+        grid_layout.addWidget(self.align_pos_spin, 1, 3)
         
         # 添加拉伸因子使控件均匀分布
         grid_layout.setColumnStretch(0, 1)
@@ -200,39 +200,12 @@ class DataAnalysisView(QWidget):
         
         layout.addLayout(grid_layout)
         
-        # 新增：对齐方式选择
-        alignment_layout = QHBoxLayout()
-        alignment_layout.setSpacing(4)
-        alignment_layout.addWidget(QLabel("对齐方式:"))
-        self.alignment_combo = QComboBox()
-        self.alignment_combo.addItems(["ADC1", "ADC2"])
-        self.alignment_combo.setCurrentText("ADC1")  # 默认使用ADC1对齐
-        self.alignment_combo.setToolTip("选择双通道重新对齐的参考通道")
-        self.alignment_combo.setMaximumWidth(120)
-        alignment_layout.addWidget(self.alignment_combo)
-        
-        # 添加拉伸使对齐方式控件靠左
-        alignment_layout.addStretch(1)
-        layout.addLayout(alignment_layout)
-        
         widget.setLayout(layout)
         return widget
 
     def get_alignment_reference(self) -> str:
         """获取对齐参考通道"""
         return self.alignment_combo.currentText().lower()
-    
-    def show_s_parameter_options(self):
-        """显示S参数选项"""
-        self.options_stack.setCurrentIndex(0)
-    
-    def show_tdr_options(self):
-        """显示TDR选项"""
-        self.options_stack.setCurrentIndex(1)
-    
-    def show_adc_analysis_options(self):
-        """显示ADC数据分析选项"""
-        self.options_stack.setCurrentIndex(2)
 
     def get_selected_bit_width(self) -> int:
         """获取选中的读取位数"""
@@ -246,5 +219,3 @@ class DataAnalysisView(QWidget):
         elif bit_width_text == "14":
             return 14
         return 20  # 默认返回20位
-
-    

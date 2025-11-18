@@ -44,8 +44,6 @@ class DataAnalysisController(QObject):
         self.view.clear_button.clicked.connect(self.on_clear_files)
         self.view.clear_plot.clicked.connect(self.on_clear_plots)  # 新增：连接清除绘图按钮
       
-        # 分析类型变化
-        self.view.analysis_combo.currentTextChanged.connect(self.on_analysis_type_changed)
       
         # 分析按钮
         self.view.analyze_button.clicked.connect(self.on_analyze)
@@ -478,19 +476,6 @@ class DataAnalysisController(QObject):
         self.log_message(msg, "INFO")
 
   
-    def on_analysis_type_changed(self, analysis_type):
-        """分析类型变化"""
-        self.model.analysis_type = analysis_type
-      
-        # 根据分析类型更新界面
-        if analysis_type == "ADC数据分析":
-            self.view.show_adc_analysis_options()
-        elif analysis_type == "S参数":
-            self.view.show_s_parameter_options()
-        elif analysis_type == "TDR":
-            self.view.show_tdr_options()
-      
-        self.log_message(f"分析类型已更改为: {analysis_type}", "INFO")
   
     def on_file_selected(self, row):
         """文件选择变化"""
@@ -519,26 +504,6 @@ class DataAnalysisController(QObject):
             self.log_message(error_msg, "WARNING")
             return
       
-        try:
-            self.analysisStarted.emit(self.model.analysis_type)
-            self.log_message(f"开始{self.model.analysis_type}分析", "INFO")
-          
-            # 根据分析类型执行不同的分析
-            if self.model.analysis_type == "S参数":
-                results = self.analyze_s_parameters()
-            elif self.model.analysis_type == "TDR":
-                results = self.analyze_tdr()
-            else:
-                results = {}
-          
-            self.model.results = results
-            self.analysisCompleted.emit(results)
-          
-        except Exception as e:
-            error_msg = f"分析失败: {str(e)}"
-            self.errorOccurred.emit(error_msg)
-            self.log_message(error_msg, "ERROR")
-  
 
     def analyze_adc_data(self):
         """执行ADC数据分析"""
@@ -561,11 +526,12 @@ class DataAnalysisController(QObject):
             config.max_read_size_mb = self.view.adc_max_read_size.value()*0.32+0.32  # 新增：获取最大读取大小
             config.recursive = True
             config.use_signed18 = True
-            config.cal_mode = self.view.cal_type_combo.currentText()
+            
             config.adc_bit = self.view.get_selected_bit_width()
             self.log_message(f"校准模式:{config.cal_mode}", "DEBUG")
-            # 获取SearchMethod的值
-            config.search_method = self.view.search_method_combo.currentData()
+            # 校准模式和搜索模式固定
+            config.cal_mode = 'THRU'
+            config.search_method = 1
            
             adc1_count = len(self.model.data_files['adc1'])
             adc2_count = len(self.model.data_files['adc2'])
@@ -587,6 +553,10 @@ class DataAnalysisController(QObject):
             
             # 获取对齐方式
             alignment_reference = self.view.get_alignment_reference()
+
+            # 新增：获取AlignPos值
+            config.align_pos = int(100/self.view.align_pos_spin.value())
+
             self.log_message(f"使用对齐参考: {alignment_reference.upper()}", "INFO")
         
             self.analysisStarted.emit("ADC数据分析")

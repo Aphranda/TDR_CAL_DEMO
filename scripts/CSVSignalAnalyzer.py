@@ -45,7 +45,7 @@ class SimpleCSVPlotter:
         ttk.Label(options_frame, text="标题:").grid(row=0, column=0, sticky=tk.W, padx=5)
         self.title_entry = ttk.Entry(options_frame, width=30)
         self.title_entry.grid(row=0, column=1, padx=5)
-        self.title_entry.insert(0, "CSV数据图")
+        self.title_entry.insert(0, "CSV Simple Data")
         
         ttk.Label(options_frame, text="X轴标签:").grid(row=1, column=0, sticky=tk.W, padx=5)
         self.xlabel_entry = ttk.Entry(options_frame, width=30)

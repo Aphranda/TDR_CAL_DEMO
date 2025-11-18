@@ -17,7 +17,7 @@ class ADCProcessWorker(QObject):
     log_message = pyqtSignal(str, str)
     
     def __init__(self, file_dict: Dict[str, List[Dict]], config: AnalysisConfig, 
-                 batch_size: int = 10, alignment_reference: str = 'adc2'):
+                 batch_size: int = 10, alignment_reference: str = 'adc1'):
         super().__init__()
         self.file_dict = file_dict
         self.config = config

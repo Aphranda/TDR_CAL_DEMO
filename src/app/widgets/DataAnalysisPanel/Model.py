@@ -33,6 +33,7 @@ class ADCConfig:
     max_read_size_mb: float = 1.0  # 新增：最大读取大小，单位MB
     debug_mode: bool = True
     adc_bit: int = 20
+    align_pos: int= 2
     adc_mode: ADCMode = ADCMode.ADC1_ONLY  # 默认采集adc1
 
     @property
