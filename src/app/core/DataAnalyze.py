@@ -259,7 +259,7 @@ class DataAnalyzer:
             elif self.config.adc_mode == ADCMode.BOTH_ADCS:
                 # 双通道模式：ADC1进行对齐，ADC2使用ADC1的边沿位置但不进行对齐
                 if adc1_data is not None:
-                    adc1_basic_result = self.extract_basic_segment(adc1_data, file_index, adc1_target_idx, do_alignment=True)
+                    adc1_basic_result = self.extract_basic_segment(adc1_data, file_index, adc1_target_idx, do_alignment=False)
                     
                     # 如果未提供目标对齐位置且ADC1处理成功，提取其边沿位置供ADC2使用
                     if target_idx is None and adc1_basic_result is not None:

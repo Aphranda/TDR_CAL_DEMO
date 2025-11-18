@@ -444,7 +444,7 @@ class DataProcessor:
 
 
 
-    @timeit
+    # @timeit
     def remove_spikes_robust(self, data: np.ndarray, window_size: int = 5, threshold: float = 3.0) -> Tuple[np.ndarray, List[int]]:
         """
         结合多种优化技术的最终版本
@@ -501,7 +501,7 @@ class DataProcessor:
 
 
 
-    @timeit
+    # @timeit
     def remove_spikes_robust_final(self,data: np.ndarray, window_size: int = 5, threshold: float = 3.0) -> Tuple[np.ndarray, List[int]]:
         """
         最终优化的Numba版本
