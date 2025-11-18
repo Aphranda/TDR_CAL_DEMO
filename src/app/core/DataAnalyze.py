@@ -339,7 +339,7 @@ class DataAnalyzer:
             # 数据对齐
             if do_alignment and rise_pos is not None:
                 alignment_idx = self.config.n_points // self.config.align_pos
-                print('AlignPos:',self.config.align_pos)
+                
                 y_full_aligned = self.data_processor.align_data(y_full_avg, rise_pos, alignment_idx)
                 logger.debug(f"数据对齐完成，从位置 {rise_pos} 对齐到 {alignment_idx}")
             else:
@@ -430,7 +430,7 @@ class DataAnalyzer:
                 else:
                     # 两个通道都没有边沿，则使用默认位置
                     target_rise_pos = self.config.n_points // self.config.align_pos
-                    print('AlignPos:',self.config.align_pos)
+                    
                     logger.warning(f"两个通道都未找到边沿，使用默认位置: {target_rise_pos}")
             
             # 步骤3：使用目标边沿位置重新处理两个通道

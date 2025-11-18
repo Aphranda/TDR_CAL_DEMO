@@ -1,17 +1,17 @@
 # src/app/threads/DataSaverWorker.py
 import os
 import time
-import logging
 from PyQt5.QtCore import QObject, pyqtSignal, pyqtSlot, QThread, QMutex, QWaitCondition
 from app.core.FileManager import FileManager
 
-logger = logging.getLogger(__name__)
-
 class DataSaverWorker(QObject):
-    """异步数据保存工作线程"""
+    """异步数据保存工作线程 - 使用log_message信号"""
+    
     finished = pyqtSignal()
     dataSaved = pyqtSignal(str, str)
     errorOccurred = pyqtSignal(str)
+    # 新增：日志信号
+    log_message = pyqtSignal(str, str)  # (message, level)
     
     def __init__(self, max_queue_size=10):
         super().__init__()
@@ -42,8 +42,6 @@ class DataSaverWorker(QObject):
         """获取已完成任务数量"""
         return self.completed_tasks
     
-
-
     def add_save_task(self, data_dict, sample_index, output_dir, filename_prefix, data_type="uint32"):
         """添加保存任务到队列 - 支持数据类型"""
         if not self.running:
@@ -69,21 +67,21 @@ class DataSaverWorker(QObject):
             self.total_tasks += 1
             self.condition.wakeAll()
             
-            logger.debug(f"添加保存任务到队列，数据类型: {data_type}, 当前队列大小: {len(self.save_queue)}")
+            self.log_message.emit(f"添加保存任务到队列，数据类型: {data_type}, 当前队列大小: {len(self.save_queue)}", "DEBUG")
             return True
             
         except Exception as e:
-            logger.error(f"添加保存任务失败: {str(e)}")
+            error_msg = f"添加保存任务失败: {str(e)}"
+            self.log_message.emit(error_msg, "ERROR")
             return False
         finally:
             self.mutex.unlock()
 
-    
     @pyqtSlot()
     def run(self):
         """运行保存线程"""
         self.running = True
-        logger.info("数据保存线程开始运行")
+        self.log_message.emit("数据保存线程开始运行", "INFO")
         
         while self.running or self.save_queue:
             self.mutex.lock()
@@ -109,18 +107,17 @@ class DataSaverWorker(QObject):
                 )
                 if success:
                     self.completed_tasks += 1
+                    self.log_message.emit(f"保存任务完成，已完成 {self.completed_tasks} 个任务", "DEBUG")
                     
             except Exception as e:
                 error_msg = f"保存数据失败: {str(e)}"
-                logger.error(error_msg)
+                self.log_message.emit(error_msg, "ERROR")
                 self.errorOccurred.emit(error_msg)
         
-        logger.info("数据保存线程结束运行")
+        self.log_message.emit("数据保存线程结束运行", "INFO")
         self.finished.emit()
-    
 
-
-    def _save_data(self, data_dict, sample_index, output_dir, filename_prefix, data_type="uint32"):  # 新增data_type参数
+    def _save_data(self, data_dict, sample_index, output_dir, filename_prefix, data_type="uint32"):
         """执行数据保存 - 支持数据类型标识"""
         try:
             # 确保输出目录存在
@@ -154,40 +151,48 @@ class DataSaverWorker(QObject):
                                 np.array(data, dtype=np.float64).tofile(filepath)
                         else:
                             error_msg = f"不支持的数据类型: {data_type}"
-                            logger.error(error_msg)
+                            self.log_message.emit(error_msg, "ERROR")
                             self.errorOccurred.emit(error_msg)
                             continue
                         
                         file_size = os.path.getsize(filepath)
-                        logger.debug(f"数据已保存: {filename} ({file_size} 字节), 数据类型: {data_type}")
+                        self.log_message.emit(f"数据已保存: {filename} ({file_size} 字节), 数据类型: {data_type}", "DEBUG")
                         self.dataSaved.emit(filepath, f"数据已保存: {filename} (类型: {data_type})")
                         success_count += 1
                         
                     except Exception as e:
                         error_msg = f"保存文件 {filename} 失败: {str(e)}"
-                        logger.error(error_msg)
+                        self.log_message.emit(error_msg, "ERROR")
                         self.errorOccurred.emit(error_msg)
             
-            return success_count > 0
+            if success_count > 0:
+                self.log_message.emit(f"成功保存 {success_count} 个数据文件", "INFO")
+                return True
+            else:
+                self.log_message.emit("没有成功保存任何数据文件", "WARNING")
+                return False
             
         except Exception as e:
             error_msg = f"保存数据过程中发生错误: {str(e)}"
-            logger.error(error_msg)
+            self.log_message.emit(error_msg, "ERROR")
             self.errorOccurred.emit(error_msg)
             return False
 
-    
     def stop(self):
         """停止保存线程"""
-        logger.info("停止数据保存线程...")
+        self.log_message.emit("停止数据保存线程...", "INFO")
         self.running = False
         self.condition.wakeAll()
     
     def clear_queue(self):
         """清空任务队列"""
         self.mutex.lock()
+        queue_size = len(self.save_queue)
         self.save_queue.clear()
         self.mutex.unlock()
+        
+        if queue_size > 0:
+            self.log_message.emit(f"已清空任务队列，移除 {queue_size} 个待处理任务", "INFO")
     
     def get_queue_info(self):
         """获取队列信息"""

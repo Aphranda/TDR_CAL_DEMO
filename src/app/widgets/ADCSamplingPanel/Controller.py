@@ -193,13 +193,16 @@ class ADCSamplingController(QObject):
         self.adc_thread.started.connect(self.adc_worker.run)
         self.adc_worker.samplingProgress.connect(self.samplingProgress)
         self.adc_worker.savingProgress.connect(self.savingProgress)
+
+        self.adc_worker.sampleData.connect(self.on_sample_data_received)
+        self.adc_worker.dataSaved.connect(self.dataSaved)
+        self.adc_worker.saveError.connect(lambda msg: self.errorOccurred.emit(msg))
+        self.adc_worker.log_message.connect(self.log_message)
+
         self.adc_worker.finished.connect(self.on_sampling_finished)
         self.adc_worker.finished.connect(self.adc_thread.quit)
         self.adc_worker.finished.connect(self.adc_worker.deleteLater)
         self.adc_thread.finished.connect(self.adc_thread.deleteLater)
-        self.adc_worker.sampleData.connect(self.on_sample_data_received)
-        self.adc_worker.dataSaved.connect(self.dataSaved)
-        self.adc_worker.saveError.connect(lambda msg: self.errorOccurred.emit(msg))
         
         # 启动线程
         self.adc_thread.start()
@@ -250,9 +253,6 @@ class ADCSamplingController(QObject):
         processed_data = self._process_data_stream(sample_data)
         self.model.add_adc_sample(processed_data)
         
-        msg = f"接收到采样数据，大小: {getattr(sample_data, 'size', len(sample_data))}"
-        self.dataLoaded.emit(msg)
-        self.log_message(msg, "INFO")
 
     def _process_data_stream(self, data):
         """使用生成器处理数据流"""
