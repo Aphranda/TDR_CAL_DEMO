@@ -61,14 +61,7 @@ class DataAnalysisView(QWidget):
         file_group.setLayout(file_layout)
         main_layout.addWidget(file_group)
 
-        # S参数选项
-        s_param_widget = self.create_s_parameter_options()
-        self.options_stack.addWidget(s_param_widget)
-        
-        # TDR选项
-        tdr_widget = self.create_tdr_options()
-        self.options_stack.addWidget(tdr_widget)
-        
+
         # ADC数据分析选项
         adc_analysis_widget = self.create_adc_analysis_options()
         self.options_stack.addWidget(adc_analysis_widget)
@@ -80,106 +73,6 @@ class DataAnalysisView(QWidget):
         self.options_stack.setCurrentIndex(2)
 
 
-    def create_s_parameter_options(self):
-        """创建S参数选项"""
-        widget = QWidget()
-        layout = QVBoxLayout()
-        layout.setSpacing(6)
-        layout.setContentsMargins(0, 0, 0, 0)
-        
-        # 频率范围设置
-        freq_layout = QHBoxLayout()
-        freq_layout.setSpacing(4)
-        freq_layout.addWidget(QLabel("起始频率:"))
-        self.s_start_freq = QDoubleSpinBox()
-        self.s_start_freq.setRange(0.1, 50.0)
-        self.s_start_freq.setValue(0.1)
-        self.s_start_freq.setSuffix(" GHz")
-        self.s_start_freq.setMaximumWidth(100)
-        freq_layout.addWidget(self.s_start_freq)
-        
-        freq_layout.addWidget(QLabel("终止频率:"))
-        self.s_stop_freq = QDoubleSpinBox()
-        self.s_stop_freq.setRange(0.1, 50.0)
-        self.s_stop_freq.setValue(10.0)
-        self.s_stop_freq.setSuffix(" GHz")
-        self.s_stop_freq.setMaximumWidth(100)
-        freq_layout.addWidget(self.s_stop_freq)
-        layout.addLayout(freq_layout)
-        
-        # 点数设置
-        points_layout = QHBoxLayout()
-        points_layout.setSpacing(4)
-        points_layout.addWidget(QLabel("扫描点数:"))
-        self.s_points = QSpinBox()
-        self.s_points.setRange(101, 10001)
-        self.s_points.setValue(201)
-        self.s_points.setMaximumWidth(80)
-        points_layout.addWidget(self.s_points)
-        
-        points_layout.addStretch()
-        
-        # 添加IF带宽设置
-        points_layout.addWidget(QLabel("IF带宽:"))
-        self.s_if_bw = QDoubleSpinBox()
-        self.s_if_bw.setRange(1.0, 10000.0)
-        self.s_if_bw.setValue(1000.0)
-        self.s_if_bw.setSuffix(" Hz")
-        self.s_if_bw.setMaximumWidth(80)
-        points_layout.addWidget(self.s_if_bw)
-        
-        layout.addLayout(points_layout)
-        
-        # 校准设置
-        cal_layout = QHBoxLayout()
-        cal_layout.setSpacing(4)
-        self.s_use_calibration = QCheckBox("使用校准文件")
-        self.s_use_calibration.setChecked(True)
-        cal_layout.addWidget(self.s_use_calibration)
-        
-        self.s_cal_file_button = QPushButton("选择校准文件")
-        self.s_cal_file_button.setMaximumWidth(100)
-        cal_layout.addWidget(self.s_cal_file_button)
-        
-        layout.addLayout(cal_layout)
-        
-        widget.setLayout(layout)
-        return widget
-    
-    def create_tdr_options(self):
-        """创建TDR选项"""
-        widget = QWidget()
-        layout = QVBoxLayout()
-        layout.setSpacing(6)
-        layout.setContentsMargins(0, 0, 0, 0)
-        
-        # 时间范围设置
-        time_layout = QHBoxLayout()
-        time_layout.setSpacing(4)
-        time_layout.addWidget(QLabel("时间范围:"))
-        self.tdr_time_range = QDoubleSpinBox()
-        self.tdr_time_range.setRange(1.0, 1000.0)
-        self.tdr_time_range.setValue(10.0)
-        self.tdr_time_range.setSuffix(" ns")
-        self.tdr_time_range.setMaximumWidth(100)
-        time_layout.addWidget(self.tdr_time_range)
-        layout.addLayout(time_layout)
-        
-        # 阻抗设置
-        imp_layout = QHBoxLayout()
-        imp_layout.setSpacing(4)
-        imp_layout.addWidget(QLabel("参考阻抗:"))
-        self.tdr_ref_impedance = QDoubleSpinBox()
-        self.tdr_ref_impedance.setRange(1.0, 1000.0)
-        self.tdr_ref_impedance.setValue(50.0)
-        self.tdr_ref_impedance.setSuffix(" Ω")
-        self.tdr_ref_impedance.setMaximumWidth(100)
-        imp_layout.addWidget(self.tdr_ref_impedance)
-        layout.addLayout(imp_layout)
-        
-        widget.setLayout(layout)
-        return widget
-    
 
     def create_adc_analysis_options(self):
         """创建ADC数据分析选项"""
@@ -210,7 +103,6 @@ class DataAnalysisView(QWidget):
         self.adc_trigger_freq.setMaximumWidth(250)
         trigger_layout.addWidget(self.adc_trigger_freq)
         layout.addLayout(trigger_layout)
-
         # 新增：最大读取大小设置
         max_read_layout = QHBoxLayout()
         max_read_layout.setSpacing(4)
@@ -230,7 +122,6 @@ class DataAnalysisView(QWidget):
         self.adc_bit_width_combo.setToolTip("选择ADC数据的有效位数")
         self.adc_bit_width_combo.setMaximumWidth(100)
         max_read_layout.addWidget(self.adc_bit_width_combo)
-        
         
         layout.addLayout(max_read_layout)
         
@@ -309,9 +200,27 @@ class DataAnalysisView(QWidget):
         
         layout.addLayout(grid_layout)
         
+        # 新增：对齐方式选择
+        alignment_layout = QHBoxLayout()
+        alignment_layout.setSpacing(4)
+        alignment_layout.addWidget(QLabel("对齐方式:"))
+        self.alignment_combo = QComboBox()
+        self.alignment_combo.addItems(["ADC1", "ADC2"])
+        self.alignment_combo.setCurrentText("ADC1")  # 默认使用ADC1对齐
+        self.alignment_combo.setToolTip("选择双通道重新对齐的参考通道")
+        self.alignment_combo.setMaximumWidth(120)
+        alignment_layout.addWidget(self.alignment_combo)
+        
+        # 添加拉伸使对齐方式控件靠左
+        alignment_layout.addStretch(1)
+        layout.addLayout(alignment_layout)
+        
         widget.setLayout(layout)
         return widget
 
+    def get_alignment_reference(self) -> str:
+        """获取对齐参考通道"""
+        return self.alignment_combo.currentText().lower()
     
     def show_s_parameter_options(self):
         """显示S参数选项"""

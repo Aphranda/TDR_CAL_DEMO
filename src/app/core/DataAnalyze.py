@@ -135,7 +135,7 @@ class DataAnalyzer:
             # 6. 数据对齐 - 根据do_alignment参数决定是否进行对齐
             if do_alignment:
                 # ADC1进行数据对齐
-                alignment_idx = self.config.n_points // 4
+                alignment_idx = self.config.n_points // 2
                 y_full = self.data_processor.align_data(y_sorted, rise_pos, alignment_idx)
             else:
                 # ADC2不进行数据对齐，直接使用排序后的数据
@@ -303,6 +303,156 @@ class DataAnalyzer:
             # 统一异常处理：记录详细错误信息但不中断整体流程
             logger.error(f"处理文件索引 {file_index} 时出错: {e}")
             return None
+
+
+    def process_averaged_data(self, y_full_avg: np.ndarray, target_idx: Optional[int] = None, 
+                            do_alignment: bool = True) -> Optional[Dict[str, Any]]:
+        """
+        处理平均后的时域数据，进行边沿搜索、对齐和频谱分析
+        
+        Args:
+            y_full_avg: 平均后的时域数据
+            target_idx: 目标对齐位置，如果提供则跳过边沿搜索直接使用此位置对齐
+            do_alignment: 是否进行数据对齐
+            
+        Returns:
+            处理结果字典或None
+        """
+        try:
+            # 输入验证
+            if y_full_avg is None or len(y_full_avg) == 0:
+                logger.error("平均数据为空")
+                return None
+            
+            # 如果未提供target_idx，则搜索边沿
+            if target_idx is None:
+                # 搜索边沿位置
+                rise_pos = self.edge_detector.find_rise_position(
+                    y_full_avg, self.config.search_method, np.mean(y_full_avg), self.config.min_edge_amplitude_ratio
+                )
+                logger.debug(f"平均数据边沿搜索位置: {rise_pos}")
+            else:
+                rise_pos = target_idx
+                logger.debug(f"使用指定边沿位置: {rise_pos}")
+            
+            # 数据对齐
+            if do_alignment and rise_pos is not None:
+                alignment_idx = self.config.n_points // 2
+                y_full_aligned = self.data_processor.align_data(y_full_avg, rise_pos, alignment_idx)
+                logger.debug(f"数据对齐完成，从位置 {rise_pos} 对齐到 {alignment_idx}")
+            else:
+                y_full_aligned = y_full_avg
+                logger.debug("跳过数据对齐")
+            
+            # 提取ROI
+            y_roi = self.data_processor.extract_roi(y_full_aligned, self.config.roi_start, self.config.roi_end)
+            
+            # 计算频谱
+            freq, mag_linear, _ = self.data_processor.compute_spectrum(y_roi, self.config.ts_eff)
+            
+            # 计算差分
+            y_full_diff = self.data_processor.compute_difference(y_full_aligned, self.config.diff_points)
+            y_full_diff = self.data_processor.smooth_data(y_full_diff, self.config.average_points)
+            
+            y_diff = self.data_processor.compute_difference(y_roi, self.config.diff_points)
+            y_diff = self.data_processor.smooth_data(y_diff, self.config.average_points)
+            
+            # 计算差分频谱
+            freq_d, mag_linear_d, Xd_norm = self.data_processor.compute_spectrum(y_diff, self.config.ts_eff)
+            
+            return {
+                'y_full': y_full_aligned,
+                'y_roi': y_roi,
+                'freq': freq,
+                'mag_linear': mag_linear,
+                'y_diff': y_diff,
+                'y_full_diff': y_full_diff,
+                'freq_d': freq_d,
+                'mag_linear_d': mag_linear_d,
+                'Xd_norm': Xd_norm,
+                'rise_pos': rise_pos
+            }
+            
+        except Exception as e:
+            logger.error(f"处理平均数据时出错: {e}")
+            return None
+        
+    def realign_dual_channel_averages(self, adc1_y_full_avg: Optional[np.ndarray], 
+                                    adc2_y_full_avg: Optional[np.ndarray],
+                                    alignment_reference: str = 'adc1') -> Tuple[Optional[Dict], Optional[Dict]]:
+        """
+        双通道重新对齐和频谱分析
+        
+        Args:
+            adc1_y_full_avg: ADC1平均时域数据
+            adc2_y_full_avg: ADC2平均时域数据
+            alignment_reference: 对齐参考通道 ('adc1' 或 'adc2')
+            
+        Returns:
+            (adc1_result, adc2_result) 重新对齐后的结果
+        """
+        try:
+            # 检查输入数据
+            if adc1_y_full_avg is None and adc2_y_full_avg is None:
+                logger.warning("双通道数据都为空，跳过重新对齐")
+                return None, None
+            
+            # 步骤1：获取各通道的边沿位置
+            adc1_edges = None
+            adc2_edges = None
+            
+            if adc1_y_full_avg is not None:
+                adc1_result = self.process_averaged_data(adc1_y_full_avg, target_idx=None, do_alignment=False)
+                adc1_edges = adc1_result['rise_pos'] if adc1_result else None
+            
+            if adc2_y_full_avg is not None:
+                adc2_result = self.process_averaged_data(adc2_y_full_avg, target_idx=None, do_alignment=False)
+                adc2_edges = adc2_result['rise_pos'] if adc2_result else None
+            
+            # 步骤2：选择目标边沿位置
+            target_rise_pos = None
+            if alignment_reference == 'adc1' and adc1_edges is not None:
+                target_rise_pos = adc1_edges
+                logger.info(f"使用ADC1边沿位置作为参考: {target_rise_pos}")
+            elif alignment_reference == 'adc2' and adc2_edges is not None:
+                target_rise_pos = adc2_edges
+                logger.info(f"使用ADC2边沿位置作为参考: {target_rise_pos}")
+            else:
+                # 如果参考通道没有数据，则使用另一个通道
+                if adc1_edges is not None:
+                    target_rise_pos = adc1_edges
+                    logger.info(f"参考通道无数据，使用ADC1边沿位置: {target_rise_pos}")
+                elif adc2_edges is not None:
+                    target_rise_pos = adc2_edges
+                    logger.info(f"参考通道无数据，使用ADC2边沿位置: {target_rise_pos}")
+                else:
+                    # 两个通道都没有边沿，则使用默认位置
+                    target_rise_pos = self.config.n_points // 2
+                    logger.warning(f"两个通道都未找到边沿，使用默认位置: {target_rise_pos}")
+            
+            # 步骤3：使用目标边沿位置重新处理两个通道
+            adc1_final_result = None
+            adc2_final_result = None
+            
+            if adc1_y_full_avg is not None:
+                adc1_final_result = self.process_averaged_data(
+                    adc1_y_full_avg, target_idx=target_rise_pos, do_alignment=True
+                )
+                if adc1_final_result:
+                    logger.info(f"ADC1重新对齐完成，边沿位置: {target_rise_pos}")
+            
+            if adc2_y_full_avg is not None:
+                adc2_final_result = self.process_averaged_data(
+                    adc2_y_full_avg, target_idx=target_rise_pos, do_alignment=True
+                )
+                if adc2_final_result:
+                    logger.info(f"ADC2重新对齐完成，边沿位置: {target_rise_pos}")
+            
+            return adc1_final_result, adc2_final_result
+            
+        except Exception as e:
+            logger.error(f"双通道重新对齐失败: {e}")
+            return None, None
 
     def _update_channel_results(self, channel_results: Dict[str, Any], res: Dict[str, Any]):
         """更新通道结果"""

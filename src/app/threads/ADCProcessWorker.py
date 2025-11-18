@@ -1,31 +1,28 @@
 # src/app/threads/ADCProcessWorker.py
-
 import os
 import gc
 import numpy as np
 from PyQt5.QtCore import QObject, pyqtSignal, pyqtSlot
 from typing import Optional, Tuple, Dict, Any, List
-
 from app.core.DataAnalyze import DataAnalyzer, AnalysisConfig
-
 from app.core.DataCacheManager import DataCacheManager
 from app.core.ConfigManager import ADCMode
 from app.core.PerformanceMonitor import timeit, performance_monitor
-
-
 class ADCProcessWorker(QObject):
-    """ADC数据处理工作线程 - 使用分批加载和内存管理优化"""
+    """ADC数据处理工作线程 - 支持双通道重新对齐"""
     
     progress = pyqtSignal(int, int, str)
     finished = pyqtSignal(dict, dict)
     error = pyqtSignal(str)
     log_message = pyqtSignal(str, str)
     
-    def __init__(self, file_dict: Dict[str, List[Dict]], config: AnalysisConfig, batch_size: int = 10):
+    def __init__(self, file_dict: Dict[str, List[Dict]], config: AnalysisConfig, 
+                 batch_size: int = 10, alignment_reference: str = 'adc2'):
         super().__init__()
         self.file_dict = file_dict
         self.config = config
         self.batch_size = batch_size
+        self.alignment_reference = alignment_reference
         self.analyzer = DataAnalyzer(config)
         self.cache_manager = DataCacheManager(batch_size=batch_size)
         self.running = False
@@ -38,10 +35,9 @@ class ADCProcessWorker(QObject):
         adc1_count = len(file_dict.get('adc1', []))
         adc2_count = len(file_dict.get('adc2', []))
         self.setObjectName(f"双通道数据分析线程_ADC1:{adc1_count}_ADC2:{adc2_count}_批次:{batch_size}")
-
     @pyqtSlot()
     def run(self):
-        """执行ADC数据处理 - 分批加载版本"""
+        """执行ADC数据处理 - 支持双通道重新对齐"""
         self.running = True
         self._should_stop = False
         
@@ -98,11 +94,17 @@ class ADCProcessWorker(QObject):
                 self.log_message.emit("处理被用户中断", "WARNING")
                 return
             
-            # 第三步：计算平均值和边沿分析
+            # 第三步：计算平均值
             if self.final_results['success_count'] == 0:
                 raise RuntimeError("没有数据段成功处理")
             
             averages = self._calculate_averages()
+            
+            # 第四步：双通道重新对齐和频谱分析
+            if self.config.adc_mode == ADCMode.BOTH_ADCS:
+                averages = self._perform_realignment_and_spectrum(averages)
+            
+            # 第五步：边沿分析
             self._perform_edge_analysis(averages)
             
             # 发送完成信号
@@ -112,7 +114,75 @@ class ADCProcessWorker(QObject):
             self._handle_error(e)
         finally:
             self._cleanup()
-
+    def _perform_realignment_and_spectrum(self, averages: Dict[str, Any]) -> Dict[str, Any]:
+        """执行双通道重新对齐和频谱分析"""
+        self.log_message.emit("进行双通道重新对齐和频谱分析...", "INFO")
+        
+        try:
+            # 检查两个通道是否都有数据
+            adc1_y_full_avg = averages.get('adc1', {}).get('y_full_avg')
+            adc2_y_full_avg = averages.get('adc2', {}).get('y_full_avg')
+            
+            if adc1_y_full_avg is None and adc2_y_full_avg is None:
+                self.log_message.emit("双通道数据都为空，跳过重新对齐", "WARNING")
+                return averages
+            
+            self.log_message.emit(f"使用 {self.alignment_reference.upper()} 作为对齐参考", "INFO")
+            
+            # 调用DataAnalyzer的双通道重新对齐方法
+            adc1_result, adc2_result = self.analyzer.realign_dual_channel_averages(
+                adc1_y_full_avg, adc2_y_full_avg, self.alignment_reference
+            )
+            
+            # 更新averages字典
+            if adc1_result is not None and 'adc1' in averages:
+                self._update_averages_with_realigned_data(averages['adc1'], adc1_result, 'ADC1')
+                self.log_message.emit("ADC1重新对齐完成", "INFO")
+            
+            if adc2_result is not None and 'adc2' in averages:
+                self._update_averages_with_realigned_data(averages['adc2'], adc2_result, 'ADC2')
+                self.log_message.emit("ADC2重新对齐完成", "INFO")
+            
+            # 添加对齐信息
+            averages['alignment_info'] = {
+                'reference_channel': self.alignment_reference,
+                'alignment_method': 'post_average_realignment',
+                'alignment_time': 'final_average_stage'
+            }
+            
+            self.log_message.emit("双通道重新对齐和频谱分析完成", "INFO")
+            return averages
+            
+        except Exception as e:
+            self.log_message.emit(f"双通道重新对齐失败: {str(e)}", "WARNING")
+            return averages
+    def _update_averages_with_realigned_data(self, channel_averages: Dict[str, Any], 
+                                           realigned_result: Dict[str, Any], channel_name: str):
+        """使用重新对齐后的数据更新通道平均值"""
+        try:
+            # 更新时域数据
+            channel_averages['y_full_avg'] = realigned_result['y_full']
+            channel_averages['y_roi'] = realigned_result['y_roi']
+            channel_averages['y_d_full_avg'] = realigned_result['y_full_diff']
+            channel_averages['y_d_avg'] = realigned_result['y_diff']
+            
+            # 更新频域数据
+            channel_averages['mag_avg_linear'] = realigned_result['mag_linear']
+            channel_averages['mag_avg_db'] = 20 * np.log10(realigned_result['mag_linear'])
+            channel_averages['mag_d_avg_linear'] = realigned_result['mag_linear_d']
+            channel_averages['mag_d_avg_db'] = 20 * np.log10(realigned_result['mag_linear_d'])
+            
+            # 更新复数FFT数据
+            channel_averages['avg_Xd'] = realigned_result['Xd_norm']
+            
+            # 更新边沿位置
+            channel_averages['realigned_rise_pos'] = realigned_result['rise_pos']
+            
+            self.log_message.emit(f"{channel_name} 数据更新完成，边沿位置: {realigned_result['rise_pos']}", "DEBUG")
+            
+        except Exception as e:
+            self.log_message.emit(f"更新{channel_name}重新对齐数据失败: {str(e)}", "WARNING")
+    # 其他辅助方法保持不变...
     def _parse_data_type_from_filename(self, filename):
         """从文件名中解析数据类型"""
         if '_uint32' in filename:
@@ -120,8 +190,7 @@ class ADCProcessWorker(QObject):
         elif '_float64' in filename:
             return 'float64'
         else:
-            return 'uint32'  # 默认为uint32
-
+            return 'uint32'
     def _load_and_average_file_data(self, file_info: Optional[Dict], channel: str, file_idx: int) -> Optional[Dict[str, np.ndarray]]:
         """加载文件数据并进行文件内平均 - 支持数据类型识别"""
         if file_info is None:
@@ -141,7 +210,7 @@ class ADCProcessWorker(QObject):
             elif data_type == 'float64':
                 dtype = np.float64
             else:
-                dtype = np.uint32  # 默认
+                dtype = np.uint32
                 
             file_data = self.cache_manager.load_single_file(file_path, dtype=dtype)
             if file_data is None:
@@ -162,8 +231,6 @@ class ADCProcessWorker(QObject):
         except Exception as e:
             self.log_message.emit(f"加载并平均文件失败 {file_info.get('path', '未知')}: {str(e)}", "WARNING")
             return None
-    
-    # 修改_average_segments_within_file方法：
     def _average_segments_within_file(self, segments: List[np.ndarray], channel: str, file_idx: int) -> Dict[str, np.ndarray]:
         """对文件内的所有段进行平均，并返回处理后的数据"""
         if not segments:
@@ -176,7 +243,7 @@ class ADCProcessWorker(QObject):
                 return {}
             
             # 构建临时的adc_data字典用于分析器处理
-            temp_adc_data = {channel: segments[0]}  # 用第一段初始化
+            temp_adc_data = {channel: segments[0]}
             
             # 处理第一段获取参考结果和边沿位置
             first_result = self.analyzer.process_single_file(temp_adc_data, file_idx * 1000)
@@ -231,8 +298,6 @@ class ADCProcessWorker(QObject):
         except Exception as e:
             self.log_message.emit(f"文件内段平均失败 文件{file_idx} 通道{channel}: {str(e)}", "WARNING")
             return {}
-
-
     def _initialize_cumulative_data(self, first_result: Dict[str, Any], channel: str, total_segments: int) -> Dict[str, Any]:
         """初始化累积数据结构"""
         if channel not in first_result:
@@ -259,7 +324,6 @@ class ADCProcessWorker(QObject):
         cumulative['freq_d'] = channel_result['freq_d']
         
         return cumulative
-
     def _accumulate_segment_data(self, cumulative: Dict[str, Any], segment_result: Dict[str, Any], count: int):
         """累积段数据"""
         # 累积时域数据
@@ -274,7 +338,6 @@ class ADCProcessWorker(QObject):
         
         # 累积复数FFT数据
         cumulative['Xd_norm'] += segment_result['Xd_norm']
-
     def _compute_file_average(self, cumulative: Dict[str, Any], total_segments: int) -> Dict[str, np.ndarray]:
         """计算文件内平均值"""
         avg_data = {}
@@ -297,7 +360,6 @@ class ADCProcessWorker(QObject):
         avg_data['freq_d'] = cumulative['freq_d']
         
         return avg_data
-
     def _process_averaged_file_data(self, file_idx: int, adc1_avg_data: Optional[Dict], 
                                   adc2_avg_data: Optional[Dict], adc1_file_info: Optional[Dict],
                                   adc2_file_info: Optional[Dict], start_segment_counter: int, 
@@ -313,7 +375,6 @@ class ADCProcessWorker(QObject):
         if self._process_averaged_segment(adc1_avg_data, adc2_avg_data, file_idx):
             return 1
         return 0
-
     def _process_averaged_segment(self, adc1_avg_data: Optional[Dict], adc2_avg_data: Optional[Dict], 
                                 file_idx: int) -> bool:
         """处理平均后的段数据"""
@@ -351,7 +412,6 @@ class ADCProcessWorker(QObject):
                 return False
         
         return True
-
     def _update_results_with_averaged_data(self, processed_data: Dict[str, Dict], file_idx: int):
         """使用平均后的数据更新总结果"""
         for adc_channel in ['adc1', 'adc2']:
@@ -384,7 +444,6 @@ class ADCProcessWorker(QObject):
                     continue
         
         self.final_results['success_count'] += 1
-
     def _calculate_total_file_pairs_and_segments(self) -> Tuple[int, int]:
         """计算总文件对数和总段数"""
         adc1_files = self.file_dict.get('adc1', [])
@@ -395,25 +454,12 @@ class ADCProcessWorker(QObject):
         total_segments = total_file_pairs
         
         return total_file_pairs, total_segments
-
     def _get_file_info(self, channel: str, index: int) -> Optional[Dict]:
         """获取指定通道和索引的文件信息"""
         channel_files = self.file_dict.get(channel, [])
         if index < len(channel_files):
             return channel_files[index]
         return None
-
-    def _segment_file(self, file_info: Optional[Dict], file_data: Optional[np.ndarray]) -> List[np.ndarray]:
-        """分割文件数据成段"""
-        if file_info is None or file_data is None:
-            return []
-            
-        try:
-            return self.cache_manager.pre_segment_single_file(file_info, file_data)
-        except Exception as e:
-            self.log_message.emit(f"分割文件失败 {file_info.get('path', '未知')}: {str(e)}", "WARNING")
-            return []
-
     def _emit_progress(self, current_segment: int, total_segments: int, file_idx: int, 
                       segment_idx: int, adc1_file_info: Optional[Dict], adc2_file_info: Optional[Dict]):
         """发射进度信号"""
@@ -422,7 +468,6 @@ class ADCProcessWorker(QObject):
         
         progress_text = f"处理文件{file_idx} (已平均): ADC1={adc1_name}, ADC2={adc2_name}"
         self.progress.emit(current_segment, total_segments, progress_text)
-
     def _release_file_data(self, file_info: Optional[Dict]):
         """释放文件数据内存"""
         if file_info is None:
@@ -433,7 +478,6 @@ class ADCProcessWorker(QObject):
             self.cache_manager.release_file(file_path)
         except Exception as e:
             self.log_message.emit(f"释放文件内存失败 {file_info.get('path', '未知')}: {str(e)}", "DEBUG")
-
     def _initialize_results(self) -> Dict[str, Any]:
         """初始化结果字典"""
         return {
@@ -450,7 +494,6 @@ class ADCProcessWorker(QObject):
             'success_count': 0, 
             'total_segments': 0,
         }
-
     def _optimize_array(self, array: np.ndarray) -> np.ndarray:
         """优化数组内存使用"""
         if array.dtype == np.float64:

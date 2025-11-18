@@ -583,13 +583,18 @@ class DataAnalysisController(QObject):
             else:
                 config.adc_mode = ADCMode.ADC1_ONLY  # 默认模式
                 self.log_message("未检测到有效数据文件，使用默认模式", "WARNING")
+
+            
+            # 获取对齐方式
+            alignment_reference = self.view.get_alignment_reference()
+            self.log_message(f"使用对齐参考: {alignment_reference.upper()}", "INFO")
         
             self.analysisStarted.emit("ADC数据分析")
             self.log_message("开始ADC数据分析", "INFO")
         
             # 创建工作线程，传递两个ADC的文件路径
             self.adc_process_thread = QThread()
-            self.adc_process_worker = ADCProcessWorker(self.model.data_files, config, batch_size=10)
+            self.adc_process_worker = ADCProcessWorker(self.model.data_files, config, batch_size=10,alignment_reference=alignment_reference)
             self.adc_process_worker.moveToThread(self.adc_process_thread)
         
             # 连接信号
