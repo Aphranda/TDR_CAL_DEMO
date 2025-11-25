@@ -31,6 +31,13 @@ class ADCSamplingView(QWidget):
         self.s11_radio.setToolTip("端口1反射测量")
         self.s_mode_button_group.addButton(self.s11_radio, 0)
         s_mode_layout.addWidget(self.s11_radio)
+
+
+        # S21模式
+        self.s21_radio = QRadioButton("S21")
+        self.s21_radio.setToolTip("端口2到端口1传输测量")
+        self.s_mode_button_group.addButton(self.s21_radio, 2)
+        s_mode_layout.addWidget(self.s21_radio)
         
         # S12模式
         self.s12_radio = QRadioButton("S12")
@@ -38,11 +45,7 @@ class ADCSamplingView(QWidget):
         self.s_mode_button_group.addButton(self.s12_radio, 1)
         s_mode_layout.addWidget(self.s12_radio)
         
-        # S21模式
-        self.s21_radio = QRadioButton("S21")
-        self.s21_radio.setToolTip("端口2到端口1传输测量")
-        self.s_mode_button_group.addButton(self.s21_radio, 2)
-        s_mode_layout.addWidget(self.s21_radio)
+
         
         # S22模式
         self.s22_radio = QRadioButton("S22")

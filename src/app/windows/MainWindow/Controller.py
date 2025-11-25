@@ -55,10 +55,10 @@ class MainWindowController:
         self.sub_controllers['calibration'] = calibration_controller
         
         # 添加网分控制面板
-        vna_control_panel, vna_controller = create_vna_control_panel()
-        self.view.set_vna_control_widget(vna_control_panel)
-        self.model.vna_control_panel = vna_control_panel
-        self.sub_controllers['vna_control'] = vna_controller
+        # vna_control_panel, vna_controller = create_vna_control_panel()
+        # self.view.set_vna_control_widget(vna_control_panel)
+        # self.model.vna_control_panel = vna_control_panel
+        # self.sub_controllers['vna_control'] = vna_controller
 
         # 添加ADC采样面板到数据处理标签页
         adc_sampling_panel, adc_controller = create_adc_sampling_panel()
