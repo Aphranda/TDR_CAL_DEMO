@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m py_compile \"src/app/core/ClockController.py\")",
+      "Bash(python -m py_compile \"src/app/core/ADCSample.py\")",
+      "Bash(python -c ' *)"
+    ]
+  }
+}

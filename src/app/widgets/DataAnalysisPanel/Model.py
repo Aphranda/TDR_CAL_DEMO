@@ -84,7 +84,7 @@ class DataAnalysisModel:
         self.adc_connected = False
         self.adc_samples = []
         self.adc_analysis_results = {}
-        self.adc_ip = "192.168.1.10"
+        self.adc_ip = "192.168.1.30"
         self.adc_port = 15000
         self.sample_count = 10
         self.sample_interval = 0.1

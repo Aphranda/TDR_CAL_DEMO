@@ -10,7 +10,7 @@ class VNACalibration:
     VNA校准和测量类，封装了网络分析仪的校准和测量功能
     """
     
-    def __init__(self, ip_address: str = "TCPIP0::192.168.1.10::7::SOCKET"):
+    def __init__(self, ip_address: str = "TCPIP0::192.168.1.30::7::SOCKET"):
         """
         初始化VNA校准类
         
@@ -432,5 +432,5 @@ class VNACalibration:
 
 # 使用示例
 if __name__ == "__main__":
-    vna = VNACalibration("TCPIP0::192.168.1.10::7::SOCKET")
+    vna = VNACalibration("TCPIP0::192.168.1.30::7::SOCKET")
     vna.run_full_calibration_and_measurement()

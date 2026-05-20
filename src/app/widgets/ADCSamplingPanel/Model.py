@@ -9,7 +9,7 @@ class ADCSamplingModel:
         self.adc_connected = False
         self.adc_samples = deque(maxlen=50)  # 使用双端队列，自动限制大小
         self.sample_references = []
-        self.adc_ip = "192.168.1.10"
+        self.adc_ip = "192.168.1.30"
         self.adc_port = 15000
         self.sample_count = 10
         self.sample_number = 10  # 新增：单次采样数量，默认值10

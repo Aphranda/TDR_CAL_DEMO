@@ -26,7 +26,7 @@ calibration_ifbw = 1000; %1KHz
 % 配置1端口 sin1m.sin
 
 
-ins_odc = visa('ni', 'TCPIP0::192.168.1.10::7::SOCKET');
+ins_odc = visa('ni', 'TCPIP0::192.168.1.30::7::SOCKET');
 fopen(ins_odc);
 data = query(ins_odc,'*IDN?');
 fprintf(data);

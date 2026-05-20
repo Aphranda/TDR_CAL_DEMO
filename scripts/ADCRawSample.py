@@ -13,7 +13,7 @@ import time
 matplotlib.use('TkAgg')
 
 # 参数配置
-SERVER_IP = '192.168.1.10'
+SERVER_IP = '192.168.1.30'
 SERVER_PORT = 15000
 REQUEST_DATA = b'\x01'  # 任意一个字节
 CHUNK_SIZE = 32768

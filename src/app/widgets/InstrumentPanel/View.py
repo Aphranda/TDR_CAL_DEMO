@@ -34,7 +34,7 @@ class InstrumentPanelView(QWidget):
         # 连接设置
         connect_layout = QHBoxLayout()
         connect_layout.addWidget(QLabel("IP地址:"))
-        self.ipEdit = QLineEdit("192.168.1.10")
+        self.ipEdit = QLineEdit("192.168.1.30")
         self.ipEdit.setPlaceholderText("输入仪器IP地址")
         connect_layout.addWidget(self.ipEdit)
         

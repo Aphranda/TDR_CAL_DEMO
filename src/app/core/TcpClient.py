@@ -9,7 +9,7 @@ class TcpClient:
         self.sock = None
         self.connected = False
         self.last_error = None  # 记录最后一次错误
-        self.server_ip = '192.168.1.10'
+        self.server_ip = '192.168.1.30'
         self.server_port = 15000
 
     def connect(self, ip, port, timeout=3):
