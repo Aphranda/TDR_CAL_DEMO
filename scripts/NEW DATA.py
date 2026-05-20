@@ -1,5 +1,19 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+"""
+AD4080 高速数据采集与分析脚本
+==============================
+功能：通过 TCP/UDP 协议从远端客户端获取 ADC 采样数据，进行以下处理：
+  1. 19-bit ADC 解码
+  2. 等效时间采样恢复（equivalent-time recovery）
+  3. 上升沿检测与波形对齐
+  4. ROI 频谱分析、差分分析
+  5. 可视化（原始波形 / 恢复波形 / 对齐波形）
+  6. CSV 导出
+
+硬件平台：AD4080 前端 + LMK 时钟 + AD9508 采样时钟分发
+通信模式：TCP（readall / chunk 分块读取）或 UDP（单向推送）
+"""
 
 import argparse
 import concurrent.futures
@@ -10,6 +24,7 @@ import struct
 import time
 from dataclasses import dataclass
 
+# 避免在无桌面的 Linux 服务器上报 matplotlib 缓存目录错误
 os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib")
 
 import matplotlib.pyplot as plt
@@ -17,53 +32,70 @@ import numpy as np
 from numpy.lib.stride_tricks import sliding_window_view
 
 
-SERVER_HOST = "192.168.1.30"
-SERVER_PORT = 15000
-DEFAULT_UDP_PORT = 15001
+# =============================================================================
+# 网络与硬件常量
+# =============================================================================
+SERVER_HOST = "192.168.1.30"     # 采集服务器 IP
+SERVER_PORT = 15000              # 控制通道 TCP 端口
+DEFAULT_UDP_PORT = 15001         # UDP 数据接收起始端口（多通道时依次递增）
 
-RECV_CHUNK = 65536
-SAMPLES_PER_BLOCK = 81920
-SAMPLE_BYTES = 4
-DEFAULT_RECOVER_POINTS = SAMPLES_PER_BLOCK
-DEFAULT_RAW_PLOT_POINTS = SAMPLES_PER_BLOCK
-AUTO_RECOVER_MAX_POINTS = 2_000_000
-AUTO_PLOT_MAX_POINTS = 500_000
-DEFAULT_PLOT_MAX_POINTS = 200_000
-AUTO_DIAG_MAX_POINTS = 8_000_000
-DEFAULT_START_INDEX = 70
-DEFAULT_ALIGN_POS = 2
-DEFAULT_ROI_START_PERCENT = 20.0
-DEFAULT_ROI_END_PERCENT = 30.0
-DEFAULT_DIFF_POINTS = 10
-DEFAULT_AVERAGE_POINTS = 3
-DEFAULT_SPIKE_WINDOW = 5
-DEFAULT_SPIKE_THRESHOLD = 3.0
-DEFAULT_EDGE_AMPLITUDE_RATIO = 0.5
+RECV_CHUNK = 65536               # TCP 接收缓冲区大小（字节）
+SAMPLES_PER_BLOCK = 81920        # 每次 DMA 传输的样本点数（1 block）
+SAMPLE_BYTES = 4                 # 每个样本 4 字节（32-bit 小端，仅低 19-bit 有效）
+
+# =============================================================================
+# 处理与显示默认参数
+# =============================================================================
+DEFAULT_RECOVER_POINTS = SAMPLES_PER_BLOCK  # 默认用于等效时间恢复的点数
+DEFAULT_RAW_PLOT_POINTS = SAMPLES_PER_BLOCK  # 默认原始波形绘图点数
+AUTO_RECOVER_MAX_POINTS = 2_000_000         # 自动开启恢复的采样点数上限
+AUTO_PLOT_MAX_POINTS = 500_000              # 自动开启绘图的采样点数上限
+DEFAULT_PLOT_MAX_POINTS = 200_000           # 绘图最大点数（超过则降采样）
+AUTO_DIAG_MAX_POINTS = 8_000_000            # 自动开启原始数据诊断的采样点数上限
+DEFAULT_START_INDEX = 70                    # 等效时间恢复的起始偏移（跳过前端不稳定点）
+DEFAULT_ALIGN_POS = 2                       # 对齐目标位置 = recover_points // align_pos
+DEFAULT_ROI_START_PERCENT = 20.0            # ROI 起始位置（占恢复波形百分比）
+DEFAULT_ROI_END_PERCENT = 30.0              # ROI 结束位置（占恢复波形百分比）
+DEFAULT_DIFF_POINTS = 10                    # 差分步长
+DEFAULT_AVERAGE_POINTS = 3                  # 差分后移动平均窗口大小
+DEFAULT_SPIKE_WINDOW = 5                    # Hampel 滤波器半窗口大小
+DEFAULT_SPIKE_THRESHOLD = 3.0               # Hampel 滤波器 z-score 阈值
+DEFAULT_EDGE_AMPLITUDE_RATIO = 0.5          # 上升沿检测的最小相对幅度比
+
+# Savitzky-Golay 边缘平滑核（7 点二次多项式，归一化）
 SG_EDGE_KERNEL = np.array(
     [-2.0, 3.0, 6.0, 7.0, 6.0, 3.0, -2.0], dtype=np.float64
 ) / 21.0
 
-# AD4080 19-bit
+# AD4080 19-bit 有效位掩码
 VALUE_MASK_19 = 0x7FFFF
 
-# Probe board LMK output mapping from image/channel_clk.png.
-# user channel N means the Nth AD4080 frontend.
-# LMK is the trigger clock; AD9508 outputs 0 and 2 are the sampling clocks.
-# LMK command format is lmk_state <lmk> <channel> <0|1>.
+# =============================================================================
+# 硬件通道映射
+# =============================================================================
+
+# 探针板 LMK 输出映射表（参考 image/channel_clk.png）
+# 用户通道 N 对应第 N 个 AD4080 前端
+# LMK 提供触发时钟；AD9508 的 output 0 和 2 为采样时钟
+# LMK 控制命令格式：lmk_state <lmk编号> <lmk通道> <0|1>
 CHANNEL_TO_LMK = {
-    1: (1, 4),
-    2: (1, 5),
-    3: (1, 6),
-    4: (1, 7),
-    5: (1, 0),
-    6: (1, 1),
-    7: (1, 2),
-    8: (1, 3),
+    1: (1, 4),   # 用户通道1 → LMK1, channel 4
+    2: (1, 5),   # 用户通道2 → LMK1, channel 5
+    3: (1, 6),   # 用户通道3 → LMK1, channel 6
+    4: (1, 7),   # 用户通道4 → LMK1, channel 7
+    5: (1, 0),   # 用户通道5 → LMK1, channel 0
+    6: (1, 1),   # 用户通道6 → LMK1, channel 1
+    7: (1, 2),   # 用户通道7 → LMK1, channel 2
+    8: (1, 3),   # 用户通道8 → LMK1, channel 3
 }
-LMK_MODE_BYPASS = 0
-LMK_MODE_DIV = 1
-LMK_MODE_DELAY = 2
-LMK_MODE_DIV_DELAY = 3
+
+# LMK 工作模式编码
+LMK_MODE_BYPASS = 0     # 直通
+LMK_MODE_DIV = 1        # 分频
+LMK_MODE_DELAY = 2      # 延时
+LMK_MODE_DIV_DELAY = 3  # 分频+延时
+
+# 模式名称到编码的映射（支持多种别名）
 LMK_MODE_NAME_TO_VALUE = {
     "bypass": LMK_MODE_BYPASS,
     "div": LMK_MODE_DIV,
@@ -79,34 +111,44 @@ LMK_MODE_NAME_TO_VALUE = {
     "divide-and-delay": LMK_MODE_DIV_DELAY,
 }
 
+# AD9508 前端编号到 (器件号, 通道号) 的映射
+# AD9508 输出 0 和 2 作为 AD4080 的采样时钟
 AD9508_FRONTEND_TO_DEVICE_CHANNELS = {
-    1: ((1, 0),),
-    2: ((1, 2),),
-    3: ((2, 0),),
-    4: ((2, 2),),
-    5: ((3, 0),),
-    6: ((3, 2),),
-    7: ((4, 0),),
-    8: ((4, 2),),
+    1: ((1, 0),),   # 前端1 → 器件1 通道0
+    2: ((1, 2),),   # 前端2 → 器件1 通道2
+    3: ((2, 0),),   # 前端3 → 器件2 通道0
+    4: ((2, 2),),   # 前端4 → 器件2 通道2
+    5: ((3, 0),),   # 前端5 → 器件3 通道0
+    6: ((3, 2),),   # 前端6 → 器件3 通道2
+    7: ((4, 0),),   # 前端7 → 器件4 通道0
+    8: ((4, 2),),   # 前端8 → 器件4 通道2
 }
 
 
+# =============================================================================
+# TCP 通信基础工具
+# =============================================================================
+
 def send(sock, cmd):
+    """发送一行控制命令（自动追加换行符）"""
     sock.sendall(cmd.encode() + b"\n")
 
 
 class Reader:
+    """TCP 流式读取器，内部维护接收缓冲区"""
     def __init__(self, sock):
         self.sock = sock
         self.buf = bytearray()
 
     def _recv(self):
+        """从 socket 读取一块数据到内部缓冲区"""
         data = self.sock.recv(RECV_CHUNK)
         if not data:
             raise RuntimeError("socket closed")
         self.buf.extend(data)
 
     def read_exact(self, size):
+        """读取精确 size 个字节"""
         while len(self.buf) < size:
             self._recv()
 
@@ -115,6 +157,7 @@ class Reader:
         return out
 
     def read_line(self):
+        """读取一行（以换行符分隔）"""
         while True:
             idx = self.buf.find(b"\n")
 
@@ -126,16 +169,28 @@ class Reader:
             self._recv()
 
 
+# =============================================================================
+# ADC 数据解码
+# =============================================================================
+
 def decode_19bit(raw_bytes):
+    """将原始字节流解码为 19-bit ADC 有符号值
+    - 输入：32-bit 小端 word
+    - 取低 19 bit（VALUE_MASK_19）
+    - 按 bit18 进行符号扩展（左移 13 位后算术右移 13 位）
+    """
     words = np.frombuffer(raw_bytes, dtype=np.dtype("<u4"))
     adc = words.astype(np.int32, copy=True)
     np.bitwise_and(adc, VALUE_MASK_19, out=adc)
-    np.left_shift(adc, 13, out=adc)
-    np.right_shift(adc, 13, out=adc)
+    np.left_shift(adc, 13, out=adc)   # 左移到 int32 最高 19 bit
+    np.right_shift(adc, 13, out=adc)  # 算术右移完成符号扩展
     return adc
 
 
 def compute_raw_diagnostics(raw_bytes):
+    """计算原始字节的诊断统计（验证数据有效位）
+    返回：raw19 范围、中间位非零数量、高位非零数量
+    """
     words = np.frombuffer(raw_bytes, dtype=np.dtype("<u4"))
     raw19 = words & VALUE_MASK_19
     raw_mid_bits = (raw19 >> 5) & ((1 << 11) - 1)
@@ -147,13 +202,23 @@ def compute_raw_diagnostics(raw_bytes):
     }
 
 
+# =============================================================================
+# 等效时间采样恢复（Equivalent-Time Recovery）
+# =============================================================================
+# 原理：利用采样时钟与触发时钟的频率差，将多次采样的数据按相位重排，
+#       实现远高于实时采样率的等效时间分辨率。
+#       fs_eff = N × f_trigger（N 为参与恢复的采样点数）
+
+
 def recover_equivalent_time(adc, clock_freq, trigger_freq):
+    """执行等效时间恢复的完整流程：构建计划 → 重排数据"""
     plan = build_equivalent_time_plan(len(adc), clock_freq, trigger_freq)
     y_recovered = apply_equivalent_time_plan(np.asarray(adc), plan)
     return plan.t_recovered_s, y_recovered, plan.sort_idx
 
 
 def save_recovered_csv(path, t_recovered, y_recovered, raw_recovered, sort_idx):
+    """将恢复后的数据保存为 CSV（时间/ADC值/原始值/原始索引）"""
     out_mat = np.column_stack(
         [
             t_recovered,
@@ -175,29 +240,32 @@ def save_recovered_csv(path, t_recovered, y_recovered, raw_recovered, sort_idx):
 
 @dataclass(frozen=True)
 class EquivalentTimePlan:
-    point_count: int
-    fs_eff: float
-    ts_eff: float
-    sort_idx: np.ndarray
-    t_recovered_s: np.ndarray
-    t_uniform_s: np.ndarray
+    """等效时间恢复计划（不可变）"""
+    point_count: int               # 参与恢复的点数
+    fs_eff: float                  # 等效采样率 (Hz)
+    ts_eff: float                  # 等效时间间隔 (s)
+    sort_idx: np.ndarray           # 相位排序索引
+    t_recovered_s: np.ndarray      # 排序后的非均匀时间轴
+    t_uniform_s: np.ndarray        # 均匀插值后的时间轴
 
 
 @dataclass(frozen=True)
 class AnalysisConfig:
-    start_index: int
-    align_pos: int
-    roi_start_percent: float
-    roi_end_percent: float
-    diff_points: int
-    average_points: int
-    spike_window: int
-    spike_threshold: float
-    min_edge_amplitude_ratio: float
-    edge_method: str
+    """后处理分析参数（不可变）"""
+    start_index: int               # 恢复起始偏移
+    align_pos: int                 # 对齐位置分母
+    roi_start_percent: float       # ROI 起始百分比
+    roi_end_percent: float         # ROI 结束百分比
+    diff_points: int               # 差分包络步长
+    average_points: int            # 移动平均窗口
+    spike_window: int              # Hampel 滤波器半窗口
+    spike_threshold: float         # Hampel 滤波器阈值
+    min_edge_amplitude_ratio: float  # 最小边沿幅度比
+    edge_method: str               # 边沿检测方法："rising" 或 "max"
 
 
 def validate_analysis_config(config):
+    """校验分析配置参数的合法性"""
     if config.start_index < 0:
         raise SystemExit("--start-index must be >= 0")
     if config.align_pos <= 0:
@@ -223,11 +291,17 @@ def validate_analysis_config(config):
 
 
 def build_equivalent_time_plan(point_count, clock_freq, trigger_freq):
+    """构建等效时间恢复计划
+    - 计算每个采样点相对于触发周期的相位
+    - 按相位排序得到等效时间重排索引
+    - 等效采样率 fs_eff = point_count × trigger_freq
+    """
     point_count = int(point_count)
     if point_count <= 0:
         raise ValueError("point_count must be > 0")
 
     sample_index = np.arange(point_count, dtype=np.float64)
+    # 计算每个采样点在触发周期内的相位（0~1）
     phase_cycles = np.mod(sample_index * (trigger_freq / clock_freq), 1.0)
     sort_idx = np.argsort(phase_cycles, kind="stable")
     t_recovered_s = phase_cycles[sort_idx] / trigger_freq
@@ -245,10 +319,16 @@ def build_equivalent_time_plan(point_count, clock_freq, trigger_freq):
 
 
 def apply_equivalent_time_plan(adc_segment, plan):
+    """按等效时间计划重排 ADC 数据"""
     return adc_segment[plan.sort_idx]
 
 
+# =============================================================================
+# 信号平滑与预处理
+# =============================================================================
+
 def convolve_same_edge(data, kernel):
+    """执行 same-size 卷积（edge 填充模式），用于边缘保持平滑"""
     radius = kernel.size // 2
     data_float = np.asarray(data, dtype=np.float64)
     if data_float.size == 0 or radius == 0:
@@ -258,18 +338,20 @@ def convolve_same_edge(data, kernel):
 
 
 def smooth_edge_signal(data):
+    """使用 Savitzky-Golay 核对信号进行边缘保持平滑"""
     if len(data) < SG_EDGE_KERNEL.size:
         return np.asarray(data, dtype=np.float64).copy()
     return convolve_same_edge(data, SG_EDGE_KERNEL)
 
 
 def smooth_uniform(data, window_size):
+    """均匀移动平均平滑（窗口大小自动调整为奇数）"""
     data_float = np.asarray(data, dtype=np.float64)
     if data_float.size == 0 or window_size <= 1:
         return data_float.copy()
     window_size = int(window_size)
     if window_size % 2 == 0:
-        window_size += 1
+        window_size += 1  # 确保奇数窗口
     kernel = np.full(window_size, 1.0 / float(window_size), dtype=np.float64)
     return convolve_same_edge(data_float, kernel)
 
