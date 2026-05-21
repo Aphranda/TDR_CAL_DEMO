@@ -1,6 +1,5 @@
 # src/app/core/ADCSample.py
 import struct
-import os
 import time
 import socket
 import logging
@@ -18,206 +17,256 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+# 协议常量（对齐 scripts/NEW DATA.py）
+SAMPLES_PER_BLOCK = 81920      # 每个 DMA block 的采样点数
+SAMPLE_BYTES = 4                # 每个样本 4 字节（32-bit 小端）
+RECV_CHUNK = 65536              # socket 接收缓冲区大小
+DEFAULT_CHANNELS = [4, 5]       # 默认采集通道（Port1=Ch4, Port2=Ch5）
+CHANNEL_KEY_MAP = {4: 'adc1', 5: 'adc2'}  # 通道号 → 数据字典键
+
+
+def _build_link_mask(channels):
+    """构建通道位掩码：每个通道占 1 bit"""
+    mask = 0
+    for ch in channels:
+        mask |= 1 << (ch - 1)
+    return mask
+
+
 class ADCSample:
-    """使用外部TcpClient实例的ADC采样类"""
-    
+    """ADC 采样类 — 对齐 NEW DATA.py TCP 协议
+
+    使用 sample + readall 命令进行数据采集：
+      sample <block_count> 0x<link_mask>   →  启动采样
+      readall<channel> <byte_count>        →  读取数据（4字节头+数据体）
+      dma_rst 1                            →  DMA 复位
+    """
+
     def __init__(self, tcp_client=None, file_manager=None):
-        # 使用外部传入的TcpClient实例
         self.tcp_client = tcp_client or TcpClient()
         self.file_manager = file_manager or FileManager()
         self.connected = self.tcp_client.connected if self.tcp_client else False
-        self.server_ip = self.tcp_client.server_ip if self.tcp_client and self.tcp_client.server_ip else '192.168.1.10'
+        self.server_ip = self.tcp_client.server_ip if self.tcp_client and self.tcp_client.server_ip else '192.168.1.30'
         self.server_port = self.tcp_client.server_port if self.tcp_client and self.tcp_client.server_port else 15000
-        self.chunk_size = 65530
         self.output_dir = 'data\\results\\test'
-        self.sample_number = 10  # 新增：默认单次采样数量为10
-        self.adc_mode = ADCMode.ADC1_ONLY  # 默认采集两个ADC
-        self.data_type = 'uint32'  # 默认数据类型
+        self.sample_number = 1  # 默认 1 个 block
+        self.adc_mode = ADCMode.ADC1_ONLY
+        self.data_type = 'uint32'
+        self.channels = list(DEFAULT_CHANNELS)  # 当前采集通道列表
+
+    # =========================================================================
+    # 配置方法
+    # =========================================================================
 
     def set_data_type(self, data_type):
-        """设置ADC输出数据类型"""
         self.data_type = data_type
         logger.info(f"ADC输出数据类型设置为: {data_type}")
 
     def set_adc_mode(self, adc_mode: ADCMode):
-        """设置ADC采集模式"""
+        """设置 ADC 采集模式，自动更新通道列表"""
         self.adc_mode = adc_mode
-        logger.info(f"ADC采集模式设置为: {adc_mode.value}")
+        if adc_mode == ADCMode.ADC1_ONLY:
+            self.channels = [4]
+        elif adc_mode == ADCMode.ADC2_ONLY:
+            self.channels = [5]
+        else:  # BOTH_ADCS
+            self.channels = [4, 5]
+        logger.info(f"ADC采集模式: {adc_mode.value}, 通道: {self.channels}")
+
+    def set_channels(self, channels):
+        """直接设置采集通道列表"""
+        self.channels = list(channels)
+
+    def get_channels(self):
+        return list(self.channels)
 
     def set_sample_number(self, sample_number: int):
-        """设置单次采样数量"""
         self.sample_number = sample_number
-    
+
     def set_tcp_client(self, tcp_client):
-        """设置外部TcpClient实例"""
         self.tcp_client = tcp_client
         self.connected = tcp_client.connected if tcp_client else False
         if tcp_client:
             self.server_ip = tcp_client.server_ip
             self.server_port = tcp_client.server_port
-    
+
     def set_server_config(self, ip, port):
-        """设置服务器配置"""
         self.server_ip = ip
         self.server_port = port
-    
+
     def set_output_dir(self, output_dir):
-        """设置输出目录"""
         self.output_dir = output_dir
-    
+
     def is_connected(self):
-        """检查是否已连接"""
         return self.tcp_client and self.tcp_client.connected
-    
-    # @timeit
+
+    # =========================================================================
+    # 命令收发
+    # =========================================================================
+
     def send_command(self, command, max_retries=3):
-        """发送命令并获取响应"""
+        """发送文本命令并读取一行应答"""
         if not self.is_connected():
             return False, "未连接到服务器"
-        
-        success, response = self.tcp_client.send(command, max_retries)
+
+        success, _ = self.tcp_client.send(command + "\n", max_retries)
         if not success:
-            return False, response
-        
- 
+            return False, "命令发送失败"
+
         success, response_data = self.tcp_client.receive(max_retries=max_retries)
         return success, response_data
-    
-    # @timeit
-    def receive_binary_data(self, max_retries=3, base_timeout=2.0):
+
+    # =========================================================================
+    # 二进制数据读取（readall 协议）
+    # =========================================================================
+
+    def _read_channel_data(self, channel, byte_count, max_retries=3):
+        """通过 readall 协议读取单个通道的二进制数据
+
+        协议: 发送 readall<channel> <byte_count>
+              接收 4 字节大端头 → 数据长度
+              接收对应长度的数据体
         """
-        专门用于接收二进制数据的方法
-        根据ADC模式读取数据，使用字典返回
-        返回: (是否成功, {'adc1': adc1_data, 'adc2': adc2_data} 或错误信息)
+        sock = self.tcp_client.sock
+        if not sock:
+            return None
+
+        cmd = f"readall{channel} {byte_count}"
+        total_data = bytearray()
+
+        for retry in range(max_retries):
+            try:
+                # 发送 readall 命令
+                sock.sendall((cmd + "\n").encode())
+
+                # 读取 4 字节头（大端无符号 int）
+                hdr = b""
+                while len(hdr) < 4:
+                    chunk = sock.recv(4 - len(hdr))
+                    if not chunk:
+                        raise RuntimeError("读取头部时连接关闭")
+                    hdr += chunk
+                (size,) = struct.unpack("!I", hdr)
+
+                if size == 0:
+                    raise RuntimeError(f"link{channel} 返回空数据")
+
+                # 读取数据体
+                data = bytearray()
+                while len(data) < size:
+                    chunk = sock.recv(min(RECV_CHUNK, size - len(data)))
+                    if not chunk:
+                        break
+                    data.extend(chunk)
+
+                if len(data) < size:
+                    raise RuntimeError(
+                        f"link{channel} 数据不完整: 期望 {size} 字节, 收到 {len(data)} 字节"
+                    )
+
+                return bytes(data)
+
+            except (socket.timeout, ConnectionError, RuntimeError) as e:
+                logger.warning(f"link{channel} 读取重试 {retry + 1}/{max_retries}: {e}")
+                if retry < max_retries - 1:
+                    time.sleep(0.2 * (retry + 1))
+                total_data = bytearray()
+
+        return None
+
+    # =========================================================================
+    # 数据接收（替代旧的 receive_binary_data）
+    # =========================================================================
+
+    def receive_binary_data(self, points, max_retries=3, base_timeout=2.0):
+        """接收所有活跃通道的二进制数据
+
+        返回: (成功标志, {'adc1': bytes, 'adc2': bytes} 或错误信息)
         """
         if not self.is_connected() or not self.tcp_client.sock:
             return False, "未连接"
-        
-        
-        adc1_data = bytearray()
-        adc2_data = bytearray()
-        #ToDo 清空TCP接收缓冲区
-        if self.adc_mode in [ADCMode.ADC1_ONLY, ADCMode.BOTH_ADCS]:
-            retry_count = 0
-            while retry_count < max_retries:
-                try:
-                    # 根据ADC模式决定读取哪些数据
-                    # 发送read1命令读取第一个ADC
-                    success, _ = self.tcp_client.send('read1', max_retries)
-                    if not success:
-                        retry_count += 1
-                        continue
-                    time.sleep(0.02)
-                    # 接收第一个ADC的二进制数据
-                    self.tcp_client.sock.settimeout(base_timeout)
-                    chunk1 = self.tcp_client.sock.recv(self.chunk_size)
-                    
-                    if not chunk1:
-                        retry_count += 1
-                        continue
-                    # 检查结束标记
-                    if chunk1 == b'\x00':
-                        break
 
-                    adc1_data.extend(chunk1)            
-                    retry_count = 0  # 重置重试计数
-                    
-                except (socket.timeout, ConnectionError) as e:
-                    retry_count += 1
-                    time.sleep(0.2 * retry_count)
-                except Exception as e:
-                    return False, f"接收数据错误: {str(e)}"
-        
-        
-        if self.adc_mode in [ADCMode.ADC2_ONLY, ADCMode.BOTH_ADCS]:
-            retry_count = 0
-            while retry_count < max_retries:
-                try:
-                    # 发送read2命令读取第二个ADC
-                    success, _ = self.tcp_client.send('read2', max_retries)
-                    if not success:
-                        retry_count += 1
-                        continue
-                    time.sleep(0.02)
-                    # 接收第二个ADC的二进制数据
-                    chunk2 = self.tcp_client.sock.recv(self.chunk_size)
-                    
-                    if not chunk2:
-                        retry_count += 1
-                        continue
-                    
-                    # 检查结束标记
-                    if chunk2 == b'\x00':
-                        break
-                    adc2_data.extend(chunk2)
-                    
-                    retry_count = 0  # 重置重试计数
-                    
-                except (socket.timeout, ConnectionError) as e:
-                    retry_count += 1
-                    time.sleep(0.2 * retry_count)
-                except Exception as e:
-                    return False, f"接收数据错误: {str(e)}"
-        
-        if retry_count >= max_retries:
-            return False, "接收数据超时"
-        
-        # 根据ADC模式返回相应的数据字典
+        need_bytes = points * SAMPLE_BYTES
         result_data = {}
-        if self.adc_mode in [ADCMode.ADC1_ONLY, ADCMode.BOTH_ADCS]:
-            result_data['adc1'] = adc1_data
-        if self.adc_mode in [ADCMode.ADC2_ONLY, ADCMode.BOTH_ADCS]:
-            result_data['adc2'] = adc2_data
-            
+        all_ok = True
+
+        for ch in self.channels:
+            raw = self._read_channel_data(ch, need_bytes, max_retries)
+            if raw is None:
+                all_ok = False
+                logger.error(f"通道 {ch} 数据读取失败")
+                continue
+
+            key = CHANNEL_KEY_MAP.get(ch, f'ch{ch}')
+            result_data[key] = raw
+
+        if not result_data:
+            return False, "所有通道数据读取失败"
+
+        # DMA 复位（对齐 NEW DATA.py）
+        try:
+            self.tcp_client.send("dma_rst 1\n")
+            time.sleep(0.02)
+            self.tcp_client.receive(max_retries=1, base_timeout=1.0)
+        except Exception:
+            pass  # DMA 复位失败不阻塞
+
         return True, result_data
-    
 
+    # =========================================================================
+    # 单次采样
+    # =========================================================================
 
-    # @timeit
     def perform_single_test(self, test_num, sample_number=None):
-        """执行单次测试并返回数据"""
+        """执行单次采样并返回处理后的数据
+
+        Args:
+            test_num: 测试序号（日志用）
+            sample_number: DMA block 数量（1 block = 81920 样本），为 None 则使用默认值
+
+        Returns:
+            (processed_data, error): 成功时 error 为 None
+            processed_data 为 {'adc1': np.ndarray, 'adc2': np.ndarray}
+        """
         if not self.is_connected():
             return None, "未连接到服务器"
 
-        # 使用传入的sample_number或默认值
-        current_sample_number = sample_number if sample_number is not None else self.sample_number
+        block_count = sample_number if sample_number is not None else self.sample_number
+        points = block_count * SAMPLES_PER_BLOCK
 
         try:
-            # 根据数据类型选择采样命令
-            if self.data_type == 'uint32':
-                command = f'sample {current_sample_number}'
-            elif self.data_type == 'float64':
-                print("current_sample_number",current_sample_number)
-                command = f'caclu_sample {current_sample_number}'
-            else:
-                return None, f"不支持的数据类型: {self.data_type}"
+            # 1. 发送采样命令: sample <block_count> 0x<link_mask>
+            link_mask = _build_link_mask(self.channels)
+            command = f"sample {block_count} 0x{link_mask:x}"
+
+            logger.info(f"测试 {test_num + 1}: {command} (blocks={block_count}, points={points}, channels={self.channels})")
 
             success, response = self.send_command(command)
             if not success:
                 return None, f"采样指令发送失败: {response}"
 
-            logger.info(f"测试 {test_num + 1}: {command} 响应: {response.strip()}")
-
             if 'ok' not in response.lower():
                 return None, f"采样失败: {response}"
 
-            # 接收采样数据
-            success, data_dict = self.receive_binary_data(max_retries=5)
+            # 2. 接收数据
+            success, data_dict = self.receive_binary_data(points, max_retries=5)
             if not success:
                 return None, f"数据接收失败: {data_dict}"
 
-            logger.info(f"测试 {test_num + 1}: 接收 ADC1 {len(data_dict.get('adc1', []))} 字节, ADC2 {len(data_dict.get('adc2', []))} 字节")
+            bytes_info = ", ".join(
+                f"{k}={len(v)}B" for k, v in data_dict.items()
+            )
+            logger.info(f"测试 {test_num + 1}: 接收数据 {bytes_info}")
 
-            # 根据数据类型处理数据
+            # 3. 解码为 numpy 数组
             processed_data = {}
-            for adc_name, data in data_dict.items():
-                # 根据数据类型确定每个数据点的字节数和numpy类型
+            for key, data in data_dict.items():
                 if self.data_type == 'uint32':
+                    dtype = '<u4'
                     bytes_per_point = 4
-                    dtype = '<u4'  # 小端无符号32位整数
                 elif self.data_type == 'float64':
+                    dtype = '<f8'
                     bytes_per_point = 8
-                    dtype = '<f8'  # 小端64位浮点数
                 else:
                     return None, f"不支持的数据类型: {self.data_type}"
 
@@ -226,17 +275,15 @@ class ADCSample:
 
                 num_values = len(data) // bytes_per_point
                 if num_values == 0:
-                    logger.warning(f"ADC {adc_name} 未接收到有效数据")
-                    processed_data[adc_name] = np.array([], dtype=dtype)
+                    logger.warning(f"ADC {key} 未接收到有效数据")
+                    processed_data[key] = np.array([], dtype=dtype)
                     continue
 
                 temp_array = np.frombuffer(data, dtype=dtype, count=num_values)
-                processed_data[adc_name] = temp_array.copy()
-                logger.info(f"测试 {test_num + 1}: ADC {adc_name} 成功解析 {num_values} 个{self.data_type}数据点")
-            
+                processed_data[key] = temp_array.copy()
+                logger.info(f"测试 {test_num + 1}: {key} 解析 {num_values} 个数据点")
+
             return processed_data, None
 
         except Exception as e:
-            return None, f"测试过程中发生错误: {str(e)}"
-
-
+            return None, f"采样异常: {str(e)}"

@@ -38,6 +38,9 @@ class InstrumentPanelController(QObject):
                 self.view.update_connection_status(True)
                 self.connectionChanged.emit(True)  # 发出连接状态变化信号
 
+                self.tcp_client.send('sync')  # 发送同步命令，确保连接稳定
+                time.sleep(0.1)  # 等待短暂时间确保命令处理
+                self.log_message.emit("发送同步命令以稳定连接", "DEBUG")
                 # self.tcp_client.send('dma_rst 0')
                 # time.sleep(0.1)
                 # self.tcp_client.send('dma_rst 1')

@@ -97,11 +97,11 @@ class ADCSamplingView(QWidget):
         # 单次采样数量 - 新增控件
         sample_layout.addWidget(QLabel("SaN:"))
         self.sample_number_spin = QSpinBox()
-        self.sample_number_spin.setRange(1, 1000)  # 根据实际需求调整范围
-        self.sample_number_spin.setValue(10)  # 默认值10，与原来的'sample 10'一致
+        self.sample_number_spin.setRange(1, 1000)  # block 数量，1 block = 81920 样本
+        self.sample_number_spin.setValue(1)  # 默认 1 个 block
         self.sample_number_spin.setMinimumWidth(70)
         self.sample_number_spin.setMaximumWidth(100)
-        self.sample_number_spin.setToolTip("每次采样命令发送的样本数量")
+        self.sample_number_spin.setToolTip("采样 block 数量 (1 block = 81920 样本)")
         sample_layout.addWidget(self.sample_number_spin)
         
         # 采样间隔

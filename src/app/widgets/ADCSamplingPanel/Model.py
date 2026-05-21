@@ -12,7 +12,7 @@ class ADCSamplingModel:
         self.adc_ip = "192.168.1.30"
         self.adc_port = 15000
         self.sample_count = 10
-        self.sample_number = 10  # 新增：单次采样数量，默认值10
+        self.sample_number = 1  # 默认 1 个 block
         self.sample_interval = 0.1
         self.output_dir = "data\\results\\test"
         self.filename_prefix = "adc_data"

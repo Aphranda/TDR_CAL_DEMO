@@ -26,7 +26,7 @@ class ADCSampleWorker(QObject):
     log_message = pyqtSignal(str, str)  # (message, level)
     
     def __init__(self, tcp_client, count, interval, save_raw_data=True, 
-                 output_dir=None, filename_prefix=None, sample_number=10, 
+                 output_dir=None, filename_prefix=None, sample_number=1,
                  adc_mode=ADCMode.ADC1_ONLY, data_type="uint32"):
         super().__init__()
         self.adc_sample = ADCSample()
